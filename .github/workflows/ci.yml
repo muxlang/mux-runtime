@@ -93,6 +93,10 @@ jobs:
         continue-on-error: true
         with:
           name: coverage-lcov
+      - name: Normalize coverage paths
+        # cargo-llvm-cov writes absolute SF paths; make them relative to the repo
+        # root so the SonarQube Rust LCOV importer can match them to indexed files.
+        run: '[ -f lcov.info ] && sed -i "s#${{ github.workspace }}/##g" lcov.info || true'
       - name: SonarQube Scan
         uses: SonarSource/sonarqube-scan-action@a31c9398be7ace6bbfaf30c0bd5d415f843d45e9
         env:
