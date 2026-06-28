@@ -53,9 +53,12 @@ No LLVM/clang needed. CI runs fmt + clippy + tests + a SonarQube scan.
 
 ## Release
 
-Versioned independently of the compiler. Update the version in `Cargo.toml`, then
-push a `vX.Y.Z` tag to trigger the crates.io publish workflow (needs the
-`CARGO_REGISTRY_TOKEN` org secret).
+Versioned independently of the compiler. Published manually from a local checkout
+(MAINTAINER-ONLY, same model as the compiler - no token is stored in CI):
+
+1. Bump `version` in `Cargo.toml` and update the changelog.
+2. `cargo publish` (you must be logged in locally: `cargo login`).
+3. Tag the release: `git tag -a vX.Y.Z -m "Release vX.Y.Z" && git push origin vX.Y.Z`.
 
 ## Related repos
 
