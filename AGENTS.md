@@ -4,6 +4,9 @@ The runtime library for the Mux language, published to crates.io as `mux-runtime
 Compiled Mux programs link against it. Part of the multi-repo
 [muxlang](https://github.com/muxlang) ecosystem.
 
+> Cross-repo architecture, design rationale, the feature map, and the release
+> process live in [muxlang/context](https://github.com/muxlang/context).
+
 ## Critical Rules
 
 - **No special characters** - avoid em-dashes, emojis, or other non-ASCII in code,
@@ -54,15 +57,14 @@ No LLVM/clang needed. CI runs fmt + clippy + tests + a SonarQube scan.
 ## Release
 
 Versioned independently of the compiler. Published manually from a local checkout
-(MAINTAINER-ONLY, same model as the compiler - no token is stored in CI):
-
-1. Bump `version` in `Cargo.toml` and update the changelog.
-2. `cargo publish` (you must be logged in locally: `cargo login`).
-3. Tag the release: `git tag -a vX.Y.Z -m "Release vX.Y.Z" && git push origin vX.Y.Z`.
+(MAINTAINER-ONLY, no token in CI). Full steps:
+[muxlang/context release process](https://github.com/muxlang/context/blob/main/docs/release-process.md#mux-runtime).
+Publish the runtime before bumping the compiler's `mux-runtime` pin.
 
 ## Related repos
 
 - `mux-compiler` - the compiler/CLI that links this runtime.
 - `mux-website` - documentation.
+- `muxlang/context` - cross-repo architecture, design notes, glossary, releases.
 
 **Add to this document as you learn vital information.**

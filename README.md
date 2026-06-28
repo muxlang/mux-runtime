@@ -50,6 +50,7 @@ compiler's `mux-runtime` pin.
 
 - [mux-compiler](https://github.com/muxlang/mux-compiler) - the compiler/CLI that links this runtime
 - [mux-website](https://github.com/muxlang/mux-website) - documentation
+- [context](https://github.com/muxlang/context) - cross-repo architecture, design notes, glossary, releases
 
 ## License
 
