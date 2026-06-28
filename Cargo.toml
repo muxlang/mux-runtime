@@ -4,19 +4,10 @@ version = "0.4.1"
 edition = "2021"
 description = "Runtime library for the Mux programming language"
 authors = ["Derek Corniello"]
-repository = "https://github.com/DerekCorniello/mux-lang"
+repository = "https://github.com/muxlang/mux-runtime"
 license = "MIT"
 keywords = ["mux", "runtime", "language"]
 categories = ["development-tools", "compilers"]
-exclude = [
-    "../VERSION",
-    "../test_scripts/",
-    "../run_all_test_scripts.sh",
-    "../run_all_error_cases.sh",
-    "../mux-website/",
-    "../AGENTS.md",
-    "../CONTRIBUTING.md"
-]
 
 [lib]
 name = "mux_runtime"
