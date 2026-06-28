@@ -51,7 +51,10 @@ fn json_to_value_roundtrip() {
     let v = json_to_value(&j);
     assert!(matches!(v, Value::Map(_)));
     // numbers become floats
-    assert_eq!(json_to_value(&Json::Number(2.0)), Value::Float(ordered_float::OrderedFloat(2.0)));
+    assert_eq!(
+        json_to_value(&Json::Number(2.0)),
+        Value::Float(ordered_float::OrderedFloat(2.0))
+    );
     assert_eq!(json_to_value(&Json::Null), Value::Unit);
 }
 

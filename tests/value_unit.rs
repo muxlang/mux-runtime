@@ -22,12 +22,18 @@ fn value_display_scalars() {
     assert_eq!(format!("{}", Value::Int(5)), "5");
     assert_eq!(format!("{}", Value::Float(OrderedFloat(2.5))), "2.5");
     assert_eq!(format!("{}", Value::String("hi".to_string())), "hi");
-    assert_eq!(format!("{}", Value::Opaque(vec![0u8, 1, 2].into_boxed_slice())), "<Opaque 3 bytes>");
+    assert_eq!(
+        format!("{}", Value::Opaque(vec![0u8, 1, 2].into_boxed_slice())),
+        "<Opaque 3 bytes>"
+    );
 }
 
 #[test]
 fn value_display_composites() {
-    assert_eq!(format!("{}", Value::List(vec![Value::Int(1), Value::Int(2)])), "[1, 2]");
+    assert_eq!(
+        format!("{}", Value::List(vec![Value::Int(1), Value::Int(2)])),
+        "[1, 2]"
+    );
 
     let mut map = BTreeMap::new();
     map.insert(Value::Int(1), Value::Int(2));
@@ -39,13 +45,28 @@ fn value_display_composites() {
     assert_eq!(format!("{}", Value::Set(set)), "{1, 2}");
 
     assert_eq!(
-        format!("{}", Value::Tuple(Box::new(Tuple(Value::Int(1), Value::Int(2))))),
+        format!(
+            "{}",
+            Value::Tuple(Box::new(Tuple(Value::Int(1), Value::Int(2))))
+        ),
         "(1, 2)"
     );
-    assert_eq!(format!("{}", Value::Optional(Some(Box::new(Value::Int(1))))), "Some(1)");
+    assert_eq!(
+        format!("{}", Value::Optional(Some(Box::new(Value::Int(1))))),
+        "Some(1)"
+    );
     assert_eq!(format!("{}", Value::Optional(None)), "None");
-    assert_eq!(format!("{}", Value::Result(Ok(Box::new(Value::Int(1))))), "Ok(1)");
-    assert_eq!(format!("{}", Value::Result(Err(Box::new(Value::String("e".to_string()))))), "Err(e)");
+    assert_eq!(
+        format!("{}", Value::Result(Ok(Box::new(Value::Int(1))))),
+        "Ok(1)"
+    );
+    assert_eq!(
+        format!(
+            "{}",
+            Value::Result(Err(Box::new(Value::String("e".to_string()))))
+        ),
+        "Err(e)"
+    );
 }
 
 #[test]
@@ -76,7 +97,10 @@ fn value_hash_consistent() {
 
 #[test]
 fn value_from_string() {
-    assert_eq!(Value::from("abc".to_string()), Value::String("abc".to_string()));
+    assert_eq!(
+        Value::from("abc".to_string()),
+        Value::String("abc".to_string())
+    );
 }
 
 #[test]
@@ -159,7 +183,10 @@ fn type_tags_for_all_variants() {
     set.insert(Value::Int(1));
     assert_eq!(Value::Map(map).type_tag(), 5);
     assert_eq!(Value::Set(set).type_tag(), 6);
-    assert_eq!(Value::Tuple(Box::new(Tuple(Value::Int(1), Value::Int(2)))).type_tag(), 10);
+    assert_eq!(
+        Value::Tuple(Box::new(Tuple(Value::Int(1), Value::Int(2)))).type_tag(),
+        10
+    );
     assert_eq!(Value::Optional(None).type_tag(), 7);
     assert_eq!(Value::Result(Ok(Box::new(Value::Int(1)))).type_tag(), 8);
     assert_eq!(Value::Opaque(vec![0u8].into_boxed_slice()).type_tag(), 12);
@@ -182,8 +209,7 @@ fn map_set_hash_and_order() {
     // Optional / Result / Opaque ordering exercises those cmp arms.
     assert!(Value::Optional(None) < Value::Optional(Some(Box::new(Value::Int(0)))));
     assert!(
-        Value::Result(Ok(Box::new(Value::Int(0))))
-            < Value::Result(Err(Box::new(Value::Int(0))))
+        Value::Result(Ok(Box::new(Value::Int(0)))) < Value::Result(Err(Box::new(Value::Int(0))))
     );
     assert!(
         Value::Opaque(vec![1u8].into_boxed_slice()) < Value::Opaque(vec![2u8].into_boxed_slice())

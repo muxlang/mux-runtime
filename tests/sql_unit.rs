@@ -41,7 +41,10 @@ fn connect_execute_query_lifecycle() {
 
     // parameterized insert
     let insert = sval("INSERT INTO t (id, name) VALUES (?, ?)");
-    let params = mux_rc_alloc(Value::List(vec![Value::Int(1), Value::String("alice".into())]));
+    let params = mux_rc_alloc(Value::List(vec![
+        Value::Int(1),
+        Value::String("alice".into()),
+    ]));
     assert_ok(mux_sql_connection_execute_params(conn, insert, params));
     assert!(mux_rc_dec(insert));
     assert!(mux_rc_dec(params));
@@ -158,7 +161,11 @@ fn query_params_and_errors() {
 #[test]
 fn sql_value_bytes_and_type_errors() {
     // bytes value round trip
-    let list = mux_rc_alloc(Value::List(vec![Value::Int(1), Value::Int(2), Value::Int(255)]));
+    let list = mux_rc_alloc(Value::List(vec![
+        Value::Int(1),
+        Value::Int(2),
+        Value::Int(255),
+    ]));
     let bytes = mux_sql_value_bytes(list);
     assert!(!bytes.is_null());
     assert_ok(mux_sql_value_as_bytes(bytes));

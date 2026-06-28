@@ -12,7 +12,12 @@ fn unique_file(name: &str) -> std::path::PathBuf {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    std::env::temp_dir().join(format!("mux_iofile_{}_{}_{}", std::process::id(), nanos, name))
+    std::env::temp_dir().join(format!(
+        "mux_iofile_{}_{}_{}",
+        std::process::id(),
+        nanos,
+        name
+    ))
 }
 
 #[test]
@@ -25,7 +30,9 @@ fn open_read_close_file() {
     assert!(!file.is_null());
     let contents_ptr = mux_read_file(file);
     assert!(!contents_ptr.is_null());
-    let contents = unsafe { CStr::from_ptr(contents_ptr) }.to_string_lossy().into_owned();
+    let contents = unsafe { CStr::from_ptr(contents_ptr) }
+        .to_string_lossy()
+        .into_owned();
     mux_free_string(contents_ptr);
     assert_eq!(contents, "file contents");
     mux_close_file(file);

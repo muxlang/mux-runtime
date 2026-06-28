@@ -37,8 +37,14 @@ fn map_insert_get_remove_contains() {
     let mut map = Map(BTreeMap::new());
     map.insert(Value::String("k".to_string()), Value::Int(10));
     assert!(map.contains(&Value::String("k".to_string())));
-    assert_eq!(map.get(&Value::String("k".to_string())), Some(&Value::Int(10)));
-    assert_eq!(map.remove(&Value::String("k".to_string())), Some(Value::Int(10)));
+    assert_eq!(
+        map.get(&Value::String("k".to_string())),
+        Some(&Value::Int(10))
+    );
+    assert_eq!(
+        map.remove(&Value::String("k".to_string())),
+        Some(Value::Int(10))
+    );
     assert!(!map.contains(&Value::String("k".to_string())));
     assert_eq!(map.get(&Value::String("missing".to_string())), None);
 }

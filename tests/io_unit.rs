@@ -34,7 +34,10 @@ fn file_lifecycle_and_dir_listing() {
     // write + read + is_file
     let file = dir.join("hello.txt");
     let file_s = cstr(file.to_str().unwrap());
-    assert_ok(mux_io_write_file(file_s.as_ptr(), cstr("hi there").as_ptr()));
+    assert_ok(mux_io_write_file(
+        file_s.as_ptr(),
+        cstr("hi there").as_ptr(),
+    ));
     assert!(ok_bool(mux_io_is_file(file_s.as_ptr())));
     assert_eq!(ok_string(mux_io_read_file(file_s.as_ptr())), "hi there");
 
@@ -61,8 +64,14 @@ fn path_helpers() {
         ok_string(mux_io_join(cstr("/a/b").as_ptr(), cstr("c.txt").as_ptr())),
         "/a/b/c.txt"
     );
-    assert_eq!(ok_string(mux_io_basename(cstr("/a/b/c.txt").as_ptr())), "c.txt");
-    assert_eq!(ok_string(mux_io_dirname(cstr("/a/b/c.txt").as_ptr())), "/a/b");
+    assert_eq!(
+        ok_string(mux_io_basename(cstr("/a/b/c.txt").as_ptr())),
+        "c.txt"
+    );
+    assert_eq!(
+        ok_string(mux_io_dirname(cstr("/a/b/c.txt").as_ptr())),
+        "/a/b"
+    );
 }
 
 #[test]

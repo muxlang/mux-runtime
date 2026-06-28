@@ -17,7 +17,10 @@ fn optional_core() {
 #[test]
 fn result_core() {
     assert_eq!(format!("{}", MuxResult::ok(Value::Int(1))), "Ok(1)");
-    assert_eq!(format!("{}", MuxResult::err("boom".to_string())), "Err(boom)");
+    assert_eq!(
+        format!("{}", MuxResult::err("boom".to_string())),
+        "Err(boom)"
+    );
 }
 
 // --- C-ABI optional ----------------------------------------------------------

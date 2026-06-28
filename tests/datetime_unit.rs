@@ -26,9 +26,15 @@ fn fields_at_epoch() {
 #[test]
 fn format_utc() {
     let date = CString::new("%Y-%m-%d").unwrap();
-    assert_eq!(ok_string(mux_datetime_format(EPOCH, date.as_ptr())), "1970-01-01");
+    assert_eq!(
+        ok_string(mux_datetime_format(EPOCH, date.as_ptr())),
+        "1970-01-01"
+    );
     let time = CString::new("%H:%M:%S").unwrap();
-    assert_eq!(ok_string(mux_datetime_format(EPOCH, time.as_ptr())), "00:00:00");
+    assert_eq!(
+        ok_string(mux_datetime_format(EPOCH, time.as_ptr())),
+        "00:00:00"
+    );
 }
 
 #[test]

@@ -48,7 +48,10 @@ fn condvar_signal_broadcast() {
 #[test]
 fn spawn_and_join() {
     // Mirror the compiler's ClosureRepr: [function_ptr, captures_ptr].
-    let repr: [*mut c_void; 2] = [thread_body as *const () as *mut c_void, std::ptr::null_mut()];
+    let repr: [*mut c_void; 2] = [
+        thread_body as *const () as *mut c_void,
+        std::ptr::null_mut(),
+    ];
     let spawn_res = mux_sync_spawn(repr.as_ptr() as *mut c_void);
     assert!(mux_result_is_ok(spawn_res));
 
@@ -62,7 +65,10 @@ fn spawn_and_join() {
 
 #[test]
 fn spawn_and_detach() {
-    let repr: [*mut c_void; 2] = [thread_body as *const () as *mut c_void, std::ptr::null_mut()];
+    let repr: [*mut c_void; 2] = [
+        thread_body as *const () as *mut c_void,
+        std::ptr::null_mut(),
+    ];
     let spawn_res = mux_sync_spawn(repr.as_ptr() as *mut c_void);
     assert!(mux_result_is_ok(spawn_res));
     let thread_obj = mux_result_data(spawn_res);

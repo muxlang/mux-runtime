@@ -23,7 +23,9 @@ fn addr_val(s: &str) -> *mut Value {
 }
 
 fn bytes_val(bytes: &[u8]) -> *mut Value {
-    mux_rc_alloc(Value::List(bytes.iter().map(|b| Value::Int(*b as i64)).collect()))
+    mux_rc_alloc(Value::List(
+        bytes.iter().map(|b| Value::Int(*b as i64)).collect(),
+    ))
 }
 
 fn ok_data(r: *mut Value) -> *mut Value {
@@ -240,7 +242,10 @@ fn http_client_against_local_server() {
     let mut post = BTreeMap::new();
     post.insert(Value::String("method".into()), Value::String("POST".into()));
     post.insert(Value::String("url".into()), Value::String(url));
-    post.insert(Value::String("body".into()), Value::String("payload".into()));
+    post.insert(
+        Value::String("body".into()),
+        Value::String("payload".into()),
+    );
     let post_val = mux_rc_alloc(Value::Map(post));
     let post_res = mux_net_http_request(post_val);
     assert!(mux_result_is_ok(post_res));
@@ -262,7 +267,10 @@ fn http_request_errors() {
     // transport failure: nothing is listening on port 1
     let mut refused = BTreeMap::new();
     refused.insert(Value::String("method".into()), Value::String("GET".into()));
-    refused.insert(Value::String("url".into()), Value::String("http://127.0.0.1:1/".into()));
+    refused.insert(
+        Value::String("url".into()),
+        Value::String("http://127.0.0.1:1/".into()),
+    );
     let refused_val = mux_rc_alloc(Value::Map(refused));
     assert_err(mux_net_http_request(refused_val));
     assert!(mux_rc_dec(refused_val));

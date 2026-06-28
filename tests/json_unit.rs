@@ -27,7 +27,10 @@ fn pretty_indent() {
 
 #[test]
 fn parse_strings_arrays_objects() {
-    assert_eq!(Json::parse(r#""hi""#).unwrap(), Json::String("hi".to_string()));
+    assert_eq!(
+        Json::parse(r#""hi""#).unwrap(),
+        Json::String("hi".to_string())
+    );
 
     let arr = Json::parse("[1, 2, 3]").unwrap();
     match arr {

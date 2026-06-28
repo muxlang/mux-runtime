@@ -24,7 +24,10 @@ fn read_cstr(p: *mut c_char) -> String {
 
 #[test]
 fn string_scalar_ops() {
-    assert_eq!(read_cstr(mux_string_concat(cs("foo").as_ptr(), cs("bar").as_ptr())), "foobar");
+    assert_eq!(
+        read_cstr(mux_string_concat(cs("foo").as_ptr(), cs("bar").as_ptr())),
+        "foobar"
+    );
     assert_eq!(mux_string_length(cs("hello").as_ptr()), 5);
     assert_eq!(
         mux_string_hash(cs("x").as_ptr()),
