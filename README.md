@@ -1,5 +1,9 @@
 # mux-runtime
 
+[![Sonar Quality Gate](https://sonarcloud.io/api/project_badges/measure?project=muxlang_mux-runtime&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=muxlang_mux-runtime)
+[![Coverage](https://sonarcloud.io/api/project_badges/measure?project=muxlang_mux-runtime&metric=coverage)](https://sonarcloud.io/summary/new_code?id=muxlang_mux-runtime)
+[![crates.io](https://img.shields.io/crates/v/mux-runtime.svg?style=flat-square)](https://crates.io/crates/mux-runtime)
+
 The runtime library for the [Mux programming language](https://github.com/muxlang),
 published to crates.io as [`mux-runtime`](https://crates.io/crates/mux-runtime).
 

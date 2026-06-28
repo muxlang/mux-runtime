@@ -12,32 +12,75 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    # Postgres + MySQL back the sql driver coverage; the gated driver tests are
+    # skipped when their *_URL env vars are unset, so this is the only job that
+    # exercises them.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: mux
+          POSTGRES_PASSWORD: pass
+          POSTGRES_DB: muxdb
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U mux -d muxdb"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      mysql:
+        image: mysql:8
+        env:
+          MYSQL_ROOT_PASSWORD: pass
+          MYSQL_DATABASE: muxdb
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -uroot -ppass"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 15
+    env:
+      MUX_TEST_POSTGRES_URL: postgres://mux:pass@localhost:5432/muxdb
+      MUX_TEST_MYSQL_URL: mysql://root:pass@localhost:3306/muxdb
     steps:
       - uses: actions/checkout@v4
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9
         with:
           toolchain: 1.93.1
-          components: rustfmt, clippy
+          components: rustfmt, clippy, llvm-tools-preview
       - name: Cache Cargo registry and build
         uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
+            ~/.cargo/bin
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-
+      - name: Install cargo-llvm-cov
+        run: command -v cargo-llvm-cov || cargo install cargo-llvm-cov --locked
       - name: Formatting check
         run: cargo fmt --check
       - name: Clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
-      - name: Tests
-        run: cargo test --all-features
+      - name: Tests with coverage
+        run: cargo llvm-cov --all-features --workspace --lcov --output-path lcov.info
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-lcov
+          path: lcov.info
+          if-no-files-found: error
 
   sonarqube:
     name: SonarQube
+    needs: rust_checks
+    if: ${{ always() }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -45,6 +88,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0 # Disable shallow clone for better analysis relevancy
+      - name: Download coverage report
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: coverage-lcov
       - name: SonarQube Scan
         uses: SonarSource/sonarqube-scan-action@a31c9398be7ace6bbfaf30c0bd5d415f843d45e9
         env:
