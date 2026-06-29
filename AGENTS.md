@@ -5,7 +5,7 @@ Compiled Mux programs link against it. Part of the multi-repo
 [muxlang](https://github.com/muxlang) ecosystem.
 
 > Cross-repo architecture, design rationale, the feature map, and the release
-> process live in [muxlang/context](https://github.com/muxlang/context).
+> process live in [muxlang/mux-context](https://github.com/muxlang/mux-context).
 
 ## Critical Rules
 
@@ -58,13 +58,13 @@ No LLVM/clang needed. CI runs fmt + clippy + tests + a SonarQube scan.
 
 Versioned independently of the compiler. Published manually from a local checkout
 (MAINTAINER-ONLY, no token in CI). Full steps:
-[muxlang/context release process](https://github.com/muxlang/context/blob/main/docs/release-process.md#mux-runtime).
+[muxlang/mux-context release process](https://github.com/muxlang/mux-context/blob/main/docs/release-process.md#mux-runtime).
 Publish the runtime before bumping the compiler's `mux-runtime` pin.
 
 ## Related repos
 
 - `mux-compiler` - the compiler/CLI that links this runtime.
 - `mux-website` - documentation.
-- `muxlang/context` - cross-repo architecture, design notes, glossary, releases.
+- `muxlang/mux-context` - cross-repo architecture, design notes, glossary, releases.
 
 **Add to this document as you learn vital information.**
