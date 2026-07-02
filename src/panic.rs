@@ -24,7 +24,11 @@ fn decode_cstr(ptr: *const c_char) -> Option<String> {
     // SAFETY: `ptr` is non-null (checked above) and codegen always passes a
     // pointer to a valid, null-terminated C string constant that outlives the
     // call.
-    Some(unsafe { CStr::from_ptr(ptr) }.to_string_lossy().into_owned())
+    Some(
+        unsafe { CStr::from_ptr(ptr) }
+            .to_string_lossy()
+            .into_owned(),
+    )
 }
 
 /// Panic with a bare message and no source location.
@@ -46,7 +50,10 @@ pub extern "C" fn mux_panic_cstr(msg: *const c_char, loc: *const c_char) -> ! {
 #[unsafe(no_mangle)]
 pub extern "C" fn mux_panic_index_oob(index: i64, length: u64, loc: *const c_char) -> ! {
     emit_panic(
-        &format!("list index out of bounds: index {}, length {}", index, length),
+        &format!(
+            "list index out of bounds: index {}, length {}",
+            index, length
+        ),
         decode_cstr(loc),
     );
 }
