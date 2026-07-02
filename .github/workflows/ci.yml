@@ -101,7 +101,9 @@ jobs:
     # Verifies that muxlang/mux-compiler (main) still builds and links against
     # THIS branch's runtime source. Catches breaking FFI/symbol changes in the
     # runtime PR that introduces them, instead of after merge/publish.
-    needs: detect-changes
+    # Depend on rust_checks so this only runs once the runtime is known to
+    # compile cleanly in isolation, keeping failure attribution clear.
+    needs: [detect-changes, rust_checks]
     if: ${{ needs.detect-changes.outputs.runtime_src == 'true' || github.event_name == 'push' }}
     runs-on: ubuntu-latest
     permissions:
@@ -129,7 +131,6 @@ jobs:
         uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9
         with:
           toolchain: 1.93.1
-          components: rustfmt, clippy, llvm-tools-preview
       - name: Install LLVM 22
         run: |
           sudo apt-get update
@@ -141,13 +142,15 @@ jobs:
       - name: Cache Cargo registry and build
         uses: actions/cache@v4
         with:
+          # Intentionally NOT caching ~/.cache/mux-lang: the compiler builds the
+          # runtime from source there, and this job exists to exercise THIS
+          # branch's runtime source, so it must rebuild it fresh every run.
           path: |
             ~/.cargo/registry
             ~/.cargo/git
             ~/.cargo/bin
-            ~/.cache/mux-lang
             mux-compiler/target
-          key: ${{ runner.os }}-downstream-cargo-${{ hashFiles('mux-compiler/Cargo.lock') }}
+          key: ${{ runner.os }}-downstream-cargo-${{ hashFiles('mux-compiler/Cargo.lock') }}-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-downstream-cargo-
       - name: Compiler executable integration tests against runtime source
