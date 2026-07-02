@@ -293,6 +293,7 @@ pub mod math;
 pub mod net;
 pub mod object;
 pub mod optional;
+pub mod panic;
 pub mod random;
 pub mod refcount;
 pub mod result;
