@@ -1,5 +1,6 @@
-//! Unit tests for the assert helpers. Failures call `std::process::abort()`
-//! (not a catchable panic), so only the passing paths are exercised here.
+//! Unit tests for the assert helpers. Failures route through the unified
+//! runtime panic (`panic: ...` on stderr, exit code 1), which terminates the
+//! process, so only the passing paths are exercised here.
 
 use std::ffi::CString;
 
