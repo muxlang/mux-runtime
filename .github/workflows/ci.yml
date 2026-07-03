@@ -194,7 +194,7 @@ jobs:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
-          api="https://sonarcloud.io/api/issues/search?componentKeys=muxlang_mux-runtime&pullRequest=${PR_NUMBER}&resolved=false&ps=1"
+          api="https://sonarcloud.io/api/issues/search?componentKeys=muxlang_mux-runtime&pullRequest=${PR_NUMBER}&resolved=false&inNewCodePeriod=true&ps=1"
           # Query the issues search endpoint rather than measures: its .total is
           # always present (0 for a clean PR), so "no new issues" is never
           # confused with "measure omitted from the response". Retry to ride out
