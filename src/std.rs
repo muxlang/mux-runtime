@@ -376,6 +376,14 @@ pub extern "C" fn mux_box_enum(ptr: *mut u8, size: usize) -> *mut Value {
     mux_rc_alloc(Value::Opaque(boxed))
 }
 
+/// Returns a borrowed, read-only view into the payload of a boxed enum
+/// (`Value::Opaque`), or null for null/non-opaque input.
+///
+/// The pointer aliases the buffer owned by `val`: it is valid only while
+/// `val` is alive and must not be written through. Generated code upholds
+/// this by loading the enum struct immediately after the call, before any
+/// release of `val`. The `*mut` return type is C-ABI convention only,
+/// mirroring `mux_box_enum`.
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
 pub extern "C" fn mux_value_unbox_enum(val: *mut Value) -> *mut u8 {
