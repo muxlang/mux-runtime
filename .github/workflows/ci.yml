@@ -194,30 +194,24 @@ jobs:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
-          api="https://sonarcloud.io/api/measures/component?component=muxlang_mux-runtime&pullRequest=${PR_NUMBER}&metricKeys=new_violations"
-          # The measures endpoint can briefly lag the analysis even after the
-          # scan reports done, so retry. new_violations is a new-code metric:
-          # the count lives under period.value (or periods[].value on older
-          # responses). Treat a genuinely absent measure as a failure, not a
-          # clean pass, so an unverified analysis never slips through.
+          api="https://sonarcloud.io/api/issues/search?componentKeys=muxlang_mux-runtime&pullRequest=${PR_NUMBER}&resolved=false&ps=1"
+          # Query the issues search endpoint rather than measures: its .total is
+          # always present (0 for a clean PR), so "no new issues" is never
+          # confused with "measure omitted from the response". Retry to ride out
+          # indexing lag; no readable .total after retries fails closed.
           count=""
           for attempt in 1 2 3 4 5; do
-            measure=$(curl -sf -u "$SONAR_TOKEN:" "$api") || { sleep 5; continue; }
-            count=$(printf '%s' "$measure" | jq -r '(.component.measures[]? | select(.metric == "new_violations")) as $m | ($m.period.value // $m.periods[0].value // $m.value)'"""
-          if [ -z "$count" ]; then
-            echo "::error::SonarCloud did not return a new_violations measure for PR #${PR_NUMBER}. Analysis may be incomplete."
-            exit 1
-          fi"""
-            ')
+            resp=$(curl -sf -u "$SONAR_TOKEN:" "$api") || { sleep 5; continue; }
+            count=$(printf '%s' "$resp" | jq -r '.total // empty')
             [ -n "$count" ] && break
             sleep 5
           done
           if [ -z "$count" ]; then
-            echo "::error::Could not read new_violations for PR #${PR_NUMBER} from SonarCloud after retries."
+            echo "::error::Could not read the new-issue count for PR #${PR_NUMBER} from SonarCloud after retries."
             exit 1
           fi
           echo "New SonarCloud issues on PR #${PR_NUMBER}: ${count}"
           if [ "$count" -gt 0 ]; then
-            echo "::error::${count} new SonarCloud issue(s) introduced on this PR. See https://sonarcloud.io/project/issues?id=muxlang_mux-runtime&pullRequest=${PR_NUMBER}&resolved=false&inNewCodePeriod=true"
+            echo "::error::${count} new SonarCloud issue(s) introduced on this PR. See https://sonarcloud.io/project/issues?id=muxlang_mux-runtime&pullRequest=${PR_NUMBER}&resolved=false"
             exit 1
           fi
