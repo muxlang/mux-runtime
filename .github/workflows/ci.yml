@@ -184,23 +184,35 @@ jobs:
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
       # The free SonarCloud plan locks every project to the built-in "Sonar way"
-      # gate, which only fails on rating/coverage thresholds and so lets new
-      # issues (e.g. a single code smell) through. Enforce "zero new issues"
-      # ourselves: the scan above waits for analysis (sonar.qualitygate.wait),
-      # so the new-issue count is queryable here.
+      # gate, which only fails on rating/coverage thresholds and lets new issues
+      # (e.g. a single code smell) through. Enforce "zero new issues" ourselves:
+      # the scan above waits for analysis (sonar.qualitygate.wait), so the count
+      # is queryable here.
       - name: Fail on new SonarCloud issues
         if: github.event_name == 'pull_request'
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
-          measure=$(curl -sf -u "$SONAR_TOKEN:" \
-            "https://sonarcloud.io/api/measures/component?component=muxlang_mux-runtime&pullRequest=${PR_NUMBER}&metricKeys=new_violations")
-          # new_violations is a new-code metric, so the count lives under
-          # period.value (or periods[].value on older responses), not value.
-          count=$(printf '%s' "$measure" | jq -r '(.component.measures[0] // {}) as $m | $m.value // $m.period.value // $m.periods[0].value // "0"')
+          api="https://sonarcloud.io/api/measures/component?component=muxlang_mux-runtime&pullRequest=${PR_NUMBER}&metricKeys=new_violations"
+          # The measures endpoint can briefly lag the analysis even after the
+          # scan reports done, so retry. new_violations is a new-code metric:
+          # the count lives under period.value (or periods[].value on older
+          # responses). Treat a genuinely absent measure as a failure, not a
+          # clean pass, so an unverified analysis never slips through.
+          count=""
+          for attempt in 1 2 3 4 5; do
+            measure=$(curl -sf -u "$SONAR_TOKEN:" "$api") || { sleep 5; continue; }
+            count=$(printf '%s' "$measure" | jq -r '(.component.measures[]? | select(.metric == "new_violations")) as $m | ($m.period.value // $m.periods[0].value // $m.value // empty)')
+            [ -n "$count" ] && break
+            sleep 5
+          done
+          if [ -z "$count" ]; then
+            echo "::error::Could not read new_violations for PR #${PR_NUMBER} from SonarCloud after retries."
+            exit 1
+          fi
           echo "New SonarCloud issues on PR #${PR_NUMBER}: ${count}"
-          if [ "${count:-0}" -gt 0 ]; then
+          if [ "$count" -gt 0 ]; then
             echo "::error::${count} new SonarCloud issue(s) introduced on this PR. See https://sonarcloud.io/project/issues?id=muxlang_mux-runtime&pullRequest=${PR_NUMBER}&resolved=false&inNewCodePeriod=true"
             exit 1
           fi
