@@ -203,7 +203,14 @@ jobs:
           count=""
           for attempt in 1 2 3 4 5; do
             measure=$(curl -sf -u "$SONAR_TOKEN:" "$api") || { sleep 5; continue; }
-            count=$(printf '%s' "$measure" | jq -r '(.component.measures[]? | select(.metric == "new_violations")) as $m | ($m.period.value // $m.periods[0].value // $m.value // empty)')
+            count=$(printf '%s' "$measure" | jq -r '
+              if (.component.measures // []) | length > 0 then
+                ((.component.measures[]? | select(.metric == "new_violations")) as $m | 
+                 ($m.period.value // $m.periods[0].value // $m.value)) // "0"
+              else
+                empty
+              end
+            ')
             [ -n "$count" ] && break
             sleep 5
           done
