@@ -376,4 +376,18 @@ pub extern "C" fn mux_box_enum(ptr: *mut u8, size: usize) -> *mut Value {
     mux_rc_alloc(Value::Opaque(boxed))
 }
 
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[unsafe(no_mangle)]
+pub extern "C" fn mux_value_unbox_enum(val: *mut Value) -> *mut u8 {
+    if val.is_null() {
+        return std::ptr::null_mut();
+    }
+    unsafe {
+        match &*val {
+            Value::Opaque(data) => data.as_ptr() as *mut u8,
+            _ => std::ptr::null_mut(),
+        }
+    }
+}
+
 // Proper Value cleanup function
