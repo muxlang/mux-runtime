@@ -116,3 +116,23 @@ fn box_enum_and_noop_frees() {
     mux_free_optional(std::ptr::null_mut());
     mux_free_result(std::ptr::null_mut());
 }
+
+#[test]
+fn unbox_enum_roundtrips_payload() {
+    let mut bytes = [7u8, 0, 0, 42];
+    let boxed = mux_box_enum(bytes.as_mut_ptr(), bytes.len());
+    let payload = mux_value_unbox_enum(boxed);
+    assert!(!payload.is_null());
+    let view = unsafe { std::slice::from_raw_parts(payload, bytes.len()) };
+    assert_eq!(view, &bytes);
+    assert!(mux_rc_dec(boxed));
+}
+
+#[test]
+fn unbox_enum_rejects_null_and_non_opaque() {
+    assert!(mux_value_unbox_enum(std::ptr::null_mut()).is_null());
+
+    let int = mux_int_value(5);
+    assert!(mux_value_unbox_enum(int).is_null());
+    assert!(mux_rc_dec(int));
+}
