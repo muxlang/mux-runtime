@@ -159,6 +159,72 @@ jobs:
         working-directory: mux-compiler
         run: cargo test -p mux-lang --test executable_integration
 
+  valgrind:
+    name: Valgrind Memory Checks
+    needs: detect-changes
+    if: ${{ needs.detect-changes.outputs.runtime_src == 'true' || github.event_name == 'push' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    # Runs the runtime's own cargo test binaries under Memcheck. Same failure
+    # policy as the compiler's Leg A (muxlang/mux-compiler#221): definitely-lost
+    # and indirectly-lost leaks and memory errors fail; still-reachable and
+    # possibly-lost are ignored. The SQL/net driver tests that need external
+    # services stay skipped here (their *_URL env vars are unset), so this job
+    # exercises the pure-Rust runtime surface deterministically.
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9
+        with:
+          toolchain: 1.93.1
+      - name: Install Valgrind
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y valgrind
+      - name: Cache Cargo registry and build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cargo/bin
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+      - name: Run tests under Valgrind
+        # Manual Valgrind (not cargo-valgrind): it keeps the exact same flags and
+        # leak policy as the compiler CI, needs no extra crate pinned in the
+        # toolchain, and makes each test binary's report explicit in the log.
+        run: |
+          set -euo pipefail
+          # The commas below are part of the flag values, not array separators.
+          # shellcheck disable=SC2054
+          flags=(
+            --quiet
+            --error-exitcode=99
+            --leak-check=full
+            --errors-for-leak-kinds=definite,indirect
+            --show-leak-kinds=definite,indirect
+          )
+          json="$(cargo test --no-run --all-features --workspace --message-format=json)"
+          mapfile -t bins < <(printf '%s\n' "$json" \
+            | jq -r 'select(.executable != null and .profile.test == true) | .executable')
+          if [ "${#bins[@]}" -eq 0 ]; then
+            echo "No test binaries were produced" >&2
+            exit 1
+          fi
+          fail=0
+          for bin in "${bins[@]}"; do
+            echo ">>> valgrind $bin"
+            if ! valgrind "${flags[@]}" "$bin" --test-threads=1; then
+              echo "::error::Valgrind reported definite/indirect leaks or memory errors in $bin"
+              fail=1
+            fi
+          done
+          exit "$fail"
+
   sonarqube:
     name: SonarQube
     needs: rust_checks
