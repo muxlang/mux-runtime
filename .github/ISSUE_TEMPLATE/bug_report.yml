@@ -1,0 +1,38 @@
+name: Bug report
+description: Report a runtime crash, incorrect stdlib behavior, or FFI issue
+labels: ["needs triage"]
+assignees: ["DerekCorniello"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      value: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: mux-runtime version (if known), OS / architecture, and a minimal repro (Rust or compiled Mux program).
