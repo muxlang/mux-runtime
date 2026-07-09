@@ -72,15 +72,21 @@ fn json_stringify_extern() {
     let v = mux_rc_alloc(Value::List(vec![Value::Int(1), Value::Int(2)]));
 
     // no indent (null option)
-    assert_ok(mux_json_stringify(v, std::ptr::null_mut()));
+    let result1 = mux_json_stringify(v, std::ptr::null_mut());
+    assert_ok(result1);
+    assert!(mux_rc_dec(result1));
 
     // with indent via Optional(Some(Int))
     let indent = mux_rc_alloc(Value::Optional(Some(Box::new(Value::Int(2)))));
-    assert_ok(mux_json_stringify(v, indent));
+    let result2 = mux_json_stringify(v, indent);
+    assert_ok(result2);
+    assert!(mux_rc_dec(result2));
     assert!(mux_rc_dec(indent));
 
     // null value -> error
-    assert_err(mux_json_stringify(std::ptr::null(), std::ptr::null_mut()));
+    let result3 = mux_json_stringify(std::ptr::null(), std::ptr::null_mut());
+    assert_err(result3);
+    assert!(mux_rc_dec(result3));
 
     assert!(mux_rc_dec(v));
 }
@@ -91,13 +97,25 @@ fn json_from_and_to_map_extern() {
     map.insert(Value::String("k".into()), Value::Int(1));
     let map_val = mux_rc_alloc(Value::Map(map));
 
-    assert_ok(mux_json_from_map(map_val));
-    assert_ok(mux_json_to_map(map_val));
+    let from_result = mux_json_from_map(map_val);
+    assert_ok(from_result);
+    assert!(mux_rc_dec(from_result));
+
+    let to_result = mux_json_to_map(map_val);
+    assert_ok(to_result);
+    assert!(mux_rc_dec(to_result));
+
     assert!(mux_rc_dec(map_val));
 
     // non-map inputs are errors
     let int_val = mux_rc_alloc(Value::Int(1));
-    assert_err(mux_json_from_map(int_val));
-    assert_err(mux_json_to_map(int_val));
+    let err_from = mux_json_from_map(int_val);
+    assert_err(err_from);
+    assert!(mux_rc_dec(err_from));
+
+    let err_to = mux_json_to_map(int_val);
+    assert_err(err_to);
+    assert!(mux_rc_dec(err_to));
+
     assert!(mux_rc_dec(int_val));
 }
