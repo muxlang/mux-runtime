@@ -1,0 +1,33 @@
+name: Feature request
+description: Suggest a stdlib or runtime API addition
+labels: ["needs triage"]
+assignees: ["DerekCorniello"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+    validations:
+      required: true
+  - type: textarea
+    id: api
+    attributes:
+      label: Proposed API or behavior
+    validations:
+      required: true
+  - type: checkboxes
+    id: flags
+    attributes:
+      label: Feature flags
+      description: Does this need a new optional feature?
+      options:
+        - label: json
+        - label: csv
+        - label: net
+        - label: sql
+        - label: sync
+        - label: none / not sure
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
