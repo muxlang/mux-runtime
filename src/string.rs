@@ -41,9 +41,10 @@ impl fmt::Display for MuxString {
     }
 }
 
+/// Convert a Value to a C string (caller must free with mux_free_string).
+///
 /// # Safety
-/// Borrows `v` and clones the string data. Does NOT take ownership of `v`.
-/// Returns a new C string that caller must free with `mux_free_string`.
+/// `v` must be a valid, non-null pointer to a `Value`. Does not take ownership of `v`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn mux_string_from_value(v: *mut Value) -> *mut c_char {
     if let Value::String(s) = unsafe { &*v } {
@@ -158,6 +159,11 @@ pub extern "C" fn mux_string_to_string(s: *const c_char) -> *mut c_char {
     }
 }
 
+/// Create a new reference-counted Value::String from a C string.
+/// Borrows the input pointer (does not free it). Caller must manage the input's lifetime.
+///
+/// # Safety
+/// `s` must be a valid pointer or null. Does not take ownership of `s`.
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
 pub extern "C" fn mux_new_string_from_cstr(s: *const c_char) -> *mut Value {
@@ -166,6 +172,35 @@ pub extern "C" fn mux_new_string_from_cstr(s: *const c_char) -> *mut Value {
     }
     let c_str = unsafe { CStr::from_ptr(s) };
     let rust_str = c_str.to_string_lossy().to_string();
+    let value = Value::String(rust_str);
+    mux_rc_alloc(value)
+}
+
+/// Create a new reference-counted Value::String from an owned C string.
+/// Takes ownership of the input pointer and frees it after cloning the string.
+/// This is used by codegen for primitive-to-string conversions like `int.to_string()`.
+///
+/// # Safety
+/// `s` must be a valid pointer returned by a runtime function's `CString::into_raw()` call,
+/// or null. This function takes ownership and will free the memory.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[unsafe(no_mangle)]
+pub extern "C" fn mux_new_string_from_owned_cstr(s: *mut c_char) -> *mut Value {
+    if s.is_null() {
+        return std::ptr::null_mut();
+    }
+
+    let rust_str = {
+        let c_str = unsafe { CStr::from_ptr(s) };
+        c_str.to_string_lossy().to_string()
+    };
+
+    // Free the input C string after copying its contents.
+    // The c_str borrow is out of scope, so this deallocation is safe.
+    unsafe {
+        let _ = CString::from_raw(s);
+    }
+
     let value = Value::String(rust_str);
     mux_rc_alloc(value)
 }
