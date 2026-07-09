@@ -26,6 +26,28 @@ The link-time runtime for compiled Mux programs: reference counting, UTF-8 strin
 ops, collections (list/map/set), type conversions, and standard-library support.
 It exposes a C-ABI FFI surface consumed by compiler-generated code.
 
+## Memory & ownership ABI
+
+Every heap value is `[RefHeader (atomic u64) | Value]`; `mux_rc_inc` / `mux_rc_dec`
+adjust the count and `mux_rc_dec` (null-safe) frees at zero. The compiler emits the
+inc/dec calls; the runtime just implements them. The full ownership model
+(borrowed vs owned values, statement-temporary cleanup, value-semantics copies)
+lives in `mux-context/docs/design/memory.md` - keep this ABI aligned with it.
+
+Two conventions matter when adding or changing FFI functions:
+
+- **Collections and object fields take independent copies.** Insert/push helpers
+  `clone()` the value (`mux_list_push_back` et al.), so the caller keeps ownership
+  of the argument it passed and releases it itself. Do not store a caller pointer
+  without cloning.
+- **C strings are explicitly owned or borrowed.** Helpers returning `*mut c_char`
+  (`*_to_string`, `mux_string_concat`, `mux_value_get_string`) return an **owned**
+  string the caller frees with `mux_free_string`. For wrapping such a string back
+  into a Mux value use `mux_new_string_from_owned_cstr` (takes ownership, frees the
+  input after copying); `mux_new_string_from_cstr` only **borrows** its input and
+  is for compiler-owned static string data. Mixing these up double-frees or leaks -
+  see `src/string.rs`.
+
 ## Features
 
 `default = ["full"]`. Optional: `json`, `csv`, `net`, `sql`, `sync`. Keep the
