@@ -73,7 +73,9 @@ fn char_conversions() {
 
 #[test]
 fn string_from_value_roundtrip() {
-    let v = mux_new_string_from_cstr(cs("data").as_ptr());
+    // mux_new_string_from_cstr takes ownership of the pointer, so we must pass
+    // an owned pointer (from into_raw), not a borrowed one (from as_ptr).
+    let v = mux_new_string_from_cstr(cs("data").into_raw());
     assert!(!v.is_null());
     assert_eq!(read_cstr(unsafe { mux_string_from_value(v) }), "data");
     assert!(mux_rc_dec(v));
