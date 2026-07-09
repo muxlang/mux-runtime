@@ -44,7 +44,7 @@ impl fmt::Display for MuxString {
 /// Convert a Value to a C string (caller must free with mux_free_string).
 ///
 /// # Safety
-/// `v` must be a valid pointer or null. Does not take ownership of `v`.
+/// `v` must be a valid, non-null pointer to a `Value`. Does not take ownership of `v`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn mux_string_from_value(v: *mut Value) -> *mut c_char {
     if let Value::String(s) = unsafe { &*v } {
