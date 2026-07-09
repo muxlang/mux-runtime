@@ -176,6 +176,35 @@ pub extern "C" fn mux_new_string_from_cstr(s: *const c_char) -> *mut Value {
     mux_rc_alloc(value)
 }
 
+/// Create a new reference-counted Value::String from an owned C string.
+/// Takes ownership of the input pointer and frees it after cloning the string.
+/// This is used by codegen for primitive-to-string conversions like `int.to_string()`.
+///
+/// # Safety
+/// `s` must be a valid pointer returned by a runtime function's `CString::into_raw()` call,
+/// or null. This function takes ownership and will free the memory.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[unsafe(no_mangle)]
+pub extern "C" fn mux_new_string_from_owned_cstr(s: *mut c_char) -> *mut Value {
+    if s.is_null() {
+        return std::ptr::null_mut();
+    }
+
+    let rust_str = {
+        let c_str = unsafe { CStr::from_ptr(s) };
+        c_str.to_string_lossy().to_string()
+    };
+
+    // Free the input C string after copying its contents.
+    // The c_str borrow is out of scope, so this deallocation is safe.
+    unsafe {
+        let _ = CString::from_raw(s);
+    }
+
+    let value = Value::String(rust_str);
+    mux_rc_alloc(value)
+}
+
 /// Compare two C strings for equality
 /// Returns 1 if equal, 0 if not equal
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
