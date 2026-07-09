@@ -80,6 +80,16 @@ fn string_from_value_roundtrip() {
 }
 
 #[test]
+fn string_from_owned_cstr_frees_input() {
+    // mux_new_string_from_owned_cstr takes ownership and frees the input CString.
+    // We pass into_raw() to give it an owned pointer.
+    let v = mux_new_string_from_owned_cstr(cs("owned").into_raw());
+    assert!(!v.is_null());
+    assert_eq!(read_cstr(unsafe { mux_string_from_value(v) }), "owned");
+    assert!(mux_rc_dec(v));
+}
+
+#[test]
 fn bool_extern() {
     use mux_runtime::bool::*;
     use mux_runtime::std::mux_bool_value;
