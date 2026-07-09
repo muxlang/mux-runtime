@@ -172,10 +172,14 @@ pub extern "C" fn mux_new_string_from_cstr(s: *mut c_char) -> *mut Value {
     if s.is_null() {
         return std::ptr::null_mut();
     }
-    let c_str = unsafe { CStr::from_ptr(s) };
-    let rust_str = c_str.to_string_lossy().to_string();
 
-    // Free the input C string now that we've copied its contents
+    let rust_str = {
+        let c_str = unsafe { CStr::from_ptr(s) };
+        c_str.to_string_lossy().to_string()
+    };
+
+    // Free the input C string now that we've copied its contents.
+    // c_str is out of scope here, so this deallocation is safe.
     unsafe {
         let _ = CString::from_raw(s);
     }
