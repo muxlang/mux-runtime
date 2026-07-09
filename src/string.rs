@@ -41,9 +41,10 @@ impl fmt::Display for MuxString {
     }
 }
 
+/// Convert a Value to a C string (caller must free with mux_free_string).
+///
 /// # Safety
-/// Borrows `v` and clones the string data. Does NOT take ownership of `v`.
-/// Returns a new C string that caller must free with `mux_free_string`.
+/// `v` must be a valid pointer or null. Does not take ownership of `v`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn mux_string_from_value(v: *mut Value) -> *mut c_char {
     if let Value::String(s) = unsafe { &*v } {
@@ -166,6 +167,12 @@ pub extern "C" fn mux_new_string_from_cstr(s: *const c_char) -> *mut Value {
     }
     let c_str = unsafe { CStr::from_ptr(s) };
     let rust_str = c_str.to_string_lossy().to_string();
+
+    // Free the input C string now that we've copied its contents
+    unsafe {
+        let _ = CString::from_raw(s as *mut c_char);
+    }
+
     let value = Value::String(rust_str);
     mux_rc_alloc(value)
 }
