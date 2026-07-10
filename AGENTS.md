@@ -28,25 +28,38 @@ It exposes a C-ABI FFI surface consumed by compiler-generated code.
 
 ## Memory & ownership ABI
 
-Every heap value is `[RefHeader (atomic u64) | Value]`; `mux_rc_inc` / `mux_rc_dec`
-adjust the count and `mux_rc_dec` (null-safe) frees at zero. The compiler emits the
-inc/dec calls; the runtime just implements them. The full ownership model
-(borrowed vs owned values, statement-temporary cleanup, value-semantics copies)
-lives in `mux-context/docs/design/memory.md` - keep this ABI aligned with it.
+Every heap `Value` is `[RefHeader | Value]`, where `RefHeader` is an atomic
+counter (`AtomicUsize` - `u64`-sized on 64-bit targets). `mux_rc_inc` /
+`mux_rc_dec` adjust the count and `mux_rc_dec` (null-safe) frees at zero. The
+compiler emits the inc/dec calls; the runtime just implements them. The full
+ownership model (borrowed vs owned values, statement-temporary cleanup,
+value-semantics copies, program-exit global teardown) lives in
+`mux-context/docs/design/memory.md` - keep this ABI aligned with it.
 
-Two conventions matter when adding or changing FFI functions:
+Conventions that matter when adding or changing FFI functions:
 
-- **Collections and object fields take independent copies.** Insert/push helpers
-  `clone()` the value (`mux_list_push_back` et al.), so the caller keeps ownership
-  of the argument it passed and releases it itself. Do not store a caller pointer
-  without cloning.
+- **Collections, object fields, and value wrappers take independent copies.**
+  Insert/push helpers and wrappers `clone()` their argument *without consuming it*
+  (`mux_list_push_back`, `mux_map_get`, `mux_result_ok_value`,
+  `mux_optional_some_value`, `mux_new_tuple`, ...), so the caller keeps ownership
+  of what it passed and releases it itself - including any intermediate value it
+  allocated only to wrap. Do not store a caller pointer without cloning.
 - **C strings are explicitly owned or borrowed.** Helpers returning `*mut c_char`
   (`*_to_string`, `mux_string_concat`, `mux_value_get_string`) return an **owned**
-  string the caller frees with `mux_free_string`. For wrapping such a string back
-  into a Mux value use `mux_new_string_from_owned_cstr` (takes ownership, frees the
-  input after copying); `mux_new_string_from_cstr` only **borrows** its input and
-  is for compiler-owned static string data. Mixing these up double-frees or leaks -
-  see `src/string.rs`.
+  string the caller frees with `mux_free_string`, and only **borrow** any
+  `*const c_char` inputs - e.g. `mux_string_concat` reads its two operand strings
+  and frees neither, so the caller frees all three. For wrapping an owned C string
+  back into a Mux value use `mux_new_string_from_owned_cstr` (takes ownership,
+  frees the input after copying); `mux_new_string_from_cstr` only **borrows** its
+  input and is for compiler-owned static string data. Mixing these up double-frees
+  or leaks - see `src/string.rs`.
+- **Closures are reference-counted separately from `Value`s.** A closure is
+  `[refcount | fn_ptr | captures_ptr | capture_count]` managed by
+  `mux_closure_retain` / `mux_closure_release` (atomic header, `src/closure.rs`);
+  the final release walks the `capture_count` heap cells, drops one reference per
+  captured value, and frees the closure. `mux_sync_spawn` retains the closure for
+  the worker thread, which releases it when its body finishes (normal return or
+  panic-unwind).
 
 ## Features
 
