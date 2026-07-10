@@ -7,10 +7,10 @@
 
 use std::ffi::c_void;
 
-use mux_runtime::Value;
 use mux_runtime::closure::{mux_closure_release, mux_closure_retain};
 use mux_runtime::refcount::{mux_rc_dec, mux_rc_inc};
 use mux_runtime::std::mux_int_value;
+use mux_runtime::Value;
 
 const WORD: usize = std::mem::size_of::<usize>();
 
@@ -70,9 +70,9 @@ fn retain_delays_free_until_last_release() {
     let closure = unsafe { make_closure(noop, &[]) };
     mux_closure_retain(closure); // refcount 1 -> 2
     mux_closure_release(closure); // 2 -> 1, must NOT free
-    // If retain had not incremented, the line above would have freed the
-    // allocation and this second release would be a use-after-free / double
-    // free. Reaching here cleanly proves the refcount was 2.
+                                  // If retain had not incremented, the line above would have freed the
+                                  // allocation and this second release would be a use-after-free / double
+                                  // free. Reaching here cleanly proves the refcount was 2.
     mux_closure_release(closure); // 1 -> 0, frees
 }
 
@@ -94,8 +94,14 @@ fn release_drops_one_reference_per_capture() {
         // it, so mux_rc_dec returns true. If release had failed to drop the
         // closure's reference, refcount would still be 2 and this would return
         // false.
-        assert!(mux_rc_dec(a), "closure did not release its reference to `a`");
-        assert!(mux_rc_dec(b), "closure did not release its reference to `b`");
+        assert!(
+            mux_rc_dec(a),
+            "closure did not release its reference to `a`"
+        );
+        assert!(
+            mux_rc_dec(b),
+            "closure did not release its reference to `b`"
+        );
     }
 }
 
@@ -113,6 +119,9 @@ fn shared_closure_frees_capture_only_on_last_release() {
 
         // The capture reference survived the first (non-final) release and was
         // dropped exactly once by the final one, so we now hold the last one.
-        assert!(mux_rc_dec(v), "closure did not release its capture on final release");
+        assert!(
+            mux_rc_dec(v),
+            "closure did not release its capture on final release"
+        );
     }
 }
