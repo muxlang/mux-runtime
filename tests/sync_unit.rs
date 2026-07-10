@@ -7,6 +7,7 @@
 
 use std::ffi::c_void;
 
+use mux_runtime::closure::mux_closure_release;
 use mux_runtime::refcount::mux_rc_dec;
 use mux_runtime::result::{mux_result_data, mux_result_is_ok};
 use mux_runtime::sync::*;
@@ -15,6 +16,26 @@ mod common;
 use common::assert_ok;
 
 extern "C" fn thread_body() {}
+
+/// Allocate a closure matching exactly what the compiler produces, so it can be
+/// retained/released by the runtime's closure lifetime functions:
+///
+///   [ i64 refcount=1 | fn_ptr | captures_ptr=null | i64 capture_count=0 ]
+///
+/// The pointer handed to the runtime points AT the closure struct (the fn_ptr
+/// field), i.e. 8 bytes past the refcount header. It is allocated with
+/// `libc::malloc` because `mux_closure_release` frees it with `libc::free` once
+/// the last reference is dropped. Capture-free, so `captures_ptr` is null.
+unsafe fn make_capture_free_closure(func: extern "C" fn()) -> *mut c_void {
+    // 4 machine words: refcount, fn_ptr, captures_ptr, capture_count.
+    let base = libc::malloc(4 * std::mem::size_of::<usize>()) as *mut usize;
+    assert!(!base.is_null());
+    *base.add(0) = 1; // refcount header
+    *(base.add(1) as *mut *mut c_void) = func as *const () as *mut c_void; // fn_ptr
+    *(base.add(2) as *mut *mut c_void) = std::ptr::null_mut(); // captures_ptr
+    *base.add(3) = 0; // capture_count
+    base.add(1) as *mut c_void // closure struct pointer (at fn_ptr)
+}
 
 #[test]
 fn mutex_lock_unlock() {
@@ -47,32 +68,34 @@ fn condvar_signal_broadcast() {
 
 #[test]
 fn spawn_and_join() {
-    // Mirror the compiler's ClosureRepr: [function_ptr, captures_ptr].
-    let repr: [*mut c_void; 2] = [
-        thread_body as *const () as *mut c_void,
-        std::ptr::null_mut(),
-    ];
-    let spawn_res = mux_sync_spawn(repr.as_ptr() as *mut c_void);
+    // The test owns the initial reference; mux_sync_spawn retains a second one
+    // for the worker thread, which releases it when the body returns. Joining
+    // guarantees that release has happened, then we drop our own reference,
+    // which frees the closure.
+    let closure = unsafe { make_capture_free_closure(thread_body) };
+    let spawn_res = mux_sync_spawn(closure);
     assert!(mux_result_is_ok(spawn_res));
 
     let thread_obj = mux_result_data(spawn_res);
     assert!(!thread_obj.is_null());
     assert_ok(mux_thread_join(thread_obj));
 
+    mux_closure_release(closure);
     assert!(mux_rc_dec(thread_obj));
     assert!(mux_rc_dec(spawn_res));
 }
 
 #[test]
 fn spawn_and_detach() {
-    let repr: [*mut c_void; 2] = [
-        thread_body as *const () as *mut c_void,
-        std::ptr::null_mut(),
-    ];
-    let spawn_res = mux_sync_spawn(repr.as_ptr() as *mut c_void);
+    // Detached: the worker releases its reference whenever it finishes; we drop
+    // ours here. The atomic refcount guarantees exactly one of the two releases
+    // frees the closure, regardless of ordering.
+    let closure = unsafe { make_capture_free_closure(thread_body) };
+    let spawn_res = mux_sync_spawn(closure);
     assert!(mux_result_is_ok(spawn_res));
     let thread_obj = mux_result_data(spawn_res);
     assert_ok(mux_thread_detach(thread_obj));
+    mux_closure_release(closure);
     assert!(mux_rc_dec(thread_obj));
     assert!(mux_rc_dec(spawn_res));
 }
