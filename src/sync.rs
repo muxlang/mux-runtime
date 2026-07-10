@@ -396,6 +396,13 @@ pub extern "C" fn mux_sync_spawn(closure: *mut c_void) -> *mut Value {
     }
 
     {
+        // The spawned thread uses the closure's captures for its whole lifetime,
+        // which outlives this call. Retain the closure so the caller's scope
+        // cleanup does not free it out from under the thread; the thread releases
+        // it (freeing captures when it is the last owner) once the body returns.
+        crate::closure::mux_closure_retain(closure);
+        let closure_addr = closure as usize;
+
         // Read ClosureRepr fields before spawning so the thread does not hold a
         // raw pointer into memory that the caller may free after this call returns.
         let (function_addr, captures_addr) = unsafe {
@@ -411,6 +418,7 @@ pub extern "C" fn mux_sync_spawn(closure: *mut c_void) -> *mut Value {
                     unsafe { std::mem::transmute(function_addr) };
                 func(captures_addr as *mut c_void);
             }
+            crate::closure::mux_closure_release(closure_addr as *mut c_void);
         });
 
         let join_handle = match handle {
