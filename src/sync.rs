@@ -396,13 +396,31 @@ pub extern "C" fn mux_sync_spawn(closure: *mut c_void) -> *mut Value {
     }
 
     {
+        // The spawned thread uses the closure's captures for its whole lifetime,
+        // which outlives this call. Retain the closure so the caller's scope
+        // cleanup does not free it out from under the thread; the thread releases
+        // it (freeing captures when it is the last owner) once the body returns.
+        crate::closure::mux_closure_retain(closure);
+        let closure_addr = closure as usize;
+
         // Read ClosureRepr fields before spawning so the thread does not hold a
         // raw pointer into memory that the caller may free after this call returns.
         let (function_addr, captures_addr) = unsafe {
             let r = &*(closure as *const ClosureRepr);
             (r.function_ptr as usize, r.captures_ptr as usize)
         };
+        // Releases the retained closure reference when dropped. Owning it in a
+        // guard (rather than releasing after the body) means the reference is
+        // released on EVERY thread exit path - normal return AND unwinding if the
+        // closure body panics - so the closure and its captures never leak.
+        struct ReleaseOnDrop(usize);
+        impl Drop for ReleaseOnDrop {
+            fn drop(&mut self) {
+                crate::closure::mux_closure_release(self.0 as *mut c_void);
+            }
+        }
         let handle = thread::Builder::new().spawn(move || {
+            let _release = ReleaseOnDrop(closure_addr);
             if captures_addr == 0 {
                 let func: extern "C" fn() = unsafe { std::mem::transmute(function_addr) };
                 func();
@@ -415,7 +433,12 @@ pub extern "C" fn mux_sync_spawn(closure: *mut c_void) -> *mut Value {
 
         let join_handle = match handle {
             Ok(h) => h,
-            Err(e) => return err_string(format!("Failed to spawn thread: {}", e)),
+            Err(e) => {
+                // The thread never started, so it will never run the guard that
+                // releases the retain above; release it here before returning.
+                crate::closure::mux_closure_release(closure_addr as *mut c_void);
+                return err_string(format!("Failed to spawn thread: {}", e));
+            }
         };
 
         let id = NEXT_THREAD_ID.fetch_add(1, Ordering::Relaxed);

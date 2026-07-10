@@ -142,9 +142,10 @@ pub extern "C" fn mux_json_parse(input: *const c_char) -> *mut Value {
     match Json::parse(&s) {
         Ok(j) => {
             let v = json_to_value(&j);
-            // Allocate a ref-counted Value and wrap it using existing result helper
-            let v_ptr = crate::refcount::mux_rc_alloc(v);
-            crate::result::mux_result_ok_value(v_ptr)
+            // Wrap the value directly. Going through mux_result_ok_value would
+            // clone `v` into the Result without consuming the intermediate
+            // ref-counted allocation, leaking it.
+            crate::refcount::mux_rc_alloc(Value::Result(Ok(Box::new(v))))
         }
         Err(e) => {
             let cmsg = CString::new(e).unwrap();
@@ -181,8 +182,9 @@ pub extern "C" fn mux_json_stringify(val: *const Value, indent_opt: *mut Value) 
         Ok(j) => {
             let s = j.stringify(indent);
             let result_value = Value::String(s);
-            let v_ptr = crate::refcount::mux_rc_alloc(result_value);
-            crate::result::mux_result_ok_value(v_ptr)
+            // Wrap directly to avoid leaking the intermediate allocation (see
+            // mux_json_parse).
+            crate::refcount::mux_rc_alloc(Value::Result(Ok(Box::new(result_value))))
         }
         Err(e) => {
             let cmsg = CString::new(e).unwrap();
@@ -223,8 +225,9 @@ pub extern "C" fn mux_json_from_map(val: *const Value) -> *mut Value {
             }
             let j = Json::Object(jmap);
             let v = json_to_value(&j);
-            let v_ptr = crate::refcount::mux_rc_alloc(v);
-            crate::result::mux_result_ok_value(v_ptr)
+            // Wrap directly to avoid leaking the intermediate allocation (see
+            // mux_json_parse).
+            crate::refcount::mux_rc_alloc(Value::Result(Ok(Box::new(v))))
         }
         _ => {
             let cmsg = CString::new("value is not a map").unwrap();
@@ -244,8 +247,9 @@ pub extern "C" fn mux_json_to_map(val: *const Value) -> *mut Value {
     match value_to_json(v) {
         Ok(Json::Object(m)) => {
             let mv = json_to_value(&Json::Object(m));
-            let ptr = crate::refcount::mux_rc_alloc(mv);
-            crate::result::mux_result_ok_value(ptr)
+            // Wrap directly to avoid leaking the intermediate allocation (see
+            // mux_json_parse).
+            crate::refcount::mux_rc_alloc(Value::Result(Ok(Box::new(mv))))
         }
         Ok(_) => {
             let cmsg = CString::new("json value is not an object").unwrap();

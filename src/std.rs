@@ -273,7 +273,11 @@ pub extern "C" fn mux_env_get(key: *const c_char) -> *mut Value {
             if let Ok(cstr) = CString::new(val) {
                 // mux_string_value clones the string, so passing as_ptr is safe while cstr is alive
                 let vptr = mux_string_value(cstr.as_ptr());
-                crate::optional::mux_optional_some_value(vptr)
+                // mux_optional_some_value clones vptr's inner value without
+                // consuming vptr, so release the intermediate to avoid a leak.
+                let some = crate::optional::mux_optional_some_value(vptr);
+                crate::refcount::mux_rc_dec(vptr);
+                some
             } else {
                 crate::optional::mux_optional_none()
             }

@@ -278,6 +278,7 @@ impl From<String> for Value {
 pub mod assert;
 pub mod bool;
 pub mod boxing;
+pub mod closure;
 #[cfg(feature = "csv")]
 pub mod data;
 pub mod datetime;
