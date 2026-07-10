@@ -74,8 +74,9 @@ pub extern "C" fn mux_csv_parse(input: *const c_char) -> *mut Value {
 
     let csv_value = csv_value(Value::List(Vec::new()), rows);
 
-    let v_ptr = crate::refcount::mux_rc_alloc(csv_value);
-    crate::result::mux_result_ok_value(v_ptr)
+    // Wrap directly to avoid leaking the intermediate allocation: the
+    // mux_result_ok_value helper clones its argument without consuming it.
+    crate::refcount::mux_rc_alloc(Value::Result(Ok(Box::new(csv_value))))
 }
 
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
@@ -107,8 +108,9 @@ pub extern "C" fn mux_csv_parse_with_headers(input: *const c_char) -> *mut Value
 
     let csv_value = csv_value(headers, rows);
 
-    let v_ptr = crate::refcount::mux_rc_alloc(csv_value);
-    crate::result::mux_result_ok_value(v_ptr)
+    // Wrap directly to avoid leaking the intermediate allocation (see
+    // mux_csv_parse).
+    crate::refcount::mux_rc_alloc(Value::Result(Ok(Box::new(csv_value))))
 }
 
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
@@ -126,8 +128,9 @@ pub extern "C" fn mux_csv_to_string(val: *const Value) -> *mut Value {
     match validate_and_extract_csv(v) {
         Ok((headers, rows)) => {
             let csv_string = build_csv_string(&headers, &rows, true);
-            let result_value = crate::refcount::mux_rc_alloc(Value::String(csv_string));
-            crate::result::mux_result_ok_value(result_value)
+            // Wrap directly to avoid leaking the intermediate allocation (see
+            // mux_csv_parse).
+            crate::refcount::mux_rc_alloc(Value::Result(Ok(Box::new(Value::String(csv_string)))))
         }
         Err(e) => {
             let msg = CString::new(e).unwrap();
