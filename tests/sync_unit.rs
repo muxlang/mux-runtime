@@ -109,6 +109,11 @@ fn sleep_is_noop_for_nonpositive() {
 
 #[test]
 fn null_handles_error() {
-    assert!(!mux_result_is_ok(mux_mutex_lock(std::ptr::null_mut())));
-    assert!(!mux_result_is_ok(mux_thread_join(std::ptr::null_mut())));
+    // Each call returns an owned error result that must be released.
+    let lock_err = mux_mutex_lock(std::ptr::null_mut());
+    assert!(!mux_result_is_ok(lock_err));
+    assert!(mux_rc_dec(lock_err));
+    let join_err = mux_thread_join(std::ptr::null_mut());
+    assert!(!mux_result_is_ok(join_err));
+    assert!(mux_rc_dec(join_err));
 }

@@ -113,7 +113,8 @@ fn list_box_pop_front_and_empty() {
     assert!(mux_rc_dec(oob));
 
     // drain then pop empty -> Optional(None)
-    let _ = mux_list_pop(list);
+    let drained = mux_list_pop(list); // Optional(Some) - owned, must be released
+    assert!(mux_rc_dec(drained));
     let empty = mux_list_pop(list);
     assert!(mux_rc_dec(empty));
     assert!(unsafe { mux_list_is_empty(list) });
