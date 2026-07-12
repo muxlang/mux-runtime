@@ -31,6 +31,18 @@ cargo fmt
 
 No LLVM or clang required.
 
+Benchmarks for the hot paths (reference counting, list/map/set, string, JSON) live
+under `benches/` and use criterion:
+
+```bash
+cargo bench                                  # run all hot-path benchmarks
+cargo bench -- --save-baseline main          # save a baseline, then compare a change with
+cargo bench -- --baseline main               # ... --baseline main
+```
+
+Benchmarks are a local/manual tool and a non-blocking CI report; they never gate a
+merge (shared CI runners are too noisy for a wall-clock threshold).
+
 ## Relationship to the compiler
 
 The compiler does not import this crate as Rust code - it links the built library

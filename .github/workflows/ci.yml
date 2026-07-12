@@ -22,6 +22,7 @@ jobs:
           filters: |
             runtime_src:
               - 'src/**'
+              - 'benches/**'
               - 'Cargo.toml'
               - 'Cargo.lock'
               - '.github/workflows/ci.yml'
@@ -95,6 +96,44 @@ jobs:
           name: coverage-lcov
           path: lcov.info
           if-no-files-found: error
+
+  benchmarks:
+    name: Benchmarks (report-only)
+    needs: detect-changes
+    if: ${{ needs.detect-changes.outputs.runtime_src == 'true' || github.event_name == 'push' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    # Informational only: shared GitHub runners are too noisy for a benchmark
+    # threshold, so this never gates merges (continue-on-error). Pure Rust, no
+    # LLVM. The low-noise comparison is local: `cargo bench -- --save-baseline
+    # main` then `--baseline main`.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9
+        with:
+          toolchain: 1.93.1
+      - name: Cache Cargo registry and build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cargo/bin
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+      - name: Run benchmarks
+        run: cargo bench --bench hot_paths
+      - name: Upload benchmark report
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-benchmark-report
+          path: target/criterion/
+          if-no-files-found: warn
 
   downstream_compiler_smoke:
     name: Downstream Compiler Smoke Test
