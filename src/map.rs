@@ -1,4 +1,4 @@
-use crate::refcount::mux_rc_alloc;
+use crate::refcount::{mux_rc_alloc, mux_rc_count};
 use crate::Tuple;
 use crate::Value;
 use std::collections::BTreeMap;
@@ -8,6 +8,41 @@ use std::os::raw::c_char;
 
 #[derive(Clone, Debug)]
 pub struct Map(pub BTreeMap<Value, Value>);
+
+/// Mutate the `BTreeMap` backing a `Value::Map` with copy-on-write semantics.
+///
+/// When the wrapping `Value` is uniquely owned (`mux_rc_count == 1`) the backing
+/// store is mutated in place, so filling a map in a loop stays O(n log n) instead
+/// of cloning the whole map on every insert/remove (O(n^2)). When the `Value` is
+/// shared, the previous clone-then-write-back behavior is preserved so aliased
+/// maps keep value semantics. Returns the closure's result, or `None` when
+/// `map_val` is null or does not hold a map.
+///
+/// # Safety
+/// `map_val` must be null or a valid pointer to a ref-counted `Value`.
+#[allow(clippy::mutable_key_type)]
+#[inline]
+unsafe fn with_map_mut<R>(
+    map_val: *mut Value,
+    f: impl FnOnce(&mut BTreeMap<Value, Value>) -> R,
+) -> Option<R> {
+    if map_val.is_null() {
+        return None;
+    }
+    unsafe {
+        if mux_rc_count(map_val) == 1 {
+            if let Value::Map(map_data) = &mut *map_val {
+                return Some(f(map_data));
+            }
+        } else if let Value::Map(map_data) = &*map_val {
+            let mut new_map = map_data.clone();
+            let result = f(&mut new_map);
+            *map_val = Value::Map(new_map);
+            return Some(result);
+        }
+    }
+    None
+}
 
 impl Map {
     pub fn insert(&mut self, key: Value, val: Value) {
@@ -71,15 +106,12 @@ pub extern "C" fn mux_map_put_value(map_val: *mut Value, key: *mut Value, val: *
     if map_val.is_null() || key.is_null() || val.is_null() {
         return;
     }
+    let key_clone = unsafe { (*key).clone() };
+    let val_clone = unsafe { (*val).clone() };
     unsafe {
-        if let Value::Map(map_data) = &*map_val {
-            let mut new_map = map_data.clone();
-            let key_clone = (*key).clone();
-            let val_clone = (*val).clone();
-            new_map.insert(key_clone, val_clone);
-            // Write back to the original Value
-            *map_val = Value::Map(new_map);
-        }
+        with_map_mut(map_val, |map_data| {
+            map_data.insert(key_clone, val_clone);
+        });
     }
 }
 
@@ -98,18 +130,11 @@ pub extern "C" fn mux_map_remove(map: *mut Map, key: *const Value) -> *mut Value
 #[unsafe(no_mangle)]
 pub extern "C" fn mux_map_remove_value(map_val: *mut Value, key: *mut Value) -> *mut Value {
     let key = unsafe { (*key).clone() };
-    unsafe {
-        if let Value::Map(map_data) = &*map_val {
-            let mut new_map = map_data.clone();
-            let opt = new_map.remove(&key);
-            *map_val = Value::Map(new_map);
-            return match opt {
-                Some(v) => mux_rc_alloc(Value::Optional(Some(Box::new(v)))),
-                None => mux_rc_alloc(Value::Optional(None)),
-            };
-        }
+    let opt = unsafe { with_map_mut(map_val, |map_data| map_data.remove(&key)).flatten() };
+    match opt {
+        Some(v) => mux_rc_alloc(Value::Optional(Some(Box::new(v)))),
+        None => mux_rc_alloc(Value::Optional(None)),
     }
-    mux_rc_alloc(Value::Optional(None))
 }
 
 #[allow(clippy::not_unsafe_ptr_arg_deref)]

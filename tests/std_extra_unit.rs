@@ -5,7 +5,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::CString;
 
-use mux_runtime::optional::{mux_optional_is_none, mux_optional_is_some};
+use mux_runtime::optional::{mux_optional_get_value, mux_optional_is_none, mux_optional_is_some};
 use mux_runtime::refcount::{mux_rc_alloc, mux_rc_dec};
 use mux_runtime::result::{mux_result_is_err, mux_result_is_ok};
 use mux_runtime::std::*;
@@ -63,6 +63,41 @@ fn container_extraction() {
     assert!(mux_value_get_set(not_a_map).is_null());
     assert!(mux_value_to_list(not_a_map).is_null());
     assert!(mux_rc_dec(not_a_map));
+}
+
+#[test]
+fn value_map_get_value_reads_without_cloning_whole_map() {
+    let mut m = BTreeMap::new();
+    m.insert(Value::String("k".into()), Value::Int(42));
+    let map_val = mux_rc_alloc(Value::Map(m));
+
+    // Present key -> Some(value).
+    let key = mux_rc_alloc(Value::String("k".into()));
+    let hit = mux_value_map_get_value(map_val, key);
+    assert!(mux_optional_is_some(hit));
+    let inner = mux_optional_get_value(hit);
+    assert_eq!(mux_value_get_int(inner), 42);
+    assert!(mux_rc_dec(inner));
+    assert!(mux_rc_dec(hit));
+    assert!(mux_rc_dec(key));
+
+    // Missing key -> None.
+    let missing = mux_rc_alloc(Value::String("nope".into()));
+    let miss = mux_value_map_get_value(map_val, missing);
+    assert!(mux_optional_is_none(miss));
+    assert!(mux_rc_dec(miss));
+    assert!(mux_rc_dec(missing));
+
+    // Non-map value -> None (defensive).
+    let not_a_map = mux_int_value(0);
+    let probe_key = mux_rc_alloc(Value::Int(1));
+    let none = mux_value_map_get_value(not_a_map, probe_key);
+    assert!(mux_optional_is_none(none));
+    assert!(mux_rc_dec(none));
+    assert!(mux_rc_dec(probe_key));
+    assert!(mux_rc_dec(not_a_map));
+
+    assert!(mux_rc_dec(map_val));
 }
 
 #[test]

@@ -115,6 +115,28 @@ pub extern "C" fn mux_value_get_list(val: *mut Value) -> *mut List {
     }
 }
 
+/// Look up `key` in a map Value and return an owned `Optional` wrapper, reading
+/// the live map without cloning it. Mirrors `mux_map_get` but takes the map
+/// `Value` directly, so indexing a map in a loop stays O(log n) per read instead
+/// of the O(n) whole-map clone that `mux_value_get_map` + `mux_map_get` incurs.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[unsafe(no_mangle)]
+pub extern "C" fn mux_value_map_get_value(val: *const Value, key: *const Value) -> *mut Value {
+    if val.is_null() || key.is_null() {
+        return mux_rc_alloc(Value::Optional(None));
+    }
+    let opt = unsafe {
+        match &*val {
+            Value::Map(map_data) => map_data.get(&*key).cloned(),
+            _ => None,
+        }
+    };
+    match opt {
+        Some(v) => mux_rc_alloc(Value::Optional(Some(Box::new(v)))),
+        None => mux_rc_alloc(Value::Optional(None)),
+    }
+}
+
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
 pub extern "C" fn mux_value_get_map(val: *mut Value) -> *mut Map {

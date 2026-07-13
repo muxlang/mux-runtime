@@ -1,10 +1,44 @@
-use crate::refcount::mux_rc_alloc;
+use crate::refcount::{mux_rc_alloc, mux_rc_count};
 use crate::Value;
 use std::ffi::CString;
 use std::fmt;
 
 #[derive(Clone, Debug)]
 pub struct List(pub Vec<Value>);
+
+/// Mutate the `Vec` backing a `Value::List` with copy-on-write semantics.
+///
+/// When the wrapping `Value` is uniquely owned (`mux_rc_count == 1`) the backing
+/// store is mutated in place, so building a list in a loop stays O(n) instead of
+/// cloning the whole vector on every operation (O(n^2)). When the `Value` is
+/// shared, the previous clone-then-write-back behavior is preserved so aliased
+/// lists keep value semantics. Returns the closure's result, or `None` when
+/// `list_val` is null or does not hold a list.
+///
+/// # Safety
+/// `list_val` must be null or a valid pointer to a ref-counted `Value`.
+#[inline]
+unsafe fn with_list_mut<R>(
+    list_val: *mut Value,
+    f: impl FnOnce(&mut Vec<Value>) -> R,
+) -> Option<R> {
+    if list_val.is_null() {
+        return None;
+    }
+    unsafe {
+        if mux_rc_count(list_val) == 1 {
+            if let Value::List(list_data) = &mut *list_val {
+                return Some(f(list_data));
+            }
+        } else if let Value::List(list_data) = &*list_val {
+            let mut new_list = list_data.clone();
+            let result = f(&mut new_list);
+            *list_val = Value::List(new_list);
+            return Some(result);
+        }
+    }
+    None
+}
 
 impl List {
     pub fn push_back(&mut self, val: Value) {
@@ -89,11 +123,7 @@ pub unsafe extern "C" fn mux_list_length(list: *const List) -> i64 {
 pub extern "C" fn mux_list_push_back_value(list_val: *mut Value, val: *mut Value) {
     let value = unsafe { (*val).clone() };
     unsafe {
-        if let Value::List(list_data) = &*list_val {
-            let mut new_list = list_data.clone();
-            new_list.push(value);
-            *list_val = Value::List(new_list);
-        }
+        with_list_mut(list_val, |list_data| list_data.push(value));
     }
 }
 
@@ -102,32 +132,14 @@ pub extern "C" fn mux_list_push_back_value(list_val: *mut Value, val: *mut Value
 pub extern "C" fn mux_list_push_value(list_val: *mut Value, val: *mut Value) {
     let value = unsafe { (*val).clone() };
     unsafe {
-        if let Value::List(list_data) = &*list_val {
-            let mut new_list = list_data.clone();
-            new_list.insert(0, value); // Add to front
-            *list_val = Value::List(new_list);
-        }
+        with_list_mut(list_val, |list_data| list_data.insert(0, value)); // Add to front
     }
 }
 
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
 pub extern "C" fn mux_list_pop_back_value(list_val: *mut Value) -> *mut Value {
-    let opt = unsafe {
-        let current_list = if let Value::List(ref list_data) = *list_val {
-            Some(list_data.clone())
-        } else {
-            None
-        };
-
-        if let Some(mut list_data) = current_list {
-            let popped = list_data.pop();
-            *list_val = Value::List(list_data);
-            popped
-        } else {
-            None
-        }
-    };
+    let opt = unsafe { with_list_mut(list_val, |list_data| list_data.pop()).flatten() };
     match opt {
         Some(v) => mux_rc_alloc(Value::Optional(Some(Box::new(v)))),
         None => mux_rc_alloc(Value::Optional(None)),
@@ -138,23 +150,14 @@ pub extern "C" fn mux_list_pop_back_value(list_val: *mut Value) -> *mut Value {
 #[unsafe(no_mangle)]
 pub extern "C" fn mux_list_pop_value(list_val: *mut Value) -> *mut Value {
     let opt = unsafe {
-        let current_list = if let Value::List(ref list_data) = *list_val {
-            Some(list_data.clone())
-        } else {
-            None
-        };
-
-        if let Some(mut list_data) = current_list {
-            let popped = if list_data.is_empty() {
+        with_list_mut(list_val, |list_data| {
+            if list_data.is_empty() {
                 None
             } else {
                 Some(list_data.remove(0))
-            };
-            *list_val = Value::List(list_data);
-            popped
-        } else {
-            None
-        }
+            }
+        })
+        .flatten()
     };
     match opt {
         Some(v) => mux_rc_alloc(Value::Optional(Some(Box::new(v)))),
@@ -209,22 +212,19 @@ pub extern "C" fn mux_list_set_value(list_val: *mut Value, index: i64, val: *mut
         return;
     }
 
+    let value = unsafe { (*val).clone() };
     unsafe {
-        let Value::List(list_data) = &*list_val else {
-            return;
-        };
+        with_list_mut(list_val, |list_data| {
+            let Some(actual_index) = normalized_index(index, list_data.len()) else {
+                return;
+            };
 
-        let mut new_list = list_data.clone();
-        let Some(actual_index) = normalized_index(index, new_list.len()) else {
-            return;
-        };
+            if actual_index >= list_data.len() {
+                extend_to_index(list_data, actual_index);
+            }
 
-        if actual_index >= new_list.len() {
-            extend_to_index(&mut new_list, actual_index);
-        }
-
-        new_list[actual_index] = (*val).clone();
-        *list_val = Value::List(new_list);
+            list_data[actual_index] = value;
+        });
     }
 }
 

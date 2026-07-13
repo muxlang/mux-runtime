@@ -1,4 +1,4 @@
-use crate::refcount::mux_rc_alloc;
+use crate::refcount::{mux_rc_alloc, mux_rc_count};
 use crate::Value;
 use std::collections::BTreeSet;
 use std::ffi::CString;
@@ -6,6 +6,41 @@ use std::fmt;
 
 #[derive(Clone, Debug)]
 pub struct Set(pub BTreeSet<Value>);
+
+/// Mutate the `BTreeSet` backing a `Value::Set` with copy-on-write semantics.
+///
+/// When the wrapping `Value` is uniquely owned (`mux_rc_count == 1`) the backing
+/// store is mutated in place, so filling a set in a loop stays O(n log n) instead
+/// of cloning the whole set on every add/remove (O(n^2)). When the `Value` is
+/// shared, the previous clone-then-write-back behavior is preserved so aliased
+/// sets keep value semantics. Returns the closure's result, or `None` when
+/// `set_val` is null or does not hold a set.
+///
+/// # Safety
+/// `set_val` must be null or a valid pointer to a ref-counted `Value`.
+#[allow(clippy::mutable_key_type)]
+#[inline]
+unsafe fn with_set_mut<R>(
+    set_val: *mut Value,
+    f: impl FnOnce(&mut BTreeSet<Value>) -> R,
+) -> Option<R> {
+    if set_val.is_null() {
+        return None;
+    }
+    unsafe {
+        if mux_rc_count(set_val) == 1 {
+            if let Value::Set(set_data) = &mut *set_val {
+                return Some(f(set_data));
+            }
+        } else if let Value::Set(set_data) = &*set_val {
+            let mut new_set = set_data.clone();
+            let result = f(&mut new_set);
+            *set_val = Value::Set(new_set);
+            return Some(result);
+        }
+    }
+    None
+}
 
 impl Set {
     pub fn add(&mut self, val: Value) {
@@ -49,11 +84,9 @@ pub extern "C" fn mux_set_add(set: *mut Set, val: *mut Value) {
 pub extern "C" fn mux_set_add_value(set_val: *mut Value, val: *mut Value) {
     let value = unsafe { (*val).clone() };
     unsafe {
-        if let Value::Set(set_data) = &*set_val {
-            let mut new_set = set_data.clone();
-            new_set.insert(value);
-            *set_val = Value::Set(new_set);
-        }
+        with_set_mut(set_val, |set_data| {
+            set_data.insert(value);
+        });
     }
 }
 
@@ -76,15 +109,7 @@ pub extern "C" fn mux_set_remove(set: *mut Set, val: *mut Value) -> bool {
 #[unsafe(no_mangle)]
 pub extern "C" fn mux_set_remove_value(set_val: *mut Value, val: *mut Value) -> bool {
     let value = unsafe { (*val).clone() };
-    unsafe {
-        if let Value::Set(set_data) = &*set_val {
-            let mut new_set = set_data.clone();
-            let removed = new_set.remove(&value);
-            *set_val = Value::Set(new_set);
-            return removed;
-        }
-    }
-    false
+    unsafe { with_set_mut(set_val, |set_data| set_data.remove(&value)).unwrap_or(false) }
 }
 
 /// # Safety
