@@ -7,6 +7,36 @@ use std::fmt;
 #[derive(Clone, Debug)]
 pub struct Set(pub BTreeSet<Value>);
 
+/// Mutate the `BTreeSet` backing a `Value::Set` in place.
+///
+/// The `*_value` set mutators are in-place operators by ABI: they return nothing
+/// and mutate whatever `set_val` points at, so the change is always observed
+/// through that pointer. Mux collections are value types (assignment deep-copies
+/// rather than sharing the `Value` allocation), so a mutation site owns its set
+/// uniquely; mutating the backing store directly keeps filling a set in a loop
+/// O(n log n) instead of cloning the whole set on every add/remove. Returns the
+/// closure's result, or `None` when `set_val` is null or does not hold a set.
+///
+/// # Safety
+/// `set_val` must be null or a valid pointer to a ref-counted `Value`.
+#[allow(clippy::mutable_key_type)]
+#[inline]
+unsafe fn with_set_mut<R>(
+    set_val: *mut Value,
+    f: impl FnOnce(&mut BTreeSet<Value>) -> R,
+) -> Option<R> {
+    if set_val.is_null() {
+        return None;
+    }
+    unsafe {
+        if let Value::Set(set_data) = &mut *set_val {
+            Some(f(set_data))
+        } else {
+            None
+        }
+    }
+}
+
 impl Set {
     pub fn add(&mut self, val: Value) {
         self.0.insert(val);
@@ -49,11 +79,9 @@ pub extern "C" fn mux_set_add(set: *mut Set, val: *mut Value) {
 pub extern "C" fn mux_set_add_value(set_val: *mut Value, val: *mut Value) {
     let value = unsafe { (*val).clone() };
     unsafe {
-        if let Value::Set(set_data) = &*set_val {
-            let mut new_set = set_data.clone();
-            new_set.insert(value);
-            *set_val = Value::Set(new_set);
-        }
+        with_set_mut(set_val, |set_data| {
+            set_data.insert(value);
+        });
     }
 }
 
@@ -76,15 +104,7 @@ pub extern "C" fn mux_set_remove(set: *mut Set, val: *mut Value) -> bool {
 #[unsafe(no_mangle)]
 pub extern "C" fn mux_set_remove_value(set_val: *mut Value, val: *mut Value) -> bool {
     let value = unsafe { (*val).clone() };
-    unsafe {
-        if let Value::Set(set_data) = &*set_val {
-            let mut new_set = set_data.clone();
-            let removed = new_set.remove(&value);
-            *set_val = Value::Set(new_set);
-            return removed;
-        }
-    }
-    false
+    unsafe { with_set_mut(set_val, |set_data| set_data.remove(&value)).unwrap_or(false) }
 }
 
 /// # Safety
