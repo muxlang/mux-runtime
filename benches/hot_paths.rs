@@ -136,7 +136,7 @@ fn bench_json(c: &mut Criterion) {
     for (name, payload) in [("small", small), ("medium", medium)] {
         group.bench_with_input(name, payload, |b, payload| {
             b.iter(|| {
-                let _ = Json::parse(black_box(payload));
+                black_box(Json::parse(black_box(payload)).expect("benchmark JSON payload should parse"));
             });
         });
     }
