@@ -1,4 +1,4 @@
-use crate::refcount::{mux_rc_alloc, mux_rc_count};
+use crate::refcount::mux_rc_alloc;
 use crate::Tuple;
 use crate::Value;
 use std::collections::BTreeMap;
@@ -9,14 +9,15 @@ use std::os::raw::c_char;
 #[derive(Clone, Debug)]
 pub struct Map(pub BTreeMap<Value, Value>);
 
-/// Mutate the `BTreeMap` backing a `Value::Map` with copy-on-write semantics.
+/// Mutate the `BTreeMap` backing a `Value::Map` in place.
 ///
-/// When the wrapping `Value` is uniquely owned (`mux_rc_count == 1`) the backing
-/// store is mutated in place, so filling a map in a loop stays O(n log n) instead
-/// of cloning the whole map on every insert/remove (O(n^2)). When the `Value` is
-/// shared, the previous clone-then-write-back behavior is preserved so aliased
-/// maps keep value semantics. Returns the closure's result, or `None` when
-/// `map_val` is null or does not hold a map.
+/// The `*_value` map mutators are in-place operators by ABI: they return nothing
+/// and mutate whatever `map_val` points at, so the change is always observed
+/// through that pointer. Mux collections are value types (assignment deep-copies
+/// rather than sharing the `Value` allocation), so a mutation site owns its map
+/// uniquely; mutating the backing store directly keeps filling a map in a loop
+/// O(n log n) instead of cloning the whole map on every insert/remove. Returns
+/// the closure's result, or `None` when `map_val` is null or does not hold a map.
 ///
 /// # Safety
 /// `map_val` must be null or a valid pointer to a ref-counted `Value`.
@@ -30,18 +31,12 @@ unsafe fn with_map_mut<R>(
         return None;
     }
     unsafe {
-        if mux_rc_count(map_val) == 1 {
-            if let Value::Map(map_data) = &mut *map_val {
-                return Some(f(map_data));
-            }
-        } else if let Value::Map(map_data) = &*map_val {
-            let mut new_map = map_data.clone();
-            let result = f(&mut new_map);
-            *map_val = Value::Map(new_map);
-            return Some(result);
+        if let Value::Map(map_data) = &mut *map_val {
+            Some(f(map_data))
+        } else {
+            None
         }
     }
-    None
 }
 
 impl Map {

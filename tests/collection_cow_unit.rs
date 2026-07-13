@@ -1,8 +1,9 @@
-//! Copy-on-write correctness for the `*_value` collection mutators.
+//! Correctness for the in-place `*_value` collection mutators.
 //!
-//! These FFI helpers mutate the container backing a ref-counted `Value` in place
-//! when it is uniquely owned (refcount == 1) and fall back to clone-then-write
-//! when it is shared. Both paths must produce identical, correct contents; see
+//! These FFI helpers mutate the container backing a ref-counted `Value` in place.
+//! The common case is a uniquely-owned value (the compiler value-copies
+//! collections, so a mutation site never aliases another owner); the shared-value
+//! cases below confirm the mutators still produce correct contents. See
 //! muxlang/mux-runtime#15.
 #![allow(clippy::mutable_key_type)] // Value keys are logically immutable here.
 
@@ -132,15 +133,15 @@ fn list_pop_on_empty_returns_none() {
 }
 
 #[test]
-fn list_mutation_on_shared_value_matches_unique_path() {
-    // Force the clone-on-shared branch by bumping the refcount above 1, then
-    // confirm the result is identical to the uniquely-owned fast path.
+fn list_mutation_on_shared_value_is_in_place() {
+    // Mutating a value with refcount > 1 is in-place (visible through the shared
+    // pointer, per the ABI) and still yields correct contents.
     let shared = mux_rc_alloc(Value::List(vec![Value::Int(1), Value::Int(2)]));
     mux_rc_inc(shared);
     assert_eq!(
         mux_rc_count(shared),
         2,
-        "value must be shared for this path"
+        "value must be shared for this case"
     );
     with_scalar(Value::Int(3), |elem| mux_list_push_back_value(shared, elem));
     assert_eq!(
@@ -183,7 +184,7 @@ fn map_put_and_remove_uniquely_owned() {
 }
 
 #[test]
-fn map_put_on_shared_value_matches_unique_path() {
+fn map_put_on_shared_value_is_in_place() {
     let shared = mux_rc_alloc(Value::Map(std::collections::BTreeMap::new()));
     mux_rc_inc(shared);
     with_scalar(Value::Int(1), |k| {
@@ -218,7 +219,7 @@ fn set_add_and_remove_uniquely_owned() {
 }
 
 #[test]
-fn set_add_on_shared_value_matches_unique_path() {
+fn set_add_on_shared_value_is_in_place() {
     let shared = mux_rc_alloc(Value::Set(std::collections::BTreeSet::new()));
     mux_rc_inc(shared);
     with_scalar(Value::Int(7), |v| mux_set_add_value(shared, v));

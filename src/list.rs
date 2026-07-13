@@ -1,4 +1,4 @@
-use crate::refcount::{mux_rc_alloc, mux_rc_count};
+use crate::refcount::mux_rc_alloc;
 use crate::Value;
 use std::ffi::CString;
 use std::fmt;
@@ -6,14 +6,16 @@ use std::fmt;
 #[derive(Clone, Debug)]
 pub struct List(pub Vec<Value>);
 
-/// Mutate the `Vec` backing a `Value::List` with copy-on-write semantics.
+/// Mutate the `Vec` backing a `Value::List` in place.
 ///
-/// When the wrapping `Value` is uniquely owned (`mux_rc_count == 1`) the backing
-/// store is mutated in place, so building a list in a loop stays O(n) instead of
-/// cloning the whole vector on every operation (O(n^2)). When the `Value` is
-/// shared, the previous clone-then-write-back behavior is preserved so aliased
-/// lists keep value semantics. Returns the closure's result, or `None` when
-/// `list_val` is null or does not hold a list.
+/// The `*_value` list mutators are in-place operators by ABI: they return
+/// nothing and mutate whatever `list_val` points at, so the change is always
+/// observed through that pointer. Mux collections are value types (assignment
+/// deep-copies rather than sharing the `Value` allocation), so a mutation site
+/// owns its list uniquely; mutating the backing store directly keeps
+/// loop-building O(n) instead of cloning the whole vector on every call.
+/// Returns the closure's result, or `None` when `list_val` is null or does not
+/// hold a list.
 ///
 /// # Safety
 /// `list_val` must be null or a valid pointer to a ref-counted `Value`.
@@ -26,18 +28,12 @@ unsafe fn with_list_mut<R>(
         return None;
     }
     unsafe {
-        if mux_rc_count(list_val) == 1 {
-            if let Value::List(list_data) = &mut *list_val {
-                return Some(f(list_data));
-            }
-        } else if let Value::List(list_data) = &*list_val {
-            let mut new_list = list_data.clone();
-            let result = f(&mut new_list);
-            *list_val = Value::List(new_list);
-            return Some(result);
+        if let Value::List(list_data) = &mut *list_val {
+            Some(f(list_data))
+        } else {
+            None
         }
     }
-    None
 }
 
 impl List {

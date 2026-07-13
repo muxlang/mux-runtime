@@ -1,4 +1,4 @@
-use crate::refcount::{mux_rc_alloc, mux_rc_count};
+use crate::refcount::mux_rc_alloc;
 use crate::Value;
 use std::collections::BTreeSet;
 use std::ffi::CString;
@@ -7,14 +7,15 @@ use std::fmt;
 #[derive(Clone, Debug)]
 pub struct Set(pub BTreeSet<Value>);
 
-/// Mutate the `BTreeSet` backing a `Value::Set` with copy-on-write semantics.
+/// Mutate the `BTreeSet` backing a `Value::Set` in place.
 ///
-/// When the wrapping `Value` is uniquely owned (`mux_rc_count == 1`) the backing
-/// store is mutated in place, so filling a set in a loop stays O(n log n) instead
-/// of cloning the whole set on every add/remove (O(n^2)). When the `Value` is
-/// shared, the previous clone-then-write-back behavior is preserved so aliased
-/// sets keep value semantics. Returns the closure's result, or `None` when
-/// `set_val` is null or does not hold a set.
+/// The `*_value` set mutators are in-place operators by ABI: they return nothing
+/// and mutate whatever `set_val` points at, so the change is always observed
+/// through that pointer. Mux collections are value types (assignment deep-copies
+/// rather than sharing the `Value` allocation), so a mutation site owns its set
+/// uniquely; mutating the backing store directly keeps filling a set in a loop
+/// O(n log n) instead of cloning the whole set on every add/remove. Returns the
+/// closure's result, or `None` when `set_val` is null or does not hold a set.
 ///
 /// # Safety
 /// `set_val` must be null or a valid pointer to a ref-counted `Value`.
@@ -28,18 +29,12 @@ unsafe fn with_set_mut<R>(
         return None;
     }
     unsafe {
-        if mux_rc_count(set_val) == 1 {
-            if let Value::Set(set_data) = &mut *set_val {
-                return Some(f(set_data));
-            }
-        } else if let Value::Set(set_data) = &*set_val {
-            let mut new_set = set_data.clone();
-            let result = f(&mut new_set);
-            *set_val = Value::Set(new_set);
-            return Some(result);
+        if let Value::Set(set_data) = &mut *set_val {
+            Some(f(set_data))
+        } else {
+            None
         }
     }
-    None
 }
 
 impl Set {
