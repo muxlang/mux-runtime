@@ -38,12 +38,13 @@ crates.io on its own cadence; the compiler pins a compatible semver range and
   closes #251).
 - **Panic-path correctness**: Fixes to runtime panic handling and messaging (#3).
 
-<!-- ===========================================================
-     Independent multi-repo versioning begins at 0.5.0.
-     Entries below are inherited from the pre-split (monorepo-era)
-     compiler changelog and are shared history, not specific to
-     mux-runtime.
-     =========================================================== -->
+---
+
+> **Independent multi-repo versioning begins at 0.5.0.** Entries below are inherited
+> from the pre-split (monorepo-era) compiler changelog and are shared history, not
+> specific to `mux-runtime`.
+
+---
 
 ## [0.4.1] - 2026-06-27
 
