@@ -4,16 +4,19 @@
 # mux-compiler pre-commit: run the fast fmt/clippy/test gate locally, and report
 # every failure in one pass instead of stopping at the first.
 
-STAGED_FILES=$(git diff --cached --name-only)
-
 HAS_RUST=false
-for file in $STAGED_FILES; do
+# Read staged paths line by line (IFS= read) so a path containing spaces is not
+# word-split and mis-skipped. A here-doc (not a pipe) keeps the loop in this
+# shell so HAS_RUST persists.
+while IFS= read -r file; do
   case "$file" in
     *.rs|Cargo.toml|Cargo.lock|clippy.toml|rustfmt.toml)
       HAS_RUST=true
       ;;
   esac
-done
+done <<EOF
+$(git diff --cached --name-only)
+EOF
 
 if [ "$HAS_RUST" = false ]; then
   echo "No Rust files changed, skipping checks."
