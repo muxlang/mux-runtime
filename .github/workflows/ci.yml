@@ -25,10 +25,11 @@ jobs:
               - 'benches/**'
               - 'Cargo.toml'
               - 'Cargo.lock'
-              - '.github/workflows/ci.yml'
 
   rust_checks:
     name: Rust Checks
+    needs: detect-changes
+    if: ${{ needs.detect-changes.outputs.runtime_src == 'true' || github.event_name == 'push' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -127,12 +128,23 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
       - name: Run benchmarks
-        run: cargo bench --bench hot_paths
+        id: run
+        run: |
+          set -o pipefail
+          cargo bench --bench hot_paths 2>&1 | tee bench.log
       - name: Upload benchmark report
         uses: actions/upload-artifact@v4
         with:
           name: runtime-benchmark-report
           path: target/criterion/
+          if-no-files-found: warn
+      - name: Upload benchmark log for PR comment
+        # Raw log only; the trusted pr-comment workflow escapes and renders it.
+        if: ${{ always() && github.event_name == 'pull_request' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-comment-benchmarks
+          path: bench.log
           if-no-files-found: warn
 
   downstream_compiler_smoke:
@@ -233,11 +245,13 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
       - name: Run tests under Valgrind
+        id: run
         # Manual Valgrind (not cargo-valgrind): it keeps the exact same flags and
         # leak policy as the compiler CI, needs no extra crate pinned in the
         # toolchain, and makes each test binary's report explicit in the log.
         run: |
           set -euo pipefail
+          exec > >(tee valgrind.log) 2>&1
           # The commas below are part of the flag values, not array separators.
           # shellcheck disable=SC2054
           flags=(
@@ -263,6 +277,14 @@ jobs:
             fi
           done
           exit "$fail"
+      - name: Upload valgrind log for PR comment
+        # Raw log only; the trusted pr-comment workflow escapes and renders it.
+        if: ${{ always() && github.event_name == 'pull_request' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-comment-valgrind
+          path: valgrind.log
+          if-no-files-found: warn
 
   sonarqube:
     name: SonarQube
