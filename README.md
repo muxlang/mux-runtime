@@ -75,7 +75,7 @@ coupled change ships as two steps: publish the runtime first, then bump the
 compiler's `mux-runtime` pin.
 
 Full release steps:
-[muxlang/mux-context](https://github.com/muxlang/mux-context/blob/main/docs/release-process.md#mux-runtime).
+[muxlang/mux-context release process](https://github.com/muxlang/mux-context/blob/main/docs/release-process.md#mux-runtime).
 
 ---
 
