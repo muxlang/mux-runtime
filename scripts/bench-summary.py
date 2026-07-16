@@ -22,6 +22,11 @@ from pathlib import Path
 
 # Hot-path benchmark groups defined in benches/hot_paths.rs, in a stable order.
 # Any other group found in the criterion output is appended after these.
+#
+# This JSON feeds the PR-comment workflow, which has its own whitelist of group
+# labels (BENCH_GROUPS in .github/workflows/pr-comment.yml) and drops anything
+# not on it. A group added here shows up in the JSON, but stays out of the PR
+# charts until it is added there too.
 PREFERRED_ORDER = [
     "refcount",
     "primitive",
