@@ -132,6 +132,11 @@ jobs:
         run: |
           set -o pipefail
           cargo bench --bench hot_paths 2>&1 | tee bench.log
+      - name: Summarize per-group medians
+        # Compact JSON the trusted pr-comment workflow turns into charts. Best
+        # effort: never fail the (report-only) job over a summary hiccup.
+        if: ${{ always() }}
+        run: python3 scripts/bench-summary.py target/criterion -o bench-summary.json || true
       - name: Upload benchmark report
         uses: actions/upload-artifact@v4
         with:
@@ -139,12 +144,16 @@ jobs:
           path: target/criterion/
           if-no-files-found: warn
       - name: Upload benchmark log for PR comment
-        # Raw log only; the trusted pr-comment workflow escapes and renders it.
+        # Raw log (escaped/rendered by the trusted pr-comment workflow) plus the
+        # compact per-group summary it turns into charts. Both are fork-controlled
+        # and re-validated there; nothing here is trusted.
         if: ${{ always() && github.event_name == 'pull_request' }}
         uses: actions/upload-artifact@v4
         with:
           name: pr-comment-benchmarks
-          path: bench.log
+          path: |
+            bench.log
+            bench-summary.json
           if-no-files-found: warn
 
   downstream_compiler_smoke:
