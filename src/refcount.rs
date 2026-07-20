@@ -22,6 +22,104 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::Value;
 
+/// Count of live reference-counted Value blocks, maintained only under the
+/// `rc-leak-check` feature. `mux_rc_alloc` bumps it for every new block and
+/// `mux_rc_dec` drops it for every block it frees, so a clean program returns to
+/// zero once the compiler-emitted global teardown has run. A nonzero count at
+/// exit means a block outlived teardown - exactly the leaked module constants in
+/// mux-compiler#284, which Valgrind cannot flag because a global held at
+/// refcount 1 is "still reachable", not lost. This is an exact live count rather
+/// than a heuristic, and compiles to nothing when the feature is off.
+#[cfg(feature = "rc-leak-check")]
+static LIVE_RC_BLOCKS: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(0);
+
+/// Set once the program is terminating through a runtime panic. A panic exits
+/// via `std::process::exit`, which runs atexit handlers but bypasses the
+/// compiler-emitted global teardown, so blocks are still live by design - that
+/// is abnormal termination, not a leak. The exit-time assertion consults this
+/// flag and stays silent when it is set, preserving the panic's own exit code.
+#[cfg(feature = "rc-leak-check")]
+static PANICKED_BEFORE_EXIT: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// Record that a runtime panic is in progress so the exit-time leak assertion is
+/// skipped. Called from the panic path; a no-op unless the leak-check feature is
+/// enabled.
+pub(crate) fn note_panic_for_leak_check() {
+    #[cfg(feature = "rc-leak-check")]
+    PANICKED_BEFORE_EXIT.store(true, Ordering::SeqCst);
+}
+
+/// Pure decision for the exit-time assertion: `None` when every block was
+/// released (the count is back to zero), `Some(message)` otherwise. Split out so
+/// it can be unit-tested without driving the process to exit. A negative count
+/// is also reported - it would mean a block was freed more times than allocated,
+/// an accounting bug worth surfacing.
+#[cfg(feature = "rc-leak-check")]
+fn rc_leak_message(live: isize) -> Option<String> {
+    if live == 0 {
+        None
+    } else {
+        Some(format!(
+            "mux-runtime rc-leak-check: {live} reference-counted block(s) still live at exit \
+             (expected 0); a value outlived global teardown - see mux-compiler#284."
+        ))
+    }
+}
+
+/// Arm the process-exit leak assertion the first time any block is allocated.
+/// Registration is lazy so the runtime needs no startup hook from codegen: any
+/// program that can leak has allocated at least once, so the handler is always
+/// installed by the time it matters. Arming is skipped under `cfg(test)` because
+/// the runtime's own test binary balances allocations across many parallel tests
+/// and must not risk a spurious exit; the compiled Mux programs that link this
+/// library are not test builds and do arm it.
+#[cfg(feature = "rc-leak-check")]
+fn arm_rc_leak_check() {
+    #[cfg(not(test))]
+    {
+        use std::sync::Once;
+        static ARMED: Once = Once::new();
+        ARMED.call_once(|| {
+            // SAFETY: `check_live_rc_blocks_at_exit` is an `extern "C" fn()`, the
+            // signature `atexit` requires, and `Once` guarantees this runs at
+            // most once, so the handler is never registered twice.
+            unsafe {
+                libc::atexit(check_live_rc_blocks_at_exit);
+            }
+        });
+    }
+}
+
+/// atexit handler that asserts no reference-counted block outlived teardown.
+///
+/// This depends on an ordering invariant: the compiler emits global teardown as
+/// INLINE code that runs before `main` returns, so teardown completes before
+/// libc starts running atexit handlers. If teardown were ever moved into its own
+/// atexit handler, LIFO ordering could run this check first and falsely report a
+/// leak - global teardown must stay inline.
+///
+/// `_exit` is used rather than `std::process::exit` because calling `exit` from
+/// within an atexit handler is undefined behavior; `_exit` terminates
+/// immediately with the given status (101, matching Rust's own abnormal-exit
+/// code).
+#[cfg(all(feature = "rc-leak-check", not(test)))]
+extern "C" fn check_live_rc_blocks_at_exit() {
+    // A panic skipped global teardown on purpose; do not misreport that as a
+    // leak or clobber the panic's exit code.
+    if PANICKED_BEFORE_EXIT.load(Ordering::SeqCst) {
+        return;
+    }
+    let live = LIVE_RC_BLOCKS.load(Ordering::SeqCst);
+    if let Some(message) = rc_leak_message(live) {
+        eprintln!("{message}");
+        // SAFETY: `_exit` terminates the process immediately without running
+        // further atexit handlers or Rust destructors, and no memory is accessed
+        // after this call, so there are no invariants left to uphold.
+        unsafe { libc::_exit(101) };
+    }
+}
+
 /// Deep-clone a Value: returns a new heap allocation whose payload is a
 /// recursively cloned copy of the source. The returned pointer has
 /// refcount = 1 and must eventually be released with `mux_rc_dec`.
@@ -172,6 +270,12 @@ pub extern "C" fn mux_rc_alloc(value: Value) -> *mut Value {
         let value_ptr = ptr.add(value_offset()) as *mut Value;
         value_ptr.write(value);
 
+        #[cfg(feature = "rc-leak-check")]
+        {
+            arm_rc_leak_check();
+            LIVE_RC_BLOCKS.fetch_add(1, Ordering::SeqCst);
+        }
+
         value_ptr
     }
 }
@@ -237,6 +341,9 @@ pub extern "C" fn mux_rc_dec(val: *mut Value) -> bool {
             if let Some(layout) = layout_for_value() {
                 dealloc(alloc_ptr, layout);
             }
+
+            #[cfg(feature = "rc-leak-check")]
+            LIVE_RC_BLOCKS.fetch_sub(1, Ordering::SeqCst);
 
             true
         } else {
@@ -499,5 +606,30 @@ mod tests {
             let d = dst as *mut u64;
             *d = *s;
         }
+    }
+
+    // The exit-time leak assertion's decision logic. The live-block counter
+    // itself is a process-global atomic that every parallel test perturbs, so it
+    // cannot be asserted deterministically here; the end-to-end guarantee is the
+    // compiler's leak-check CI leg. These cover the pure branch that turns a
+    // count into a verdict.
+    #[cfg(feature = "rc-leak-check")]
+    #[test]
+    fn rc_leak_message_none_when_balanced() {
+        assert!(super::rc_leak_message(0).is_none());
+    }
+
+    #[cfg(feature = "rc-leak-check")]
+    #[test]
+    fn rc_leak_message_reports_leaked_blocks() {
+        let message = super::rc_leak_message(3).expect("a nonzero count must report");
+        assert!(message.contains('3'));
+        assert!(message.contains("still live at exit"));
+    }
+
+    #[cfg(feature = "rc-leak-check")]
+    #[test]
+    fn rc_leak_message_reports_negative_imbalance() {
+        assert!(super::rc_leak_message(-2).is_some());
     }
 }

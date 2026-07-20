@@ -22,6 +22,13 @@ net = ["json", "dep:ureq", "dep:httparse"]
 sql = ["dep:rusqlite", "dep:postgres", "dep:mysql"]
 sync = []
 full = ["core", "json", "csv", "net", "sql", "sync"]
+# Debug/CI-only: track live reference-counted Value blocks and abort a compiled
+# program at exit if any survive teardown, catching leaked module globals
+# (mux-compiler#284) exactly rather than via Valgrind's still-reachable heuristic.
+# Deliberately NOT part of `full`/`default`, so release builds pay nothing and
+# the compiler's full-feature parity test is unaffected. Enable it only for the
+# runtime linked into the compiler's leak-check CI leg.
+rc-leak-check = []
 
 [dependencies]
 ordered-float = "4.0"
