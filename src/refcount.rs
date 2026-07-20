@@ -80,18 +80,29 @@ fn arm_rc_leak_check() {
     {
         use std::sync::Once;
         static ARMED: Once = Once::new();
-        ARMED.call_once(|| unsafe {
-            libc::atexit(check_live_rc_blocks_at_exit);
+        ARMED.call_once(|| {
+            // SAFETY: `check_live_rc_blocks_at_exit` is an `extern "C" fn()`, the
+            // signature `atexit` requires, and `Once` guarantees this runs at
+            // most once, so the handler is never registered twice.
+            unsafe {
+                libc::atexit(check_live_rc_blocks_at_exit);
+            }
         });
     }
 }
 
-/// atexit handler: runs after the compiler-emitted global teardown has decref'd
-/// every module constant. If any block is still live, report it and force a
-/// nonzero exit. `_exit` is used rather than `std::process::exit` because
-/// calling `exit` from within an atexit handler is undefined behavior; `_exit`
-/// terminates immediately with the given status (101, matching Rust's own
-/// abnormal-exit code).
+/// atexit handler that asserts no reference-counted block outlived teardown.
+///
+/// This depends on an ordering invariant: the compiler emits global teardown as
+/// INLINE code that runs before `main` returns, so teardown completes before
+/// libc starts running atexit handlers. If teardown were ever moved into its own
+/// atexit handler, LIFO ordering could run this check first and falsely report a
+/// leak - global teardown must stay inline.
+///
+/// `_exit` is used rather than `std::process::exit` because calling `exit` from
+/// within an atexit handler is undefined behavior; `_exit` terminates
+/// immediately with the given status (101, matching Rust's own abnormal-exit
+/// code).
 #[cfg(all(feature = "rc-leak-check", not(test)))]
 extern "C" fn check_live_rc_blocks_at_exit() {
     // A panic skipped global teardown on purpose; do not misreport that as a
@@ -102,6 +113,9 @@ extern "C" fn check_live_rc_blocks_at_exit() {
     let live = LIVE_RC_BLOCKS.load(Ordering::SeqCst);
     if let Some(message) = rc_leak_message(live) {
         eprintln!("{message}");
+        // SAFETY: `_exit` terminates the process immediately without running
+        // further atexit handlers or Rust destructors, and no memory is accessed
+        // after this call, so there are no invariants left to uphold.
         unsafe { libc::_exit(101) };
     }
 }
