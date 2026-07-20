@@ -11,6 +11,9 @@ fn emit_panic(message: &str, loc: Option<String>) -> ! {
     if let Some(loc) = loc {
         eprintln!("--> {}", loc);
     }
+    // A panic bypasses global teardown, so tell the leak-check (when built in)
+    // not to report the still-live blocks or override this exit code.
+    crate::refcount::note_panic_for_leak_check();
     std::process::exit(1);
 }
 
