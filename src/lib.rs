@@ -92,6 +92,14 @@ impl fmt::Display for Tuple {
 /// reference-counted payloads. Emitted by the compiler per enum (issue #309).
 pub type EnumGlueFn = extern "C" fn(*mut u8);
 
+/// Structural three-way comparison of two boxed enums of the same enum type,
+/// returning a negative, zero, or positive `i32` like `Ord::cmp`. Emitted by the
+/// compiler per enum: it compares discriminants, then each payload field by
+/// value (recursing into nested enums and delegating pointer payloads to
+/// `mux_value_compare`), so a payload-carrying enum orders and de-duplicates
+/// correctly as a map key or set member (issue #309).
+pub type EnumCmpFn = extern "C" fn(*mut u8, *mut u8) -> i32;
+
 /// An enum that carries reference-counted payloads, boxed as a first-class
 /// Value with value semantics. Unlike a raw `Opaque` (whose bytes may hold
 /// payload pointers the runtime cannot see), a `BoxedEnum` runs the compiler's
@@ -104,24 +112,31 @@ pub type EnumGlueFn = extern "C" fn(*mut u8);
 /// payloads (i32 discriminant, i64/pointer/f64 fields) need at most 8-byte
 /// alignment, so a `u64` backing store satisfies every layout.
 ///
-/// Equality, ordering, and hashing compare the raw inline bytes. Because the
-/// clone glue re-points payloads to independent allocations, two logically equal
-/// clones compare unequal (their payload pointers differ). This matches the
-/// pre-existing `Opaque` behavior and means a payload-carrying enum is not a
-/// reliable map key or set member by value; #309 targets enums as collection
-/// elements and values, not keys.
+/// Equality, ordering, and hashing are structural, delegating to the compiler's
+/// per-enum `cmp_glue`: it compares discriminants and payloads by value, so two
+/// logically equal clones (whose payload pointers differ) compare equal and a
+/// payload-carrying enum works as a map key or set member. Hashing uses only the
+/// discriminant, which is cheap and consistent with the structural equality
+/// (equal enums share a discriminant); Mux's map/set are `BTreeMap`/`BTreeSet`
+/// and order by `cmp_glue`, so the coarse hash never affects them.
 pub struct BoxedEnum {
     words: Box<[u64]>,
     len: usize,
     clone_glue: EnumGlueFn,
     drop_glue: EnumGlueFn,
+    cmp_glue: EnumCmpFn,
 }
 
 impl BoxedEnum {
     /// Box `src` bytes into an 8-aligned backing store. Does not run the clone
     /// glue; callers that need an independent copy of the payloads (the boxing
     /// ABI) run `clone_glue` on `as_mut_ptr()` afterward.
-    pub fn from_bytes(src: &[u8], clone_glue: EnumGlueFn, drop_glue: EnumGlueFn) -> Self {
+    pub fn from_bytes(
+        src: &[u8],
+        clone_glue: EnumGlueFn,
+        drop_glue: EnumGlueFn,
+        cmp_glue: EnumCmpFn,
+    ) -> Self {
         let mut words = vec![0u64; src.len().div_ceil(8).max(1)].into_boxed_slice();
         // SAFETY: `words` provides at least `src.len()` bytes of 8-aligned,
         // writable storage, and `src` is a distinct readable slice.
@@ -137,6 +152,7 @@ impl BoxedEnum {
             len: src.len(),
             clone_glue,
             drop_glue,
+            cmp_glue,
         }
     }
 
@@ -155,6 +171,30 @@ impl BoxedEnum {
     pub fn as_ptr(&self) -> *const u8 {
         self.words.as_ptr() as *const u8
     }
+
+    /// The enum's discriminant (the first four bytes of the inline struct), used
+    /// as the hash so equal enums (which share a discriminant) hash equally.
+    fn discriminant(&self) -> u32 {
+        let b = self.bytes();
+        if b.len() >= 4 {
+            u32::from_ne_bytes([b[0], b[1], b[2], b[3]])
+        } else {
+            0
+        }
+    }
+
+    /// Structural ordering. Two enums of the same type share a `cmp_glue`, so it
+    /// does the comparison; enums of different types (never mixed in a
+    /// well-typed collection) fall back to a stable order on the glue address.
+    fn compare(&self, other: &BoxedEnum) -> cmp::Ordering {
+        if (self.cmp_glue as usize) == (other.cmp_glue as usize) {
+            // The glue only reads its operands; the *mut is C-ABI convention.
+            let ordering = (self.cmp_glue)(self.as_ptr() as *mut u8, other.as_ptr() as *mut u8);
+            ordering.cmp(&0)
+        } else {
+            (self.cmp_glue as usize).cmp(&(other.cmp_glue as usize))
+        }
+    }
 }
 
 impl Clone for BoxedEnum {
@@ -166,6 +206,7 @@ impl Clone for BoxedEnum {
             len: self.len,
             clone_glue: self.clone_glue,
             drop_glue: self.drop_glue,
+            cmp_glue: self.cmp_glue,
         };
         (cloned.clone_glue)(cloned.as_mut_ptr());
         cloned
@@ -221,7 +262,7 @@ impl PartialEq for Value {
                 a.ptr() == b.ptr() && a.type_id() == b.type_id()
             }
             (Value::Opaque(a), Value::Opaque(b)) => a == b,
-            (Value::BoxedEnum(a), Value::BoxedEnum(b)) => a.bytes() == b.bytes(),
+            (Value::BoxedEnum(a), Value::BoxedEnum(b)) => a.compare(b) == cmp::Ordering::Equal,
             _ => false,
         }
     }
@@ -258,7 +299,9 @@ impl hash::Hash for Value {
                 obj.type_id().hash(state);
             }
             Value::Opaque(bytes) => bytes.hash(state),
-            Value::BoxedEnum(be) => be.bytes().hash(state),
+            // Hash the discriminant only: cheap and consistent with the
+            // structural equality above (equal enums share a discriminant).
+            Value::BoxedEnum(be) => be.discriminant().hash(state),
         }
     }
 }
@@ -315,7 +358,7 @@ impl Ord for Value {
                 (a.type_id(), a.ptr() as usize).cmp(&(b.type_id(), b.ptr() as usize))
             }
             (Value::Opaque(a), Value::Opaque(b)) => a.cmp(b),
-            (Value::BoxedEnum(a), Value::BoxedEnum(b)) => a.bytes().cmp(b.bytes()),
+            (Value::BoxedEnum(a), Value::BoxedEnum(b)) => a.compare(b),
             _ => self.variant_order().cmp(&other.variant_order()),
         }
     }

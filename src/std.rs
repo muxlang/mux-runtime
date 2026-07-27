@@ -382,6 +382,24 @@ pub extern "C" fn mux_value_equal(a: *const Value, b: *const Value) -> i32 {
     }
 }
 
+/// Three-way compare two Value pointers, returning -1, 0, or 1 like `Ord::cmp`.
+/// Used by the compiler's enum comparison glue to order payload fields by value
+/// (issue #309). A null pointer orders before any non-null value.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[unsafe(no_mangle)]
+pub extern "C" fn mux_value_compare(a: *const Value, b: *const Value) -> i32 {
+    match (a.is_null(), b.is_null()) {
+        (true, true) => 0,
+        (true, false) => -1,
+        (false, true) => 1,
+        (false, false) => match unsafe { (*a).cmp(&*b) } {
+            std::cmp::Ordering::Less => -1,
+            std::cmp::Ordering::Equal => 0,
+            std::cmp::Ordering::Greater => 1,
+        },
+    }
+}
+
 /// Compare two Value pointers for inequality
 /// Returns 1 if not equal, 0 if equal
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
@@ -442,9 +460,10 @@ pub extern "C" fn mux_box_enum_managed(
     size: usize,
     clone_glue: crate::EnumGlueFn,
     drop_glue: crate::EnumGlueFn,
+    cmp_glue: crate::EnumCmpFn,
 ) -> *mut Value {
     let slice = unsafe { std::slice::from_raw_parts(ptr, size) };
-    let mut boxed = crate::BoxedEnum::from_bytes(slice, clone_glue, drop_glue);
+    let mut boxed = crate::BoxedEnum::from_bytes(slice, clone_glue, drop_glue, cmp_glue);
     // The byte copy still aliases the source's payloads; deep-clone them so the
     // boxed value is independent of the source.
     (clone_glue)(boxed.as_mut_ptr());
