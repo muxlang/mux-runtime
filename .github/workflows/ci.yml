@@ -22,6 +22,7 @@ jobs:
           filters: |
             runtime_src:
               - 'src/**'
+              - 'examples/**'
               - 'benches/**'
               - 'Cargo.toml'
               - 'Cargo.lock'
@@ -97,6 +98,26 @@ jobs:
           name: coverage-lcov
           path: lcov.info
           if-no-files-found: error
+      # Companion to the compiler's RC Leak Check leg (muxlang/mux-compiler#295),
+      # for runtime code itself (issue #22, part 1). The Valgrind job ignores
+      # still-reachable, so a never-released refcounted allocation - reachable by
+      # definition - slips past it. The rc-leak-check feature's atexit handler
+      # counts live RC blocks exactly and exits 101 if any survive. A plain test
+      # cannot arm it (the handler is cfg(not(test))), so run a tiny probe both
+      # ways: a released block exits 0, a leaked one must exit 101.
+      - name: RC leak-check probe (control and leak)
+        run: |
+          cargo build --example rc_leak_check_probe --features rc-leak-check
+          ./target/debug/examples/rc_leak_check_probe clean
+          set +e
+          ./target/debug/examples/rc_leak_check_probe leak
+          code=$?
+          set -e
+          if [ "$code" -ne 101 ]; then
+            echo "::error::rc-leak-check probe should exit 101 on a leaked block, got ${code}"
+            exit 1
+          fi
+          echo "Leaked RC block correctly detected (exit 101)."
 
   benchmarks:
     name: Benchmarks (report-only)
