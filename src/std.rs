@@ -420,8 +420,9 @@ pub extern "C" fn mux_value_unbox_enum(val: *mut Value) -> *mut u8 {
         match &*val {
             Value::Opaque(data) => data.as_ptr() as *mut u8,
             // A payload-carrying enum is a managed BoxedEnum rather than a raw
-            // Opaque, but its inline struct bytes are read the same way.
-            Value::BoxedEnum(be) => be.bytes.as_ptr() as *mut u8,
+            // Opaque, but its inline struct bytes are read the same way (from an
+            // 8-aligned backing store).
+            Value::BoxedEnum(be) => be.as_ptr() as *mut u8,
             _ => std::ptr::null_mut(),
         }
     }
@@ -443,15 +444,11 @@ pub extern "C" fn mux_box_enum_managed(
     drop_glue: crate::EnumGlueFn,
 ) -> *mut Value {
     let slice = unsafe { std::slice::from_raw_parts(ptr, size) };
-    let mut bytes: Box<[u8]> = slice.to_vec().into_boxed_slice();
+    let mut boxed = crate::BoxedEnum::from_bytes(slice, clone_glue, drop_glue);
     // The byte copy still aliases the source's payloads; deep-clone them so the
     // boxed value is independent of the source.
-    (clone_glue)(bytes.as_mut_ptr());
-    mux_rc_alloc(Value::BoxedEnum(crate::BoxedEnum {
-        bytes,
-        clone_glue,
-        drop_glue,
-    }))
+    (clone_glue)(boxed.as_mut_ptr());
+    mux_rc_alloc(Value::BoxedEnum(boxed))
 }
 
 // Proper Value cleanup function

@@ -98,35 +98,90 @@ pub type EnumGlueFn = extern "C" fn(*mut u8);
 /// glue on `Clone` and `Drop`, so a payload-carrying enum copies and frees
 /// correctly wherever the runtime manages it - crucially inside collections,
 /// whose insert/read helpers `clone()` their elements (issue #309).
+///
+/// The inline struct bytes are backed by a `Box<[u64]>` so the pointer handed to
+/// the compiler's typed glue and to unboxing is 8-byte aligned; an enum's
+/// payloads (i32 discriminant, i64/pointer/f64 fields) need at most 8-byte
+/// alignment, so a `u64` backing store satisfies every layout.
+///
+/// Equality, ordering, and hashing compare the raw inline bytes. Because the
+/// clone glue re-points payloads to independent allocations, two logically equal
+/// clones compare unequal (their payload pointers differ). This matches the
+/// pre-existing `Opaque` behavior and means a payload-carrying enum is not a
+/// reliable map key or set member by value; #309 targets enums as collection
+/// elements and values, not keys.
 pub struct BoxedEnum {
-    pub bytes: Box<[u8]>,
-    pub clone_glue: EnumGlueFn,
-    pub drop_glue: EnumGlueFn,
+    words: Box<[u64]>,
+    len: usize,
+    clone_glue: EnumGlueFn,
+    drop_glue: EnumGlueFn,
+}
+
+impl BoxedEnum {
+    /// Box `src` bytes into an 8-aligned backing store. Does not run the clone
+    /// glue; callers that need an independent copy of the payloads (the boxing
+    /// ABI) run `clone_glue` on `as_mut_ptr()` afterward.
+    pub fn from_bytes(src: &[u8], clone_glue: EnumGlueFn, drop_glue: EnumGlueFn) -> Self {
+        let mut words = vec![0u64; src.len().div_ceil(8).max(1)].into_boxed_slice();
+        // SAFETY: `words` provides at least `src.len()` bytes of 8-aligned,
+        // writable storage, and `src` is a distinct readable slice.
+        unsafe {
+            rust_std::ptr::copy_nonoverlapping(
+                src.as_ptr(),
+                words.as_mut_ptr() as *mut u8,
+                src.len(),
+            );
+        }
+        BoxedEnum {
+            words,
+            len: src.len(),
+            clone_glue,
+            drop_glue,
+        }
+    }
+
+    /// Read-only view of the inline enum struct bytes.
+    pub fn bytes(&self) -> &[u8] {
+        // SAFETY: `len` bytes were initialized from the source in `from_bytes`.
+        unsafe { rust_std::slice::from_raw_parts(self.words.as_ptr() as *const u8, self.len) }
+    }
+
+    /// 8-aligned pointer to the inline enum struct, for the compiler's glue.
+    pub fn as_mut_ptr(&mut self) -> *mut u8 {
+        self.words.as_mut_ptr() as *mut u8
+    }
+
+    /// 8-aligned read pointer to the inline enum struct, for unboxing.
+    pub fn as_ptr(&self) -> *const u8 {
+        self.words.as_ptr() as *const u8
+    }
 }
 
 impl Clone for BoxedEnum {
     fn clone(&self) -> Self {
         // Copy the inline struct, then deep-clone its payloads in place so the
         // clone shares nothing with the source.
-        let mut bytes = self.bytes.clone();
-        (self.clone_glue)(bytes.as_mut_ptr());
-        BoxedEnum {
-            bytes,
+        let mut cloned = BoxedEnum {
+            words: self.words.clone(),
+            len: self.len,
             clone_glue: self.clone_glue,
             drop_glue: self.drop_glue,
-        }
+        };
+        (cloned.clone_glue)(cloned.as_mut_ptr());
+        cloned
     }
 }
 
 impl Drop for BoxedEnum {
     fn drop(&mut self) {
-        (self.drop_glue)(self.bytes.as_mut_ptr());
+        let drop_glue = self.drop_glue;
+        drop_glue(self.as_mut_ptr());
     }
 }
 
 impl fmt::Debug for BoxedEnum {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "BoxedEnum({} bytes)", self.bytes.len())
+        write!(f, "BoxedEnum({} bytes)", self.len)
     }
 }
 
@@ -166,7 +221,7 @@ impl PartialEq for Value {
                 a.ptr() == b.ptr() && a.type_id() == b.type_id()
             }
             (Value::Opaque(a), Value::Opaque(b)) => a == b,
-            (Value::BoxedEnum(a), Value::BoxedEnum(b)) => a.bytes == b.bytes,
+            (Value::BoxedEnum(a), Value::BoxedEnum(b)) => a.bytes() == b.bytes(),
             _ => false,
         }
     }
@@ -203,7 +258,7 @@ impl hash::Hash for Value {
                 obj.type_id().hash(state);
             }
             Value::Opaque(bytes) => bytes.hash(state),
-            Value::BoxedEnum(be) => be.bytes.hash(state),
+            Value::BoxedEnum(be) => be.bytes().hash(state),
         }
     }
 }
@@ -260,7 +315,7 @@ impl Ord for Value {
                 (a.type_id(), a.ptr() as usize).cmp(&(b.type_id(), b.ptr() as usize))
             }
             (Value::Opaque(a), Value::Opaque(b)) => a.cmp(b),
-            (Value::BoxedEnum(a), Value::BoxedEnum(b)) => a.bytes.cmp(&b.bytes),
+            (Value::BoxedEnum(a), Value::BoxedEnum(b)) => a.bytes().cmp(b.bytes()),
             _ => self.variant_order().cmp(&other.variant_order()),
         }
     }
@@ -316,7 +371,7 @@ impl fmt::Display for Value {
                 write!(f, "<Opaque {} bytes>", bytes.len())
             }
             Value::BoxedEnum(be) => {
-                write!(f, "<enum {} bytes>", be.bytes.len())
+                write!(f, "<enum {} bytes>", be.len)
             }
         }
     }
