@@ -87,6 +87,49 @@ impl fmt::Display for Tuple {
     }
 }
 
+/// Glue applied in place to the inline bytes of a boxed enum, deep-cloning
+/// (`clone_glue`) or releasing (`drop_glue`) the active variant's
+/// reference-counted payloads. Emitted by the compiler per enum (issue #309).
+pub type EnumGlueFn = extern "C" fn(*mut u8);
+
+/// An enum that carries reference-counted payloads, boxed as a first-class
+/// Value with value semantics. Unlike a raw `Opaque` (whose bytes may hold
+/// payload pointers the runtime cannot see), a `BoxedEnum` runs the compiler's
+/// glue on `Clone` and `Drop`, so a payload-carrying enum copies and frees
+/// correctly wherever the runtime manages it - crucially inside collections,
+/// whose insert/read helpers `clone()` their elements (issue #309).
+pub struct BoxedEnum {
+    pub bytes: Box<[u8]>,
+    pub clone_glue: EnumGlueFn,
+    pub drop_glue: EnumGlueFn,
+}
+
+impl Clone for BoxedEnum {
+    fn clone(&self) -> Self {
+        // Copy the inline struct, then deep-clone its payloads in place so the
+        // clone shares nothing with the source.
+        let mut bytes = self.bytes.clone();
+        (self.clone_glue)(bytes.as_mut_ptr());
+        BoxedEnum {
+            bytes,
+            clone_glue: self.clone_glue,
+            drop_glue: self.drop_glue,
+        }
+    }
+}
+
+impl Drop for BoxedEnum {
+    fn drop(&mut self) {
+        (self.drop_glue)(self.bytes.as_mut_ptr());
+    }
+}
+
+impl fmt::Debug for BoxedEnum {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "BoxedEnum({} bytes)", self.bytes.len())
+    }
+}
+
 #[derive(Clone, Debug)]
 pub enum Value {
     Unit,
@@ -102,6 +145,7 @@ pub enum Value {
     Result(Result<Box<Value>, Box<Value>>),
     Object(ObjectRef),
     Opaque(Box<[u8]>),
+    BoxedEnum(BoxedEnum),
 }
 
 impl PartialEq for Value {
@@ -122,6 +166,7 @@ impl PartialEq for Value {
                 a.ptr() == b.ptr() && a.type_id() == b.type_id()
             }
             (Value::Opaque(a), Value::Opaque(b)) => a == b,
+            (Value::BoxedEnum(a), Value::BoxedEnum(b)) => a.bytes == b.bytes,
             _ => false,
         }
     }
@@ -158,6 +203,7 @@ impl hash::Hash for Value {
                 obj.type_id().hash(state);
             }
             Value::Opaque(bytes) => bytes.hash(state),
+            Value::BoxedEnum(be) => be.bytes.hash(state),
         }
     }
 }
@@ -170,7 +216,9 @@ impl PartialOrd for Value {
 
 impl Value {
     pub fn type_tag(&self) -> i32 {
-        const TAG_BY_ORDER: [i32; 13] = [11, 0, 1, 2, 3, 4, 5, 6, 10, 7, 8, 9, 12];
+        // A BoxedEnum shares the Opaque tag (12): both wrap inline enum bytes and
+        // are indistinguishable to the language's type reflection.
+        const TAG_BY_ORDER: [i32; 14] = [11, 0, 1, 2, 3, 4, 5, 6, 10, 7, 8, 9, 12, 12];
         TAG_BY_ORDER[self.variant_order() as usize]
     }
 
@@ -189,6 +237,7 @@ impl Value {
             Value::Result(_) => 10,
             Value::Object(_) => 11,
             Value::Opaque(_) => 12,
+            Value::BoxedEnum(_) => 13,
         }
     }
 }
@@ -211,6 +260,7 @@ impl Ord for Value {
                 (a.type_id(), a.ptr() as usize).cmp(&(b.type_id(), b.ptr() as usize))
             }
             (Value::Opaque(a), Value::Opaque(b)) => a.cmp(b),
+            (Value::BoxedEnum(a), Value::BoxedEnum(b)) => a.bytes.cmp(&b.bytes),
             _ => self.variant_order().cmp(&other.variant_order()),
         }
     }
@@ -264,6 +314,9 @@ impl fmt::Display for Value {
             }
             Value::Opaque(bytes) => {
                 write!(f, "<Opaque {} bytes>", bytes.len())
+            }
+            Value::BoxedEnum(be) => {
+                write!(f, "<enum {} bytes>", be.bytes.len())
             }
         }
     }
