@@ -382,6 +382,24 @@ pub extern "C" fn mux_value_equal(a: *const Value, b: *const Value) -> i32 {
     }
 }
 
+/// Three-way compare two Value pointers, returning -1, 0, or 1 like `Ord::cmp`.
+/// Used by the compiler's enum comparison glue to order payload fields by value
+/// (issue #309). A null pointer orders before any non-null value.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[unsafe(no_mangle)]
+pub extern "C" fn mux_value_compare(a: *const Value, b: *const Value) -> i32 {
+    match (a.is_null(), b.is_null()) {
+        (true, true) => 0,
+        (true, false) => -1,
+        (false, true) => 1,
+        (false, false) => match unsafe { (*a).cmp(&*b) } {
+            std::cmp::Ordering::Less => -1,
+            std::cmp::Ordering::Equal => 0,
+            std::cmp::Ordering::Greater => 1,
+        },
+    }
+}
+
 /// Compare two Value pointers for inequality
 /// Returns 1 if not equal, 0 if equal
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
@@ -419,9 +437,37 @@ pub extern "C" fn mux_value_unbox_enum(val: *mut Value) -> *mut u8 {
     unsafe {
         match &*val {
             Value::Opaque(data) => data.as_ptr() as *mut u8,
+            // A payload-carrying enum is a managed BoxedEnum rather than a raw
+            // Opaque, but its inline struct bytes are read the same way (from an
+            // 8-aligned backing store).
+            Value::BoxedEnum(be) => be.as_ptr() as *mut u8,
             _ => std::ptr::null_mut(),
         }
     }
+}
+
+/// Box an enum that owns reference-counted payloads into a managed `BoxedEnum`
+/// Value (issue #309). `clone_glue` / `drop_glue` are the compiler-emitted
+/// in-place deep-clone and drop glue for this enum. The `size` bytes at `ptr`
+/// are copied and then deep-cloned via `clone_glue`, so the returned value owns
+/// payloads independent of the source (which the caller still releases); from
+/// then on `Clone` and `Drop` keep the enum's payloads correct wherever the
+/// runtime manages it - notably inside collections.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[unsafe(no_mangle)]
+pub extern "C" fn mux_box_enum_managed(
+    ptr: *mut u8,
+    size: usize,
+    clone_glue: crate::EnumGlueFn,
+    drop_glue: crate::EnumGlueFn,
+    cmp_glue: crate::EnumCmpFn,
+) -> *mut Value {
+    let slice = unsafe { std::slice::from_raw_parts(ptr, size) };
+    let mut boxed = crate::BoxedEnum::from_bytes(slice, clone_glue, drop_glue, cmp_glue);
+    // The byte copy still aliases the source's payloads; deep-clone them so the
+    // boxed value is independent of the source.
+    (clone_glue)(boxed.as_mut_ptr());
+    mux_rc_alloc(Value::BoxedEnum(boxed))
 }
 
 // Proper Value cleanup function

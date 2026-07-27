@@ -198,6 +198,9 @@ fn deep_clone_value(val: &Value) -> Value {
             result
         },
         Value::Opaque(bytes) => Value::Opaque(bytes.clone()),
+        // BoxedEnum::clone runs the enum's deep-clone glue, so the copy owns
+        // independent payloads.
+        Value::BoxedEnum(be) => Value::BoxedEnum(be.clone()),
     }
 }
 
