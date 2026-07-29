@@ -65,8 +65,9 @@ merge (shared CI runners are too noisy for a wall-clock threshold).
 
 The compiler does not import this crate as Rust code - it links the built library
 when producing executables. It resolves this repo as a git dependency on `main`,
-pinned to an exact commit by its `Cargo.lock`, and builds the library from the
-checkout cargo makes for that commit.
+pinned to an exact commit by its `Cargo.lock`, and links the archive cargo builds
+into its `target/` directory. Producing that archive takes `cargo build -p
+mux-runtime`: cargo emits a dependency's rlib and never its staticlib.
 
 For coupled local development, build this repo and point `MUX_RUNTIME_LIB` at the
 resulting `target/debug/libmux_runtime.a`. That is the first thing the compiler
