@@ -26,6 +26,10 @@ jobs:
               - 'benches/**'
               - 'Cargo.toml'
               - 'Cargo.lock'
+              # A workflow-only change would otherwise skip every job here,
+              # including the one being changed - so CI edits would ship
+              # unexercised.
+              - '.github/workflows/**'
 
   rust_checks:
     name: Rust Checks
