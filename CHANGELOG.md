@@ -2,8 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+
+Versions through 0.5.0 were published to crates.io. That channel is now frozen:
+`mux-compiler` consumes this repo as a git dependency pinned to a commit by its
+`Cargo.lock`, so merging to `main` is what makes a change available and there is
+no version to bump. Record changes under `Unreleased` as part of the change
+itself - see
+[ADR 0004](https://github.com/muxlang/mux-context/blob/main/docs/decisions/0004-runtime-resolved-from-source.md).
+
+## [Unreleased]
+
+Nothing yet.
 
 ## [0.5.0] - 2026-07-13
 
