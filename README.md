@@ -68,11 +68,15 @@ when producing executables. It resolves this repo as a git dependency on `main`,
 pinned to an exact commit by its `Cargo.lock`, and builds the library from the
 checkout cargo makes for that commit.
 
-For coupled local development, check this repo out as a sibling of
-`mux-compiler` (the compiler resolves `../mux-runtime` automatically) or set
-`MUX_RUNTIME_SRC` to a local checkout. Both take precedence over the locked
-commit, so remember they are there - a stale sibling silently shadows the commit
-`Cargo.lock` names.
+For coupled local development, build this repo and point `MUX_RUNTIME_LIB` at the
+resulting `target/debug/libmux_runtime.a`. That is the first thing the compiler
+consults, so it overrides the library cargo built from the locked commit -
+which also means a leftover `MUX_RUNTIME_LIB` will keep overriding it until you
+unset it.
+
+The compiler never builds this crate while compiling a Mux program, and always
+links the `full` feature set. Static linking discards archive members nothing
+references, so a program that does not touch `sql` carries no SQLite.
 
 ---
 
