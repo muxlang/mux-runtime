@@ -7,7 +7,6 @@
 **The runtime and standard library for [Mux](https://github.com/muxlang)**
 
 [![License](https://img.shields.io/badge/license-MIT-green.svg?style=flat-square)](LICENSE)
-[![crates.io](https://img.shields.io/crates/v/mux-runtime.svg?style=flat-square)](https://crates.io/crates/mux-runtime)
 [![Documentation](https://img.shields.io/badge/docs-online-blue.svg?style=flat-square)](https://mux-lang.dev)
 [![Sonar Quality Gate](https://sonarcloud.io/api/project_badges/measure?project=muxlang_mux-runtime&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=muxlang_mux-runtime)
 [![Coverage](https://sonarcloud.io/api/project_badges/measure?project=muxlang_mux-runtime&metric=coverage)](https://sonarcloud.io/summary/new_code?id=muxlang_mux-runtime)
@@ -16,8 +15,13 @@
 
 Compiled Mux programs link against this library at compile time. It is plain,
 stable Rust with **no LLVM dependency** - so runtime and standard-library work
-needs only a Rust toolchain, not the compiler's LLVM 22 + clang setup. Published
-to crates.io as [`mux-runtime`](https://crates.io/crates/mux-runtime).
+needs only a Rust toolchain, not the compiler's LLVM 22 + clang setup.
+
+> **crates.io is frozen.** Versions through 0.5.0 remain published and are not
+> yanked, but no new ones will be. `mux-compiler` consumes this repo as a git
+> dependency on `main`, pinned to an exact commit by its `Cargo.lock`, so
+> merging here is what makes a change available. See
+> [ADR 0004](https://github.com/muxlang/mux-context/blob/main/docs/decisions/0004-runtime-resolved-from-source.md).
 
 ---
 
@@ -60,19 +64,32 @@ merge (shared CI runners are too noisy for a wall-clock threshold).
 ## Relationship to the compiler
 
 The compiler does not import this crate as Rust code - it links the built library
-when producing executables and fetches the published crate from crates.io (pinning
-a compatible semver range). For coupled local development, check this repo out as a
-sibling of `mux-compiler` (the compiler resolves `../mux-runtime` automatically) or
-set `MUX_RUNTIME_SRC` to a local checkout.
+when producing executables. It resolves this repo as a git dependency on `main`,
+pinned to an exact commit by its `Cargo.lock`, and links the archive cargo builds
+into its `target/` directory. Producing that archive takes `cargo build -p
+mux-runtime`: cargo emits a dependency's rlib and never its staticlib.
+
+For coupled local development, build this repo and point `MUX_RUNTIME_LIB` at the
+resulting `target/debug/libmux_runtime.a`. That is the first thing the compiler
+consults, so it overrides the library cargo built from the locked commit -
+which also means a leftover `MUX_RUNTIME_LIB` will keep overriding it until you
+unset it.
+
+The compiler never builds this crate while compiling a Mux program, and always
+links the `full` feature set. Static linking discards archive members nothing
+references, so a program that does not touch `sql` carries no SQLite.
 
 ---
 
 ## Versioning
 
-Versioned independently of the compiler. The compiler pins a compatible semver
-range and `mux --version` reports both, e.g. `mux 0.5.1 (runtime 0.5.0)`. A
-coupled change ships as two steps: publish the runtime first, then bump the
-compiler's `mux-runtime` pin.
+The compiler identifies this repo by commit, not by version: `mux version`
+reports the locked commit as semver build metadata, e.g.
+`runtime v0.5.0+g4e2dc14`. A coupled change is one PR here and one in
+`mux-compiler` - no publish step between them.
+
+The `version` field in `Cargo.toml` is inert while crates.io is frozen. Record
+changes under an `## [Unreleased]` heading in the changelog instead.
 
 Full release steps:
 [muxlang/mux-context release process](https://github.com/muxlang/mux-context/blob/main/docs/release-process.md#mux-runtime).

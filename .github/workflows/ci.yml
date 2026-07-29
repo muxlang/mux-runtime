@@ -197,8 +197,12 @@ jobs:
       LLVM_SYS_221_STRICT_VERSIONING: "1"
       CC: clang-22
       CXX: clang++-22
-      # Build the runtime from THIS PR's checked-out source, not from crates.io.
-      MUX_RUNTIME_SRC: ${{ github.workspace }}
+      # Force the archive built from THIS PR's source below. The compiler no
+      # longer reads MUX_RUNTIME_SRC and never builds a runtime while compiling
+      # a program (muxlang/mux-context ADR 0004), so without this it would link
+      # the runtime its own Cargo.lock pins and this job would silently stop
+      # testing the runtime under review.
+      MUX_RUNTIME_LIB: ${{ github.workspace }}/target/debug/libmux_runtime.a
     steps:
       - name: Check out runtime (this PR)
         uses: actions/checkout@v4
@@ -223,9 +227,9 @@ jobs:
       - name: Cache Cargo registry and build
         uses: actions/cache@v4
         with:
-          # Intentionally NOT caching ~/.cache/mux-lang: the compiler builds the
-          # runtime from source there, and this job exists to exercise THIS
-          # branch's runtime source, so it must rebuild it fresh every run.
+          # The runtime archive itself is rebuilt from this checkout every run
+          # (below) rather than restored, since exercising THIS branch's source
+          # is the whole point of the job.
           path: |
             ~/.cargo/registry
             ~/.cargo/git
@@ -234,6 +238,15 @@ jobs:
           key: ${{ runner.os }}-downstream-cargo-${{ hashFiles('mux-compiler/Cargo.lock') }}-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-downstream-cargo-
+      - name: Build this PR's runtime archive
+        # Compiled Mux programs link libmux_runtime.a, and cargo emits a
+        # dependency's rlib but never its staticlib - so the archive has to be
+        # built here explicitly, from this checkout.
+        run: |
+          set -euo pipefail
+          cargo build --locked
+          test -f "$MUX_RUNTIME_LIB"
+
       - name: Compiler executable integration tests against runtime source
         # These tests compile and link .mux programs end to end, so an
         # undefined-symbol / FFI-signature break in the runtime fails here.

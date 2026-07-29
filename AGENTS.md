@@ -82,19 +82,24 @@ No LLVM/clang needed. CI runs fmt + clippy + tests + a SonarQube scan.
 - The compiler links the BUILT library; it does NOT import this crate's Rust code.
 - Changing exported FFI symbols/signatures is a coupled change with the compiler.
 - A coupled change (a new language feature needing a new runtime function) ships in
-  TWO steps: publish the runtime (new version) first, then bump the compiler's
-  `mux-runtime = "X.Y"` pin.
-- Local coupled dev: check this out as a sibling of `mux-compiler` (resolved as
-  `../mux-runtime` automatically) or set `MUX_RUNTIME_SRC`.
-- The compiler's `full_runtime_features()` parity test reads this `Cargo.toml`'s
-  `full` feature list - keep them in sync.
+  ONE step per repo and no publish: merge here, then move the compiler's pin with
+  `cargo update -p mux-runtime`. See
+  [ADR 0004](https://github.com/muxlang/mux-context/blob/main/docs/decisions/0004-runtime-resolved-from-source.md).
+- Local coupled dev: build here and point `MUX_RUNTIME_LIB` at the resulting
+  `target/debug/libmux_runtime.a`. It is the first thing runtime resolution
+  consults, so it overrides the archive built from the locked commit - and a
+  leftover value keeps overriding it until unset.
+- The compiler always links the `full` feature set; it no longer builds a
+  feature-trimmed runtime, so there is no feature-parity test to keep in sync.
 
 ## Release
 
-Versioned independently of the compiler. Published manually from a local checkout
-(MAINTAINER-ONLY, no token in CI). Full steps:
+Not released on its own cadence. crates.io is frozen (versions through 0.5.0 stay
+published, no new ones), and `mux-compiler` consumes this repo as a git dependency
+pinned by its `Cargo.lock` - so merging to `main` is what makes a change
+available. The `version` field is inert while the channel is frozen; record
+changes under an `## [Unreleased]` changelog heading. Full steps:
 [muxlang/mux-context release process](https://github.com/muxlang/mux-context/blob/main/docs/release-process.md#mux-runtime).
-Publish the runtime before bumping the compiler's `mux-runtime` pin.
 
 ## Related repos
 
