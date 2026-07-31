@@ -6,6 +6,12 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
 
+concurrency:
+  # A newer push supersedes an in-flight PR run. A push to main is never
+  # cancelled: its run is the authoritative record for that commit.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   detect-changes:
     name: Detect Changed Paths
