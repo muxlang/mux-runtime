@@ -118,19 +118,7 @@ jobs:
       # cannot arm it (the handler is cfg(not(test))), so run a tiny probe both
       # ways: a released block exits 0, a leaked one must exit 101.
       - name: RC leak-check probe (control and leak)
-        run: |
-          cargo build --example rc_leak_check_probe --features rc-leak-check
-          ./target/debug/examples/rc_leak_check_probe clean
-          set +e
-          ./target/debug/examples/rc_leak_check_probe leak
-          code=$?
-          set -e
-          if [ "$code" -ne 101 ]; then
-            echo "::error::rc-leak-check probe should exit 101 on a leaked block, got ${code}"
-            exit 1
-          fi
-          echo "Leaked RC block correctly detected (exit 101)."
-
+        run: ./scripts/ci/rc-leak-probe.sh
   benchmarks:
     name: Benchmarks (report-only)
     needs: detect-changes
@@ -229,13 +217,7 @@ jobs:
         with:
           toolchain: 1.93.1
       - name: Install LLVM 22
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends ca-certificates gnupg lsb-release wget
-          sudo wget --max-redirect=0 -O /usr/share/keyrings/llvm-snapshot.gpg.key https://apt.llvm.org/llvm-snapshot.gpg.key
-          echo "deb [signed-by=/usr/share/keyrings/llvm-snapshot.gpg.key] https://apt.llvm.org/$(lsb_release -cs)/ llvm-toolchain-$(lsb_release -cs)-22 main" | sudo tee /etc/apt/sources.list.d/llvm.list
-          sudo apt-get update
-          sudo apt-get install -y llvm-22-dev clang-22 libpolly-22-dev
+        run: ./scripts/ci/install-llvm.sh
       - name: Cache Cargo registry and build
         uses: actions/cache@v4
         with:
@@ -304,34 +286,7 @@ jobs:
         # Manual Valgrind (not cargo-valgrind): it keeps the exact same flags and
         # leak policy as the compiler CI, needs no extra crate pinned in the
         # toolchain, and makes each test binary's report explicit in the log.
-        run: |
-          set -euo pipefail
-          exec > >(tee valgrind.log) 2>&1
-          # The commas below are part of the flag values, not array separators.
-          # shellcheck disable=SC2054
-          flags=(
-            --quiet
-            --error-exitcode=99
-            --leak-check=full
-            --errors-for-leak-kinds=definite,indirect
-            --show-leak-kinds=definite,indirect
-          )
-          json="$(cargo test --no-run --all-features --workspace --message-format=json)"
-          mapfile -t bins < <(printf '%s\n' "$json" \
-            | jq -r 'select(.executable != null and .profile.test == true) | .executable')
-          if [ "${#bins[@]}" -eq 0 ]; then
-            echo "No test binaries were produced" >&2
-            exit 1
-          fi
-          fail=0
-          for bin in "${bins[@]}"; do
-            echo ">>> valgrind $bin"
-            if ! valgrind "${flags[@]}" "$bin" --test-threads=1; then
-              echo "::error::Valgrind reported definite/indirect leaks or memory errors in $bin"
-              fail=1
-            fi
-          done
-          exit "$fail"
+        run: ./scripts/ci/valgrind-tests.sh
       - name: Upload valgrind log for PR comment
         # Raw log only; the trusted pr-comment workflow escapes and renders it.
         if: ${{ always() && github.event_name == 'pull_request' }}
@@ -365,35 +320,10 @@ jobs:
         uses: SonarSource/sonarqube-scan-action@a31c9398be7ace6bbfaf30c0bd5d415f843d45e9
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-      # The free SonarCloud plan locks every project to the built-in "Sonar way"
-      # gate, which only fails on rating/coverage thresholds and lets new issues
-      # (e.g. a single code smell) through. Enforce "zero new issues" ourselves:
-      # the scan above waits for analysis (sonar.qualitygate.wait), so the count
-      # is queryable here.
+      # The scan above waits for analysis (sonar.qualitygate.wait), so the
+      # new-issue count is queryable by the time this runs.
       - name: Fail on new SonarCloud issues
         if: github.event_name == 'pull_request'
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: |
-          api="https://sonarcloud.io/api/issues/search?componentKeys=muxlang_mux-runtime&pullRequest=${PR_NUMBER}&resolved=false&inNewCodePeriod=true&ps=1"
-          # Query the issues search endpoint rather than measures: its .total is
-          # always present (0 for a clean PR), so "no new issues" is never
-          # confused with "measure omitted from the response". Retry to ride out
-          # indexing lag; no readable .total after retries fails closed.
-          count=""
-          for attempt in 1 2 3 4 5; do
-            resp=$(curl -sf -u "$SONAR_TOKEN:" "$api") || { sleep 5; continue; }
-            count=$(printf '%s' "$resp" | jq -r '.total // empty')
-            [ -n "$count" ] && break
-            sleep 5
-          done
-          if [ -z "$count" ]; then
-            echo "::error::Could not read the new-issue count for PR #${PR_NUMBER} from SonarCloud after retries."
-            exit 1
-          fi
-          echo "New SonarCloud issues on PR #${PR_NUMBER}: ${count}"
-          if [ "$count" -gt 0 ]; then
-            echo "::error::${count} new SonarCloud issue(s) introduced on this PR. See https://sonarcloud.io/project/issues?id=muxlang_mux-runtime&pullRequest=${PR_NUMBER}&resolved=false"
-            exit 1
-          fi
+        run: ./scripts/ci/sonar-new-issues.sh muxlang_mux-runtime "${{ github.event.pull_request.number }}"
