@@ -57,10 +57,17 @@ jobs:
       - name: Summarize per-group medians
         if: ${{ always() }}
         run: python3 scripts/bench-summary.py target/criterion -o bench-summary.json || true
+      - name: Derive a filesystem-safe artifact suffix
+        id: label
+        # upload-artifact rejects names containing path separators and several
+        # other characters. Branch names here are slash-delimited (ci/...,
+        # docs/...), so a manual dispatch would otherwise run the whole suite and
+        # only then fail on the upload.
+        run: printf 'suffix=%s\n' "${GITHUB_REF_NAME//[^A-Za-z0-9._-]/-}" >> "$GITHUB_OUTPUT"
       - name: Upload benchmark report
         uses: actions/upload-artifact@v4
         with:
-          name: runtime-benchmark-report-${{ github.ref_name }}
+          name: runtime-benchmark-report-${{ steps.label.outputs.suffix }}
           path: |
             target/criterion/
             bench.log
