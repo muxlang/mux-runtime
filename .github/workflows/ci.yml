@@ -39,6 +39,33 @@ jobs:
               # unexercised.
               - '.github/workflows/**'
 
+  format:
+    # Formatting only. Clippy deliberately stays with rust_checks: it compiles
+    # the crate, so it needs the build cache and could never be a fast
+    # gate. rustfmt needs neither, so this reports a formatting slip in well
+    # under a minute.
+    #
+    # Not wired into the other jobs via `needs`. That would serialise this in
+    # front of every run to save compute on a rare failure - and the pre-commit
+    # hook already catches formatting locally, so the CI failures this catches
+    # are mostly fork contributors who do not have the hook.
+    name: Format
+    needs: detect-changes
+    if: ${{ needs.detect-changes.outputs.runtime_src == 'true' || github.event_name == 'push' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9
+        with:
+          toolchain: 1.93.1
+          components: rustfmt
+      - name: Formatting check
+        run: cargo fmt --check
+
   rust_checks:
     name: Rust Checks
     needs: detect-changes
@@ -98,8 +125,6 @@ jobs:
             ${{ runner.os }}-cargo-
       - name: Install cargo-llvm-cov
         run: command -v cargo-llvm-cov || cargo install cargo-llvm-cov --locked
-      - name: Formatting check
-        run: cargo fmt --check
       - name: Clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
       - name: Tests with coverage
