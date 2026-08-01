@@ -36,7 +36,10 @@ fail=0
 for bin in "${bins[@]}"; do
   echo ">>> valgrind $bin"
   if ! valgrind "${flags[@]}" "$bin" --test-threads=1; then
-    echo "::error::Valgrind reported definite/indirect leaks or memory errors in $bin"
+    # Sent to stderr per convention, which costs nothing here: the exec above
+    # points fd2 at the same tee, so this still lands in valgrind.log at the
+    # start of a line, where pr-comment.yml's failure count greps for it.
+    echo "::error::Valgrind reported definite/indirect leaks or memory errors in $bin" >&2
     fail=1
   fi
 done
