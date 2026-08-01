@@ -1,0 +1,68 @@
+name: Benchmarks
+# The criterion hot-path suite. It used to run on every push and pull request
+# while gating nothing (continue-on-error), spending ~4 minutes per run on a
+# report nobody read. It now runs where the cost buys something:
+#
+#   - on demand, when someone is actually investigating performance;
+#   - on release tags, giving a per-version series anchored to something people
+#     can correlate with.
+#
+# Deliberately NOT nightly: a nightly nobody reads is the same noise with a
+# schedule attached.
+#
+# Stays on GitHub-hosted runners. Nobody waits on this, so it is exactly the
+# workload that should never consume metered minutes.
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  # Keyed on ref so a tag run and a manual run never cancel each other. Never
+  # cancel in progress: a partial benchmark run is worse than a slow one.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  benchmarks:
+    name: Hot-path benchmark suite
+    runs-on: ubuntu-latest
+    # Runaway guard, well under GitHub's 6-hour default.
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9
+        with:
+          toolchain: 1.93.1
+      - name: Cache Cargo registry and build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cargo/bin
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+      - name: Run benchmarks
+        run: |
+          set -o pipefail
+          cargo bench --bench hot_paths 2>&1 | tee bench.log
+      - name: Summarize per-group medians
+        if: ${{ always() }}
+        run: python3 scripts/bench-summary.py target/criterion -o bench-summary.json || true
+      - name: Upload benchmark report
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-benchmark-report-${{ github.ref_name }}
+          path: |
+            target/criterion/
+            bench.log
+            bench-summary.json
+          if-no-files-found: warn
