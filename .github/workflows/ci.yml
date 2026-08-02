@@ -275,7 +275,7 @@ jobs:
         with:
           fetch-depth: 0 # Disable shallow clone for better analysis relevancy
       - name: Download coverage report
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         continue-on-error: true
         with:
           name: coverage-lcov
@@ -284,7 +284,7 @@ jobs:
         # root so the SonarQube Rust LCOV importer can match them to indexed files.
         run: '[ -f lcov.info ] && sed -i "s#${{ github.workspace }}/##g" lcov.info || true'
       - name: SonarQube Scan
-        uses: SonarSource/sonarqube-scan-action@a31c9398be7ace6bbfaf30c0bd5d415f843d45e9 # v7.0.0
+        uses: SonarSource/sonarqube-scan-action@22918119ff8e1ca75a623e15c8296b6ea4fbe28f # v8.2.1
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
       # The scan above waits for analysis (sonar.qualitygate.wait), so the
