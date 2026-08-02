@@ -55,10 +55,10 @@ jobs:
         run: ./scripts/ci/lint-workflows.sh
 
   format:
-    # Formatting only. Clippy deliberately stays with rust_checks: it compiles
-    # the crate, so it needs the build cache and could never be a fast
-    # gate. rustfmt needs neither, so this reports a formatting slip in well
-    # under a minute.
+    # Formatting only. Clippy is its own job below: it compiles the crate,
+    # so it needs the build cache and could never be a fast gate the way
+    # this one is. rustfmt needs neither, so this reports a formatting slip
+    # in well under a minute.
     #
     # Not wired into the other jobs via `needs`. That would serialise this in
     # front of every run to save compute on a rare failure - and the pre-commit
@@ -116,6 +116,76 @@ jobs:
             ${{ runner.os }}-cargo-
       - name: Clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
+
+  ab_benchmark_gate:
+    # Roc-style A/B regression gate (plan.md step 5): runs the PR head's
+    # `cargo bench` against a cached baseline built from the PR's base
+    # commit, using criterion's own --baseline comparison (not hyperfine -
+    # hot_paths.rs benchmarks run in the ns-to-low-us range, well below
+    # hyperfine's process-spawn floor). Fails only on a change that clears
+    # BOTH a relative and an absolute threshold, confirmed by a second run.
+    # See scripts/ci/ab-bench-gate.py for the full algorithm.
+    #
+    # PR-only: it needs github.event.pull_request.base.sha, which does not
+    # exist on a push event. Parallel to detect-changes (not behind
+    # rust_checks/clippy) to keep this off the slow path.
+    name: A/B Benchmark Gate
+    needs: detect-changes
+    if: ${{ github.event_name == 'pull_request' && needs.detect-changes.outputs.runtime_src == 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9 # untagged master commit; the repo's only tag (v1) is OLDER than this
+        with:
+          toolchain: 1.93.1
+      - name: Cache Cargo registry
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-bench-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-bench-
+      # Exact-SHA cache key, deliberately no restore-keys fallback: a
+      # restore-keys hit on an older base commit would silently compare the
+      # PR against the wrong baseline with nothing to signal it. Caches
+      # only the main/ subdirectories criterion writes (the saved baseline
+      # estimates), not new/report/change - much cheaper than the compiler
+      # side of this gate, which has to cache a whole binary.
+      - name: Restore or build baseline criterion data
+        id: baseline_cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: target/criterion/*/*/main
+          key: mux-runtime-ab-baseline-${{ github.event.pull_request.base.sha }}
+      - name: Checkout baseline commit
+        if: steps.baseline_cache.outputs.cache-hit != 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: baseline-src
+      - name: Save baseline benchmarks
+        if: steps.baseline_cache.outputs.cache-hit != 'true'
+        working-directory: baseline-src
+        run: cargo bench --bench hot_paths -- --save-baseline main
+      - name: Copy baseline estimates into this checkout
+        if: steps.baseline_cache.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          for d in baseline-src/target/criterion/*/*/main; do
+            rel="${d#baseline-src/target/criterion/}"
+            mkdir -p "target/criterion/${rel%/main}"
+            cp -r "$d" "target/criterion/${rel}"
+          done
+      - name: Run PR-head benchmarks against the baseline
+        run: cargo bench --bench hot_paths -- --baseline main
+      - name: Run A/B benchmark gate
+        run: python3 scripts/ci/ab-bench-gate.py
 
   rust_checks:
     name: Rust Checks
