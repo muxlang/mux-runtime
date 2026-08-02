@@ -113,7 +113,7 @@ jobs:
           toolchain: 1.93.1
           components: rustfmt, clippy, llvm-tools-preview
       - name: Cache Cargo registry and build
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/registry
@@ -186,7 +186,7 @@ jobs:
       - name: Install LLVM 22
         run: ./scripts/ci/install-llvm.sh
       - name: Cache Cargo registry and build
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           # The runtime archive itself is rebuilt from this checkout every run
           # (below) rather than restored, since exercising THIS branch's source
@@ -238,7 +238,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y valgrind
       - name: Cache Cargo registry and build
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/registry
