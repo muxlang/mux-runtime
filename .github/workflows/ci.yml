@@ -81,6 +81,42 @@ jobs:
       - name: Formatting check
         run: cargo fmt --check
 
+  clippy:
+    # Separated from rust_checks so a clippy failure is not buried behind
+    # coverage/leak-probe, and so it does not need the postgres/mysql
+    # services that back rust_checks's driver coverage. Deliberately NOT
+    # wired via `needs` into any other job (matches format's existing
+    # "don't serialize the common case" rationale): the pre-commit hook
+    # already catches clippy locally, and gating other jobs behind this to
+    # save time only on the rare failure path is the wrong trade for the
+    # common case.
+    name: Clippy
+    needs: detect-changes
+    if: ${{ needs.detect-changes.outputs.runtime_src == 'true' || github.event_name == 'push' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9 # untagged master commit; the repo's only tag (v1) is OLDER than this
+        with:
+          toolchain: 1.93.1
+          components: clippy
+      - name: Cache Cargo registry and build
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cargo/bin
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+      - name: Clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
   rust_checks:
     name: Rust Checks
     needs: detect-changes
@@ -126,7 +162,7 @@ jobs:
         uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9 # untagged master commit; the repo's only tag (v1) is OLDER than this
         with:
           toolchain: 1.93.1
-          components: rustfmt, clippy, llvm-tools-preview
+          components: rustfmt, llvm-tools-preview
       - name: Cache Cargo registry and build
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -140,8 +176,6 @@ jobs:
             ${{ runner.os }}-cargo-
       - name: Install cargo-llvm-cov
         run: command -v cargo-llvm-cov || cargo install cargo-llvm-cov --locked
-      - name: Clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
       - name: Tests with coverage
         run: cargo llvm-cov --all-features --workspace --lcov --output-path lcov.info
       - name: Upload coverage report
