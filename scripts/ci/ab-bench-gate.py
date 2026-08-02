@@ -22,14 +22,26 @@ and the PR that added this script): there is no separate "compiled output"
 to diff for a Rust microbenchmark the way there is for the compiler side
 of this gate, and a disassembly-diff analog would need a hand-maintained
 benchmark-to-FFI-symbol map for comparatively low payoff at this
-granularity, where criterion's own statistics plus the confirmation
-re-run already control noise well.
+granularity.
 
---abs-ns-threshold default is empirically chosen, not a literal port of
-Roc's 5ms: every hot_paths benchmark measured runs between ~0.9ns and
-~32us, so a millisecond-scale floor would never fire and would silently
-defeat the dual threshold's absolute half. See PCT_THRESHOLD_DEFAULT /
-ABS_NS_THRESHOLD_DEFAULT below for the reasoning.
+--pct-threshold and --abs-ns-threshold are empirically chosen, not a
+literal port of Roc's 4%/5ms - and PCT_THRESHOLD_DEFAULT specifically was
+revised upward after this gate's first real CI run: GitHub-hosted shared
+runners are noisy enough, at nanosecond scale, that 4% + one confirmation
+re-run produced 4 false positives out of 30 benchmarks in a single run
+with ZERO source changes (up to +10%, surviving the confirmation re-run
+too - so the noise was correlated enough within that run for both samples
+to agree). mux-runtime's own README already documents that shared runners
+are too noisy for a naive wall-clock threshold; this is that same problem
+showing up here. mux-compiler's side of this gate did not need the same
+adjustment - its benchmarks run whole compiled programs (hundreds of ms),
+where the same absolute jitter is a much smaller fraction of the signal.
+15% comfortably clears the observed noise with margin while still catching
+anything resembling a real regression (a deliberately-injected regression
+used to validate this gate before merging showed changes of 400-900%).
+Revisit downward once step 10 (Blacksmith) gives this job more consistent
+hardware to run on. See PCT_THRESHOLD_DEFAULT / ABS_NS_THRESHOLD_DEFAULT
+below for the full reasoning.
 
 Not a CI-only tool: run locally after `cargo bench -- --save-baseline
 main` and a second `cargo bench -- --baseline main` to reproduce a
@@ -41,15 +53,19 @@ import subprocess
 import sys
 from pathlib import Path
 
-PCT_THRESHOLD_DEFAULT = 4.0
+# Raised from Roc's 4% after this gate's first real GitHub Actions run
+# produced false positives at up to 10% - see the module docstring above.
+PCT_THRESHOLD_DEFAULT = 15.0
 # Measured range across every hot_paths benchmark on this repo's main:
 # ~0.9ns (primitive/int_add) to ~32us (map/build_free). 2ns keeps the
 # absolute half of the dual threshold meaningful at both ends: at the fast
 # end (sub-50ns benchmarks) it requires roughly a 10-20%+ relative move
 # before firing, which is appropriately conservative given criterion's own
 # confidence intervals are typically under 1% wide there; at the slow end
-# (hundreds of ns and up) the 4% relative threshold is already well above
-# 2ns, so it is the binding constraint, same as intended.
+# (hundreds of ns and up) the 15% relative threshold is already well above
+# 2ns, so it is the binding constraint, same as intended. Left unchanged by
+# the PCT_THRESHOLD_DEFAULT revision - the observed false positives were
+# all well above this floor already, so the absolute half was not the gap.
 ABS_NS_THRESHOLD_DEFAULT = 2.0
 
 
