@@ -67,7 +67,10 @@ jobs:
     name: Format
     needs: detect-changes
     if: ${{ needs.detect-changes.outputs.runtime_src == 'true' || github.event_name == 'push' }}
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    # rustfmt only; nothing waits on it.
+    # 2vCPU: these run in parallel, so wall clock is set by the slowest
+    # of them, and paying double the rate for the others is wasted.
     permissions:
       contents: read
     timeout-minutes: 10
@@ -93,7 +96,11 @@ jobs:
     name: Clippy
     needs: detect-changes
     if: ${{ needs.detect-changes.outputs.runtime_src == 'true' || github.event_name == 'push' }}
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    # Compiles the crate, so it is not a fast gate the way format is.
+    # 2vCPU: these run in parallel, so wall clock is set by the slowest
+    # of them, and paying double the rate for the others is wasted.
+    timeout-minutes: 20
     permissions:
       contents: read
     steps:
@@ -222,7 +229,11 @@ jobs:
     name: Rust Checks
     needs: detect-changes
     if: ${{ needs.detect-changes.outputs.runtime_src == 'true' || github.event_name == 'push' }}
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    # Instrumented llvm-cov run plus the rc-leak probe.
+    # 2vCPU: these run in parallel, so wall clock is set by the slowest
+    # of them, and paying double the rate for the others is wasted.
+    timeout-minutes: 30
     permissions:
       contents: read
     # Postgres + MySQL back the sql driver coverage; the gated driver tests are
@@ -314,7 +325,12 @@ jobs:
     # compile cleanly in isolation, keeping failure attribution clear.
     needs: [detect-changes, rust_checks]
     if: ${{ needs.detect-changes.outputs.runtime_src == 'true' || github.event_name == 'push' }}
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    # Builds mux-compiler from source against this branch, so it is the
+    # longest of these and the most sensitive to a slow toolchain.
+    # 2vCPU: these run in parallel, so wall clock is set by the slowest
+    # of them, and paying double the rate for the others is wasted.
+    timeout-minutes: 40
     permissions:
       contents: read
     env:
@@ -379,7 +395,12 @@ jobs:
     name: Valgrind Memory Checks
     needs: detect-changes
     if: ${{ needs.detect-changes.outputs.runtime_src == 'true' || github.event_name == 'push' }}
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    # Runs compiled programs, which hang rather than crash under
+    # LLVM UB - the reason every such run is wrapped in `timeout`.
+    # 2vCPU: these run in parallel, so wall clock is set by the slowest
+    # of them, and paying double the rate for the others is wasted.
+    timeout-minutes: 30
     permissions:
       contents: read
     # Runs the runtime's own cargo test binaries under Memcheck. Same failure
