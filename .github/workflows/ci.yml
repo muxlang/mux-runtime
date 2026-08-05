@@ -103,17 +103,28 @@ jobs:
         with:
           toolchain: 1.93.1
           components: clippy
-      - name: Cache Cargo registry and build
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - name: Cache Cargo registry and build artifacts
+        # Clippy, Rust Checks and Valgrind previously shared one key
+        # (runner.os-cargo-hashFiles) with target/ in the path, while building
+        # three different profiles: clippy runs --all-targets --all-features,
+        # Rust Checks runs instrumented under llvm-cov, and Valgrind runs
+        # plain. actions/cache only lets the first writer save under a given
+        # key, so which of the three profiles ended up in the cache depended on
+        # which job finished first, and the other two restored artifacts they
+        # could not use.
+        #
+        # rust-cache keys per job automatically (job id + rustc version +
+        # Cargo.lock), so the three no longer collide, and it prunes
+        # intermediate artifacts before saving so three caches stay smaller
+        # than the one they replace.
+        #
+        # save-if restricts writes to main: three jobs each saving target/ on
+        # every PR run would churn the 10GB per-repo cache limit and evict the
+        # entries this exists to provide. PRs restore from main, which is the
+        # state they branch from anyway.
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            ~/.cargo/bin
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
 
@@ -233,17 +244,28 @@ jobs:
         with:
           toolchain: 1.93.1
           components: rustfmt, llvm-tools-preview
-      - name: Cache Cargo registry and build
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - name: Cache Cargo registry and build artifacts
+        # Clippy, Rust Checks and Valgrind previously shared one key
+        # (runner.os-cargo-hashFiles) with target/ in the path, while building
+        # three different profiles: clippy runs --all-targets --all-features,
+        # Rust Checks runs instrumented under llvm-cov, and Valgrind runs
+        # plain. actions/cache only lets the first writer save under a given
+        # key, so which of the three profiles ended up in the cache depended on
+        # which job finished first, and the other two restored artifacts they
+        # could not use.
+        #
+        # rust-cache keys per job automatically (job id + rustc version +
+        # Cargo.lock), so the three no longer collide, and it prunes
+        # intermediate artifacts before saving so three caches stay smaller
+        # than the one they replace.
+        #
+        # save-if restricts writes to main: three jobs each saving target/ on
+        # every PR run would churn the 10GB per-repo cache limit and evict the
+        # entries this exists to provide. PRs restore from main, which is the
+        # state they branch from anyway.
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            ~/.cargo/bin
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Install cargo-llvm-cov
         run: command -v cargo-llvm-cov || cargo install cargo-llvm-cov --locked
       - name: Tests with coverage
@@ -356,17 +378,28 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y valgrind
-      - name: Cache Cargo registry and build
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - name: Cache Cargo registry and build artifacts
+        # Clippy, Rust Checks and Valgrind previously shared one key
+        # (runner.os-cargo-hashFiles) with target/ in the path, while building
+        # three different profiles: clippy runs --all-targets --all-features,
+        # Rust Checks runs instrumented under llvm-cov, and Valgrind runs
+        # plain. actions/cache only lets the first writer save under a given
+        # key, so which of the three profiles ended up in the cache depended on
+        # which job finished first, and the other two restored artifacts they
+        # could not use.
+        #
+        # rust-cache keys per job automatically (job id + rustc version +
+        # Cargo.lock), so the three no longer collide, and it prunes
+        # intermediate artifacts before saving so three caches stay smaller
+        # than the one they replace.
+        #
+        # save-if restricts writes to main: three jobs each saving target/ on
+        # every PR run would churn the 10GB per-repo cache limit and evict the
+        # entries this exists to provide. PRs restore from main, which is the
+        # state they branch from anyway.
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            ~/.cargo/bin
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Run tests under Valgrind
         id: run
         # Manual Valgrind (not cargo-valgrind): it keeps the exact same flags and
