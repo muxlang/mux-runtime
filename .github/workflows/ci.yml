@@ -143,9 +143,29 @@ jobs:
     name: A/B Benchmark Gate
     needs: detect-changes
     if: ${{ github.event_name == 'pull_request' && needs.detect-changes.outputs.runtime_src == 'true' }}
-    runs-on: ubuntu-latest
+    # First job on Blacksmith, deliberately this one. At 4.2-8.0m measured it
+    # is by a wide margin the slowest job here (Rust Checks, the next longest,
+    # is ~3.6m), so it alone bounds PR wall clock and it is the only place a
+    # faster runner shortens feedback.
+    #
+    # It stays a job of its own and must never be folded into a bundle: it is a
+    # benchmark, and sharing a machine with valgrind or a coverage build turns
+    # its measurements into contention noise.
+    #
+    # The steadier-hardware question matters more here than in mux-compiler.
+    # This gate's threshold was widened from 4% to 15% because four benchmarks
+    # showed regressions up to +10% with no source change, and it is now a
+    # required check, so noise blocks merges. If dedicated hardware narrows the
+    # spread, that threshold should come back down - watch the reported
+    # percentages on the first few runs before assuming 15% is still needed.
+    #
+    # 4vCPU for the two `cargo bench` builds, which parallelise. Criterion's
+    # measurement loop is single-threaded and indifferent to core count.
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     permissions:
       contents: read
+    # Unchanged at 20m. Metered now, so a hang costs real allowance: 20m at the
+    # 4vCPU rate is 40 x64-2vCPU-equivalent minutes.
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
