@@ -42,6 +42,13 @@ for d in "$src"/*/*/main; do
   [[ -d "$d" ]] || continue
   rel="${d#"$src"/}"
   mkdir -p "$dest/${rel%/main}"
+  # Remove any existing main/ first. `cp -r src dest` copies INTO dest when dest
+  # is an existing directory, so without this a criterion tree already present
+  # (restored by the build cache) would keep its stale estimates.json at
+  # main/estimates.json and bury the real baseline at main/main/estimates.json -
+  # and the comparison reads the former, silently scoring the PR against the
+  # wrong commit.
+  rm -rf "$dest/${rel}"
   cp -r "$d" "$dest/${rel}"
   copied=$((copied + 1))
 done
