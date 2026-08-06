@@ -48,8 +48,12 @@ for d in "$src"/*/*/main; do
   # main/estimates.json and bury the real baseline at main/main/estimates.json -
   # and the comparison reads the former, silently scoring the PR against the
   # wrong commit.
-  rm -rf "$dest/${rel}"
-  cp -r "$d" "$dest/${rel}"
+  # ${var:?} on both halves: this is an rm -rf, and an empty expansion would
+  # make the path absolute or strip a level. The argument check above already
+  # rejects an empty dest, but a destructive command should not depend on a
+  # guard forty lines away (shellcheck SC2115).
+  rm -rf "${dest:?}/${rel:?}"
+  cp -r "$d" "${dest:?}/${rel:?}"
   copied=$((copied + 1))
 done
 
