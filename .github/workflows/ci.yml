@@ -184,26 +184,29 @@ jobs:
         uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9 # untagged master commit; the repo's only tag (v1) is OLDER than this
         with:
           toolchain: 1.93.1
-      - name: Cache Cargo registry
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      # Build cache, safe now that the baseline lives outside target/. It used
+      # to be cached AT target/criterion/*/*/main, which is why this job could
+      # not use rust-cache: rust-cache prunes and saves target/, so the two
+      # would have fought over the same directory and a stale restore could
+      # have left the comparison running against the wrong baseline.
+      - name: Cache Cargo registry and build artifacts
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-          key: ${{ runner.os }}-cargo-bench-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-bench-
-      # Exact-SHA cache key, deliberately no restore-keys fallback: a
-      # restore-keys hit on an older base commit would silently compare the
-      # PR against the wrong baseline with nothing to signal it. Caches
-      # only the main/ subdirectories criterion writes (the saved baseline
-      # estimates), not new/report/change - much cheaper than the compiler
-      # side of this gate, which has to cache a whole binary.
-      - name: Restore or build baseline criterion data
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      # Exact-SHA key with no restore-keys fallback, deliberately: a hit on an
+      # older base commit would silently compare against the wrong baseline
+      # with nothing to signal it. Stores only criterion's main/ estimate
+      # directories, and stores them OUTSIDE target/ so the build cache above
+      # can own target/ without interfering.
+      #
+      # ab_baseline_seed (below) writes this same key on every push to main, so
+      # a PR based on an up-to-date main normally hits and skips the baseline
+      # build entirely - one `cargo bench` per PR instead of two.
+      - name: Restore baseline criterion data
         id: baseline_cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: target/criterion/*/*/main
+          path: ab-baseline
           key: mux-runtime-ab-baseline-${{ github.event.pull_request.base.sha }}
       - name: Checkout baseline commit
         if: steps.baseline_cache.outputs.cache-hit != 'true'
@@ -211,19 +214,15 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           path: baseline-src
-      - name: Save baseline benchmarks
+      - name: Build baseline benchmarks
         if: steps.baseline_cache.outputs.cache-hit != 'true'
         working-directory: baseline-src
         run: cargo bench --bench hot_paths -- --save-baseline main
-      - name: Copy baseline estimates into this checkout
+      - name: Stage baseline estimates
         if: steps.baseline_cache.outputs.cache-hit != 'true'
-        run: |
-          set -euo pipefail
-          for d in baseline-src/target/criterion/*/*/main; do
-            rel="${d#baseline-src/target/criterion/}"
-            mkdir -p "target/criterion/${rel%/main}"
-            cp -r "$d" "target/criterion/${rel}"
-          done
+        run: ./scripts/ci/ab-baseline.sh stage baseline-src/target/criterion ab-baseline
+      - name: Load the baseline into this checkout
+        run: ./scripts/ci/ab-baseline.sh load ab-baseline target/criterion
       - name: Run PR-head benchmarks against the baseline
         run: cargo bench --bench hot_paths -- --baseline main
       - name: Run A/B benchmark report
@@ -244,6 +243,48 @@ jobs:
           name: pr-comment-ab-bench
           path: ab-bench.log
           if-no-files-found: warn
+
+  ab_baseline_seed:
+    # Builds the A/B baseline for main and stores it under the same cache key a
+    # PR will look for, so the PR path normally hits and runs `cargo bench`
+    # once instead of twice.
+    #
+    # Before this, the exact-SHA key meant the FIRST pull request after every
+    # merge paid a full baseline build - checkout the base, compile the crate
+    # cold, benchmark it - and only later PRs on that same base got the cache.
+    # Doing it here moves that cost off the PR path entirely.
+    #
+    # Push-only. It writes a cache keyed by github.sha, which on a push to main
+    # is exactly the base.sha a PR opened against it will ask for.
+    name: Seed A/B Baseline
+    needs: detect-changes
+    if: ${{ github.event_name == 'push' && needs.detect-changes.outputs.runtime_src == 'true' }}
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    permissions:
+      contents: read
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9 # untagged master commit; the repo's only tag (v1) is OLDER than this
+        with:
+          toolchain: 1.93.1
+      - name: Cache Cargo registry and build artifacts
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Restore baseline criterion data
+        id: baseline_cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ab-baseline
+          key: mux-runtime-ab-baseline-${{ github.sha }}
+      - name: Build baseline benchmarks
+        if: steps.baseline_cache.outputs.cache-hit != 'true'
+        run: cargo bench --bench hot_paths -- --save-baseline main
+      - name: Stage baseline estimates
+        if: steps.baseline_cache.outputs.cache-hit != 'true'
+        run: ./scripts/ci/ab-baseline.sh stage target/criterion ab-baseline
 
   rust_checks:
     name: Rust Checks
