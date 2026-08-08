@@ -76,6 +76,60 @@ impl ObjectRef {
     pub fn dec_ref(&self) -> usize {
         self.data.ref_count.fetch_sub(1, Ordering::Relaxed)
     }
+
+    /// Box this object the way compiled code expects to receive `self`: a
+    /// reference-counted `Value::Object` sharing this object's data.
+    ///
+    /// The registered callbacks are the class's own methods, which take `self`
+    /// as a `*mut Value` and are free to retain it, so they cannot be handed a
+    /// borrowed `&Value` that may live in a collection rather than in a
+    /// reference-counted block. The caller releases the box with `mux_rc_dec`.
+    fn boxed_for_callback(&self) -> *mut Value {
+        refcount::mux_rc_alloc(Value::Object(self.clone()))
+    }
+
+    /// Whether this object equals another of the same type by its contents,
+    /// using the class's own `eq` (or `cmp`, which also answers equality).
+    /// None when the two are different types, or when the class declared
+    /// neither - the caller then falls back to identity.
+    fn structural_eq(&self, other: &ObjectRef) -> Option<bool> {
+        if self.type_id() != other.type_id() {
+            return None;
+        }
+        if let Some(equals) = object::object_equals_fn(self.type_id()) {
+            let (a, b) = (self.boxed_for_callback(), other.boxed_for_callback());
+            let result = equals(a, b);
+            refcount::mux_rc_dec(b);
+            refcount::mux_rc_dec(a);
+            return Some(result);
+        }
+        Some(self.structural_cmp(other)? == cmp::Ordering::Equal)
+    }
+
+    /// Order this object against another of the same type by its contents,
+    /// using the comparison the class registered for `Comparable`. None when
+    /// the two are different types, or when the class declared no order.
+    fn structural_cmp(&self, other: &ObjectRef) -> Option<cmp::Ordering> {
+        if self.type_id() != other.type_id() {
+            return None;
+        }
+        let compare = object::object_compare_fn(self.type_id())?;
+        let (a, b) = (self.boxed_for_callback(), other.boxed_for_callback());
+        let ordering = compare(a, b).cmp(&0);
+        refcount::mux_rc_dec(b);
+        refcount::mux_rc_dec(a);
+        Some(ordering)
+    }
+
+    /// Hash this object by its contents, using the hash the class registered
+    /// for `Hashable`. None when the class declared none.
+    fn structural_hash(&self) -> Option<u64> {
+        let hash = object::object_hash_fn(self.type_id())?;
+        let boxed = self.boxed_for_callback();
+        let result = hash(boxed);
+        refcount::mux_rc_dec(boxed);
+        Some(result)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -268,9 +322,12 @@ impl PartialEq for Value {
             (Value::Tuple(a), Value::Tuple(b)) => a == b,
             (Value::Optional(a), Value::Optional(b)) => a == b,
             (Value::Result(a), Value::Result(b)) => a == b,
-            (Value::Object(a), Value::Object(b)) => {
-                a.ptr() == b.ptr() && a.type_id() == b.type_id()
-            }
+            (Value::Object(a), Value::Object(b)) => match a.structural_eq(b) {
+                Some(equal) => equal,
+                // A class that declares no `Equatable`/`Comparable` is still
+                // equal to itself, by identity.
+                None => a.ptr() == b.ptr() && a.type_id() == b.type_id(),
+            },
             (Value::Opaque(a), Value::Opaque(b)) => a == b,
             (Value::BoxedEnum(a), Value::BoxedEnum(b)) => a.compare(b) == cmp::Ordering::Equal,
             _ => false,
@@ -305,12 +362,16 @@ impl hash::Hash for Value {
             Value::Optional(o) => o.hash(state),
             Value::Result(r) => r.hash(state),
             Value::Object(obj) => {
-                (obj.ptr() as usize).hash(state);
                 obj.type_id().hash(state);
+                match obj.structural_hash() {
+                    Some(h) => h.hash(state),
+                    // Identity hashing pairs with the identity equality above:
+                    // without a registered hash the only thing equal to this
+                    // object is the same allocation.
+                    None => (obj.ptr() as usize).hash(state),
+                }
             }
             Value::Opaque(bytes) => bytes.hash(state),
-            // Hash the discriminant only: cheap and consistent with the
-            // structural equality above (equal enums share a discriminant).
             Value::BoxedEnum(be) => be.hash_value().hash(state),
         }
     }
@@ -364,9 +425,15 @@ impl Ord for Value {
             (Value::Tuple(a), Value::Tuple(b)) => a.cmp(b),
             (Value::Optional(a), Value::Optional(b)) => a.cmp(b),
             (Value::Result(a), Value::Result(b)) => a.cmp(b),
-            (Value::Object(a), Value::Object(b)) => {
-                (a.type_id(), a.ptr() as usize).cmp(&(b.type_id(), b.ptr() as usize))
-            }
+            (Value::Object(a), Value::Object(b)) => match a.structural_cmp(b) {
+                Some(ordering) => ordering,
+                // A class that declares equality but no order has no ordering
+                // to give, and the language never orders one either - `<`
+                // requires `Comparable`. Fall back to identity, but keep equal
+                // instances equal so this agrees with `==` above.
+                None if a.structural_eq(b) == Some(true) => cmp::Ordering::Equal,
+                None => (a.type_id(), a.ptr() as usize).cmp(&(b.type_id(), b.ptr() as usize)),
+            },
             (Value::Opaque(a), Value::Opaque(b)) => a.cmp(b),
             (Value::BoxedEnum(a), Value::BoxedEnum(b)) => a.compare(b),
             _ => self.variant_order().cmp(&other.variant_order()),

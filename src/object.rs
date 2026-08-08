@@ -19,6 +19,21 @@ pub struct ObjectType {
     /// If None, `copy_object` returns null and the caller must handle the
     /// "type does not support copying" case.
     pub copy: Option<extern "C" fn(*mut c_void, *mut c_void)>,
+    /// Equality of two instances. Registered for a class that implements
+    /// `Equatable`, and it is the class's own `eq` method, so a map or set
+    /// matches instances the way the `==` operator does.
+    ///
+    /// Unlike `destructor` and `copy`, which take the object's data buffer,
+    /// this and the two below take the boxed object - the same `*mut Value` a
+    /// class method receives as `self`.
+    pub equals: Option<extern "C" fn(*mut Value, *mut Value) -> bool>,
+    /// Three-way comparison of two instances, like `Ord::cmp`. Registered for a
+    /// class that implements `Comparable`.
+    pub compare: Option<extern "C" fn(*mut Value, *mut Value) -> i32>,
+    /// Hash of one instance. Registered for a class that implements `Hashable`.
+    /// Must agree with `equals`: two instances it calls equal have to hash the
+    /// same, or a lookup misses.
+    pub hash: Option<extern "C" fn(*mut Value) -> u64>,
 }
 
 impl ObjectType {
@@ -41,6 +56,9 @@ impl ObjectType {
             size,
             destructor,
             copy,
+            equals: None,
+            compare: None,
+            hash: None,
         }
     }
 }
@@ -228,6 +246,78 @@ pub extern "C" fn mux_register_object_destructor(
     if let Some(obj_type) = registry.get_mut(&type_id) {
         obj_type.destructor = Some(destructor);
     }
+}
+
+/// Register an equality for an object type, so instances match by their
+/// contents rather than by address.
+///
+/// `equals(a, b)` takes two boxed objects - the `*mut Value` a class method
+/// receives as `self` - and is the class's own `eq`. Registering is idempotent;
+/// the most recent registration wins.
+#[unsafe(no_mangle)]
+pub extern "C" fn mux_register_object_equals(
+    type_id: TypeId,
+    equals_fn: extern "C" fn(*mut Value, *mut Value) -> bool,
+) {
+    let mut registry = TYPE_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(obj_type) = registry.get_mut(&type_id) {
+        obj_type.equals = Some(equals_fn);
+    }
+}
+
+/// Register a three-way comparison for an object type, so instances order by
+/// their contents rather than by address.
+///
+/// `compare(a, b)` returns negative, zero or positive like `Ord::cmp`. Emitted
+/// for a class that implements `Comparable`. Registering is idempotent; the
+/// most recent registration wins.
+#[unsafe(no_mangle)]
+pub extern "C" fn mux_register_object_compare(
+    type_id: TypeId,
+    compare_fn: extern "C" fn(*mut Value, *mut Value) -> i32,
+) {
+    let mut registry = TYPE_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(obj_type) = registry.get_mut(&type_id) {
+        obj_type.compare = Some(compare_fn);
+    }
+}
+
+/// Register a hash for an object type, so instances can key a map or join a
+/// set by their contents.
+///
+/// `hash(ptr)` must agree with whatever `mux_register_object_compare` registered
+/// for the same type: two instances that compare equal have to hash equally, or
+/// a lookup misses. Registering is idempotent; the most recent wins.
+#[unsafe(no_mangle)]
+pub extern "C" fn mux_register_object_hash(
+    type_id: TypeId,
+    hash_fn: extern "C" fn(*mut Value) -> u64,
+) {
+    let mut registry = TYPE_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(obj_type) = registry.get_mut(&type_id) {
+        obj_type.hash = Some(hash_fn);
+    }
+}
+
+/// The equality registered for `type_id`, if any.
+///
+/// The lock is released before the pointer is returned, so the caller may then
+/// run compiled code that registers or allocates another object type.
+pub fn object_equals_fn(type_id: TypeId) -> Option<extern "C" fn(*mut Value, *mut Value) -> bool> {
+    let registry = TYPE_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
+    registry.get(&type_id).and_then(|t| t.equals)
+}
+
+/// The comparison registered for `type_id`, if any.
+pub fn object_compare_fn(type_id: TypeId) -> Option<extern "C" fn(*mut Value, *mut Value) -> i32> {
+    let registry = TYPE_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
+    registry.get(&type_id).and_then(|t| t.compare)
+}
+
+/// The hash registered for `type_id`, if any.
+pub fn object_hash_fn(type_id: TypeId) -> Option<extern "C" fn(*mut Value) -> u64> {
+    let registry = TYPE_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
+    registry.get(&type_id).and_then(|t| t.hash)
 }
 
 #[unsafe(no_mangle)]
