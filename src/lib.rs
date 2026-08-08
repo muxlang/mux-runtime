@@ -464,7 +464,7 @@ impl fmt::Display for Value {
             Value::Unit => write!(f, "()"),
             Value::Bool(b) => write!(f, "{}", b),
             Value::Int(i) => write!(f, "{}", i),
-            Value::Float(fl) => write!(f, "{}", fl),
+            Value::Float(fl) => write!(f, "{}", crate::float::format_float(fl.into_inner())),
             Value::String(s) => write!(f, "{}", s),
             Value::List(list) => {
                 write_delimited(f, "[", "]", list.iter(), |f, item| write!(f, "{}", item))

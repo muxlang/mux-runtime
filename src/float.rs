@@ -60,14 +60,23 @@ impl fmt::Display for Float {
     }
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn mux_float_to_string(f: f64) -> *mut c_char {
-    let s = if f.fract() == 0.0 && f.abs() < 1e10 {
+/// Render a float the way Mux shows one: a whole number keeps its `.0`, so
+/// `6.0` does not print as `6` and read back as an int.
+///
+/// Every float the language displays goes through here, whether it is the
+/// value itself or one inside a list, map, set or tuple - those print through
+/// `Display for Value`, which used a plain `{}` and dropped the `.0`.
+pub fn format_float(f: f64) -> String {
+    if f.fract() == 0.0 && f.abs() < 1e10 {
         format!("{:.1}", f)
     } else {
         format!("{}", f)
-    };
-    match CString::new(s) {
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn mux_float_to_string(f: f64) -> *mut c_char {
+    match CString::new(format_float(f)) {
         Ok(c) => c.into_raw(),
         Err(_) => std::ptr::null_mut(),
     }
