@@ -100,6 +100,16 @@ pub type EnumGlueFn = extern "C" fn(*mut u8);
 /// correctly as a map key or set member (issue #309).
 pub type EnumCmpFn = extern "C" fn(*mut u8, *mut u8) -> i32;
 
+/// Structural hash of one boxed enum, emitted by the compiler per enum. It
+/// combines the discriminant with the active variant's payload fields, so two
+/// enums that `EnumCmpFn` reports as equal always hash the same - the contract
+/// every hash table depends on.
+///
+/// Hashing the raw bytes instead would be wrong: the inline struct has padding
+/// between the discriminant and the payload, and between fields, and those
+/// bytes are not guaranteed equal for two otherwise equal values.
+pub type EnumHashFn = extern "C" fn(*mut u8) -> u64;
+
 /// An enum that carries reference-counted payloads, boxed as a first-class
 /// Value with value semantics. Unlike a raw `Opaque` (whose bytes may hold
 /// payload pointers the runtime cannot see), a `BoxedEnum` runs the compiler's
@@ -115,16 +125,17 @@ pub type EnumCmpFn = extern "C" fn(*mut u8, *mut u8) -> i32;
 /// Equality, ordering, and hashing are structural, delegating to the compiler's
 /// per-enum `cmp_glue`: it compares discriminants and payloads by value, so two
 /// logically equal clones (whose payload pointers differ) compare equal and a
-/// payload-carrying enum works as a map key or set member. Hashing uses only the
-/// discriminant, which is cheap and consistent with the structural equality
-/// (equal enums share a discriminant); Mux's map/set are `BTreeMap`/`BTreeSet`
-/// and order by `cmp_glue`, so the coarse hash never affects them.
+/// payload-carrying enum works as a map key or set member. Hashing goes through
+/// `hash_glue` for the same reason comparison goes through `cmp_glue`: map and
+/// set are hash tables, so hashing the discriminant alone would put every
+/// `Code(1)`, `Code(2)`, `Code(3)` in one bucket and make lookup linear.
 pub struct BoxedEnum {
     words: Box<[u64]>,
     len: usize,
     clone_glue: EnumGlueFn,
     drop_glue: EnumGlueFn,
     cmp_glue: EnumCmpFn,
+    hash_glue: EnumHashFn,
 }
 
 impl BoxedEnum {
@@ -136,6 +147,7 @@ impl BoxedEnum {
         clone_glue: EnumGlueFn,
         drop_glue: EnumGlueFn,
         cmp_glue: EnumCmpFn,
+        hash_glue: EnumHashFn,
     ) -> Self {
         let mut words = vec![0u64; src.len().div_ceil(8).max(1)].into_boxed_slice();
         // SAFETY: `words` provides at least `src.len()` bytes of 8-aligned,
@@ -153,6 +165,7 @@ impl BoxedEnum {
             clone_glue,
             drop_glue,
             cmp_glue,
+            hash_glue,
         }
     }
 
@@ -172,15 +185,11 @@ impl BoxedEnum {
         self.words.as_ptr() as *const u8
     }
 
-    /// The enum's discriminant (the first four bytes of the inline struct), used
-    /// as the hash so equal enums (which share a discriminant) hash equally.
-    fn discriminant(&self) -> u32 {
-        let b = self.bytes();
-        if b.len() >= 4 {
-            u32::from_ne_bytes([b[0], b[1], b[2], b[3]])
-        } else {
-            0
-        }
+    /// Structural hash, through the compiler-emitted glue, so two enums that
+    /// compare equal hash equally.
+    fn hash_value(&self) -> u64 {
+        // The glue only reads its operand; the *mut is C-ABI convention.
+        (self.hash_glue)(self.as_ptr() as *mut u8)
     }
 
     /// Structural ordering. Two enums of the same type share a `cmp_glue`, so it
@@ -207,6 +216,7 @@ impl Clone for BoxedEnum {
             clone_glue: self.clone_glue,
             drop_glue: self.drop_glue,
             cmp_glue: self.cmp_glue,
+            hash_glue: self.hash_glue,
         };
         (cloned.clone_glue)(cloned.as_mut_ptr());
         cloned
@@ -301,7 +311,7 @@ impl hash::Hash for Value {
             Value::Opaque(bytes) => bytes.hash(state),
             // Hash the discriminant only: cheap and consistent with the
             // structural equality above (equal enums share a discriminant).
-            Value::BoxedEnum(be) => be.discriminant().hash(state),
+            Value::BoxedEnum(be) => be.hash_value().hash(state),
         }
     }
 }

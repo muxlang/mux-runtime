@@ -461,13 +461,34 @@ pub extern "C" fn mux_box_enum_managed(
     clone_glue: crate::EnumGlueFn,
     drop_glue: crate::EnumGlueFn,
     cmp_glue: crate::EnumCmpFn,
+    hash_glue: crate::EnumHashFn,
 ) -> *mut Value {
     let slice = unsafe { std::slice::from_raw_parts(ptr, size) };
-    let mut boxed = crate::BoxedEnum::from_bytes(slice, clone_glue, drop_glue, cmp_glue);
+    let mut boxed = crate::BoxedEnum::from_bytes(slice, clone_glue, drop_glue, cmp_glue, hash_glue);
     // The byte copy still aliases the source's payloads; deep-clone them so the
     // boxed value is independent of the source.
     (clone_glue)(boxed.as_mut_ptr());
     mux_rc_alloc(Value::BoxedEnum(boxed))
+}
+
+/// Hash of any `Value`, for the compiler-emitted enum hash glue to use on a
+/// pointer payload (a string, a collection, a nested boxed enum).
+///
+/// Consistent with `mux_value_compare` because `Value`'s `Hash` and `Eq` impls
+/// agree with each other, which is what lets the enum glue keep its own hash
+/// agreeing with `cmp_glue`.
+///
+/// # Safety
+/// `value` must be null or a valid pointer to a ref-counted `Value`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn mux_value_hash(value: *const Value) -> u64 {
+    use std::hash::{Hash, Hasher};
+    if value.is_null() {
+        return 0;
+    }
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    unsafe { (*value).hash(&mut hasher) };
+    hasher.finish()
 }
 
 // Proper Value cleanup function
