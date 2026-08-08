@@ -199,7 +199,7 @@ fn compare_does_not_cross_types() {
 }
 
 #[test]
-fn equality_without_an_order_still_matches_and_sorts_equal() {
+fn equality_without_a_hash_still_hashes_consistently() {
     let name = CString::new("EqOnly").unwrap();
     let tid = mux_register_object_type(name.as_ptr(), std::mem::size_of::<u64>());
     mux_register_object_equals(tid, equals_u64);
@@ -211,8 +211,36 @@ fn equality_without_an_order_still_matches_and_sorts_equal() {
     unsafe {
         assert_eq!(&*a, &*b);
         assert_ne!(&*a, &*c);
-        // No order was registered, but equal instances must still order equal
-        // or Ord would contradict the equality above.
+        // The class registered no hash, so every instance has to hash alike:
+        // any two of them may turn out to be equal, and equal values that
+        // hashed differently would be lost in a table.
+        assert_eq!(hash_of(&*a), hash_of(&*b));
+        assert_eq!(hash_of(&*a), hash_of(&*c));
+        // Ordering follows the same key, so it stays a total order rather than
+        // mixing content equality with addresses.
+        assert_eq!((*a).cmp(&*b), std::cmp::Ordering::Equal);
+        assert_eq!((*a).cmp(&*c), std::cmp::Ordering::Equal);
+    }
+
+    mux_free_object(c);
+    mux_free_object(b);
+    mux_free_object(a);
+}
+
+#[test]
+fn a_registered_hash_keeps_unequal_instances_apart() {
+    let name = CString::new("EqAndHash").unwrap();
+    let tid = mux_register_object_type(name.as_ptr(), std::mem::size_of::<u64>());
+    mux_register_object_equals(tid, equals_u64);
+    mux_register_object_hash(tid, hash_u64);
+
+    let a = alloc_u64_object(tid, 4);
+    let b = alloc_u64_object(tid, 4);
+    let c = alloc_u64_object(tid, 5);
+
+    unsafe {
+        assert_eq!(hash_of(&*a), hash_of(&*b));
+        assert_ne!(hash_of(&*a), hash_of(&*c));
         assert_eq!((*a).cmp(&*b), std::cmp::Ordering::Equal);
         assert_ne!((*a).cmp(&*c), std::cmp::Ordering::Equal);
     }

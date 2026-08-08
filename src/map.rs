@@ -89,7 +89,7 @@ pub extern "C" fn mux_map_get(map: *const Map, key: *const Value) -> *mut Value 
 #[unsafe(no_mangle)]
 pub extern "C" fn mux_map_put(map: *mut Map, key: *mut Value, val: *mut Value) {
     let map = unsafe { &mut *map };
-    let key = unsafe { (*key).clone() };
+    let key = unsafe { crate::refcount::snapshot_key(&*key) };
     let val = unsafe { (*val).clone() };
     map.insert(key, val);
 }
@@ -101,7 +101,7 @@ pub extern "C" fn mux_map_put_value(map_val: *mut Value, key: *mut Value, val: *
     if map_val.is_null() || key.is_null() || val.is_null() {
         return;
     }
-    let key_clone = unsafe { (*key).clone() };
+    let key_clone = unsafe { crate::refcount::snapshot_key(&*key) };
     let val_clone = unsafe { (*val).clone() };
     unsafe {
         with_map_mut(map_val, |map_data| {

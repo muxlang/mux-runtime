@@ -56,7 +56,7 @@ impl Float {
 
 impl fmt::Display for Float {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
+        write!(f, "{}", format_float(self.0.into_inner()))
     }
 }
 
@@ -66,8 +66,13 @@ impl fmt::Display for Float {
 /// Every float the language displays goes through here, whether it is the
 /// value itself or one inside a list, map, set or tuple - those print through
 /// `Display for Value`, which used a plain `{}` and dropped the `.0`.
+///
+/// The whole-number test carries no magnitude limit. Capping it meant a large
+/// whole float printed as an int again, which is the same defect at a
+/// different scale. Infinity and NaN have no fractional part to test, so
+/// `fract()` yields NaN for them and they fall through to their own spelling.
 pub fn format_float(f: f64) -> String {
-    if f.fract() == 0.0 && f.abs() < 1e10 {
+    if f.fract() == 0.0 {
         format!("{:.1}", f)
     } else {
         format!("{}", f)

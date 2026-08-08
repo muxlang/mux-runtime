@@ -150,6 +150,18 @@ pub unsafe extern "C" fn mux_value_deep_clone(val: *const Value) -> *mut Value {
 }
 
 #[allow(clippy::mutable_key_type)]
+/// An independent snapshot of a value about to become a map key or set member.
+///
+/// A key is stored at a position derived from its contents, so it has to stop
+/// changing once it is in. Every `Value` clones its contents already except an
+/// object, where `ObjectRef` is a shared handle: mutating the object a caller
+/// still holds would move where the key belongs without moving the entry,
+/// stranding it at a position nothing looks for again. This only mattered once
+/// objects were keyed by contents rather than by address.
+pub(crate) fn snapshot_key(value: &Value) -> Value {
+    deep_clone_value(value)
+}
+
 fn deep_clone_value(val: &Value) -> Value {
     match val {
         Value::Unit | Value::Int(_) | Value::Bool(_) | Value::Float(_) => val.clone(),

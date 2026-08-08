@@ -99,7 +99,16 @@ where
         K: Borrow<Q>,
         Q: Hash + Eq + ?Sized,
     {
-        let hash = self.hash_of(key);
+        self.index_of_hashed(self.hash_of(key), key)
+    }
+
+    /// `index_of` for a caller that has already hashed the key, so an insert
+    /// does not hash it once to look for it and again to store it.
+    fn index_of_hashed<Q>(&self, hash: u64, key: &Q) -> Option<usize>
+    where
+        K: Borrow<Q>,
+        Q: Hash + Eq + ?Sized,
+    {
         self.table
             .find(hash, |&i| self.key_at(i).borrow() == key)
             .copied()
@@ -160,14 +169,14 @@ where
     /// in the order, matching Python and JavaScript: re-assigning does not move
     /// the entry to the end.
     pub fn insert(&mut self, key: K, value: V) -> Option<V> {
-        if let Some(index) = self.index_of(&key) {
+        let hash = self.hash_of(&key);
+        if let Some(index) = self.index_of_hashed(hash, &key) {
             let Slot::Occupied { value: slot, .. } = &mut self.slab[index] else {
                 unreachable!("table index points at a free slot");
             };
             return Some(std::mem::replace(slot, value));
         }
 
-        let hash = self.hash_of(&key);
         let index = self.alloc_slot(Slot::Occupied {
             key,
             value,

@@ -227,3 +227,28 @@ fn empty_collection_display() {
         "{}"
     );
 }
+
+#[test]
+fn map_and_set_hash_does_not_depend_on_insertion_order() {
+    let mut a = mux_runtime::ordered::OrderedMap::new();
+    a.insert(Value::String("x".into()), Value::Int(1));
+    a.insert(Value::String("y".into()), Value::Int(2));
+    let mut b = mux_runtime::ordered::OrderedMap::new();
+    b.insert(Value::String("y".into()), Value::Int(2));
+    b.insert(Value::String("x".into()), Value::Int(1));
+    let (a, b) = (Value::Map(a), Value::Map(b));
+    // Equality ignores insertion order, so hashing has to as well, or a map
+    // used as a key is stored where nothing will look for it.
+    assert_eq!(a, b);
+    assert_eq!(hash_of(&a), hash_of(&b));
+
+    let mut c = mux_runtime::ordered::OrderedSet::new();
+    c.insert(Value::Int(1));
+    c.insert(Value::Int(2));
+    let mut d = mux_runtime::ordered::OrderedSet::new();
+    d.insert(Value::Int(2));
+    d.insert(Value::Int(1));
+    let (c, d) = (Value::Set(c), Value::Set(d));
+    assert_eq!(c, d);
+    assert_eq!(hash_of(&c), hash_of(&d));
+}

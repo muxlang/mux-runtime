@@ -88,6 +88,28 @@ impl ObjectRef {
         refcount::mux_rc_alloc(Value::Object(self.clone()))
     }
 
+    /// The value this object is keyed by, for both hashing and - absent a
+    /// registered comparison - ordering. Using one key for both is what keeps
+    /// them agreeing.
+    ///
+    /// A class that hashes itself is keyed by that hash. One that only compares
+    /// itself is keyed by a constant: any two of its instances may turn out to
+    /// be equal, so they all have to hash alike, and colliding is the only
+    /// answer that cannot be wrong. Everything else is keyed by its address,
+    /// which is exactly as precise as the identity equality it pairs with.
+    fn structural_key(&self) -> u64 {
+        let callbacks = object::object_callbacks(self.type_id());
+        if let Some(hash) = callbacks.hash {
+            return self.call_with_boxed(hash);
+        }
+        // Registered equality without a hash: any two instances may be equal,
+        // so they all have to collide.
+        if callbacks.equals.is_some() || callbacks.compare.is_some() {
+            return 0;
+        }
+        self.ptr() as u64
+    }
+
     /// Whether this object equals another of the same type by its contents,
     /// using the class's own `eq` (or `cmp`, which also answers equality).
     /// None when the two are different types, or when the class declared
@@ -96,14 +118,12 @@ impl ObjectRef {
         if self.type_id() != other.type_id() {
             return None;
         }
-        if let Some(equals) = object::object_equals_fn(self.type_id()) {
-            let (a, b) = (self.boxed_for_callback(), other.boxed_for_callback());
-            let result = equals(a, b);
-            refcount::mux_rc_dec(b);
-            refcount::mux_rc_dec(a);
-            return Some(result);
+        let callbacks = object::object_callbacks(self.type_id());
+        if let Some(equals) = callbacks.equals {
+            return Some(self.call_with_boxed_pair(other, equals));
         }
-        Some(self.structural_cmp(other)? == cmp::Ordering::Equal)
+        let compare = callbacks.compare?;
+        Some(self.call_with_boxed_pair(other, compare) == 0)
     }
 
     /// Order this object against another of the same type by its contents,
@@ -113,22 +133,30 @@ impl ObjectRef {
         if self.type_id() != other.type_id() {
             return None;
         }
-        let compare = object::object_compare_fn(self.type_id())?;
-        let (a, b) = (self.boxed_for_callback(), other.boxed_for_callback());
-        let ordering = compare(a, b).cmp(&0);
-        refcount::mux_rc_dec(b);
-        refcount::mux_rc_dec(a);
-        Some(ordering)
+        let compare = object::object_callbacks(self.type_id()).compare?;
+        Some(self.call_with_boxed_pair(other, compare).cmp(&0))
     }
 
-    /// Hash this object by its contents, using the hash the class registered
-    /// for `Hashable`. None when the class declared none.
-    fn structural_hash(&self) -> Option<u64> {
-        let hash = object::object_hash_fn(self.type_id())?;
+    /// Run a one-argument callback on this object, boxed and then released.
+    fn call_with_boxed<R>(&self, callback: extern "C" fn(*mut Value) -> R) -> R {
         let boxed = self.boxed_for_callback();
-        let result = hash(boxed);
+        let result = callback(boxed);
         refcount::mux_rc_dec(boxed);
-        Some(result)
+        result
+    }
+
+    /// Run a two-argument callback on this object and another, each boxed and
+    /// then released.
+    fn call_with_boxed_pair<R>(
+        &self,
+        other: &ObjectRef,
+        callback: extern "C" fn(*mut Value, *mut Value) -> R,
+    ) -> R {
+        let (a, b) = (self.boxed_for_callback(), other.boxed_for_callback());
+        let result = callback(a, b);
+        refcount::mux_rc_dec(b);
+        refcount::mux_rc_dec(a);
+        result
     }
 }
 
@@ -347,29 +375,18 @@ impl hash::Hash for Value {
             Value::Float(f) => f.hash(state),
             Value::String(s) => s.hash(state),
             Value::List(l) => l.hash(state),
-            Value::Map(m) => {
-                for (k, v) in m {
-                    k.hash(state);
-                    v.hash(state);
-                }
-            }
-            Value::Set(s) => {
-                for v in s {
-                    v.hash(state);
-                }
-            }
+            // Delegated, not hand-rolled: these combine entry hashes
+            // commutatively, matching an equality that ignores insertion order.
+            // Hashing in iteration order gave two maps that compare equal
+            // different hashes, so a map used as a key could not be found.
+            Value::Map(m) => m.hash(state),
+            Value::Set(s) => s.hash(state),
             Value::Tuple(t) => t.hash(state),
             Value::Optional(o) => o.hash(state),
             Value::Result(r) => r.hash(state),
             Value::Object(obj) => {
                 obj.type_id().hash(state);
-                match obj.structural_hash() {
-                    Some(h) => h.hash(state),
-                    // Identity hashing pairs with the identity equality above:
-                    // without a registered hash the only thing equal to this
-                    // object is the same allocation.
-                    None => (obj.ptr() as usize).hash(state),
-                }
+                obj.structural_key().hash(state);
             }
             Value::Opaque(bytes) => bytes.hash(state),
             Value::BoxedEnum(be) => be.hash_value().hash(state),
@@ -427,12 +444,14 @@ impl Ord for Value {
             (Value::Result(a), Value::Result(b)) => a.cmp(b),
             (Value::Object(a), Value::Object(b)) => match a.structural_cmp(b) {
                 Some(ordering) => ordering,
-                // A class that declares equality but no order has no ordering
-                // to give, and the language never orders one either - `<`
-                // requires `Comparable`. Fall back to identity, but keep equal
-                // instances equal so this agrees with `==` above.
-                None if a.structural_eq(b) == Some(true) => cmp::Ordering::Equal,
-                None => (a.type_id(), a.ptr() as usize).cmp(&(b.type_id(), b.ptr() as usize)),
+                // A class that declares no order has none to give, and the
+                // language never orders one either - `<` requires `Comparable`.
+                // Ordering by the same key that hashes it keeps equal instances
+                // ordering equal without inventing an order between unequal
+                // ones: mixing content equality with address ordering was not
+                // transitive, and `sort_by` may panic on a comparison that is
+                // not a total order.
+                None => (a.type_id(), a.structural_key()).cmp(&(b.type_id(), b.structural_key())),
             },
             (Value::Opaque(a), Value::Opaque(b)) => a.cmp(b),
             (Value::BoxedEnum(a), Value::BoxedEnum(b)) => a.compare(b),

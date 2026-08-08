@@ -299,25 +299,30 @@ pub extern "C" fn mux_register_object_hash(
     }
 }
 
-/// The equality registered for `type_id`, if any.
+/// What a class registered for matching, ordering and hashing its instances.
+#[derive(Clone, Copy, Default)]
+pub struct ObjectCallbacks {
+    pub equals: Option<extern "C" fn(*mut Value, *mut Value) -> bool>,
+    pub compare: Option<extern "C" fn(*mut Value, *mut Value) -> i32>,
+    pub hash: Option<extern "C" fn(*mut Value) -> u64>,
+}
+
+/// The three callbacks registered for `type_id`, read under one lock.
 ///
-/// The lock is released before the pointer is returned, so the caller may then
-/// run compiled code that registers or allocates another object type.
-pub fn object_equals_fn(type_id: TypeId) -> Option<extern "C" fn(*mut Value, *mut Value) -> bool> {
+/// Fetched together because every caller needs more than one of them, and the
+/// registry is a single global mutex sitting on the hot path of a map probe.
+/// The lock is released before returning, so the caller may then run compiled
+/// code that registers or allocates another object type.
+pub fn object_callbacks(type_id: TypeId) -> ObjectCallbacks {
     let registry = TYPE_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
-    registry.get(&type_id).and_then(|t| t.equals)
-}
-
-/// The comparison registered for `type_id`, if any.
-pub fn object_compare_fn(type_id: TypeId) -> Option<extern "C" fn(*mut Value, *mut Value) -> i32> {
-    let registry = TYPE_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
-    registry.get(&type_id).and_then(|t| t.compare)
-}
-
-/// The hash registered for `type_id`, if any.
-pub fn object_hash_fn(type_id: TypeId) -> Option<extern "C" fn(*mut Value) -> u64> {
-    let registry = TYPE_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
-    registry.get(&type_id).and_then(|t| t.hash)
+    match registry.get(&type_id) {
+        Some(obj_type) => ObjectCallbacks {
+            equals: obj_type.equals,
+            compare: obj_type.compare,
+            hash: obj_type.hash,
+        },
+        None => ObjectCallbacks::default(),
+    }
 }
 
 #[unsafe(no_mangle)]

@@ -69,7 +69,7 @@ pub extern "C" fn mux_set_value(set: *mut Set) -> *mut Value {
 #[unsafe(no_mangle)]
 pub extern "C" fn mux_set_add(set: *mut Set, val: *mut Value) {
     let set = unsafe { &mut *set };
-    let val = unsafe { (*val).clone() };
+    let val = unsafe { crate::refcount::snapshot_key(&*val) };
     set.add(val);
 }
 
@@ -77,7 +77,7 @@ pub extern "C" fn mux_set_add(set: *mut Set, val: *mut Value) {
 #[allow(clippy::mutable_key_type)]
 #[unsafe(no_mangle)]
 pub extern "C" fn mux_set_add_value(set_val: *mut Value, val: *mut Value) {
-    let value = unsafe { (*val).clone() };
+    let value = unsafe { crate::refcount::snapshot_key(&*val) };
     unsafe {
         with_set_mut(set_val, |set_data| {
             set_data.insert(value);
