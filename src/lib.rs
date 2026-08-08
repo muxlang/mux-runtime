@@ -1,7 +1,7 @@
 extern crate std as rust_std;
 
+use crate::ordered::{OrderedMap, OrderedSet};
 use rust_std::cmp;
-use rust_std::collections::{BTreeMap, BTreeSet};
 use rust_std::ffi::c_void;
 use rust_std::fmt;
 use rust_std::hash;
@@ -234,8 +234,8 @@ pub enum Value {
     Float(ordered_float::OrderedFloat<f64>),
     String(String),
     List(Vec<Value>),
-    Map(BTreeMap<Value, Value>),
-    Set(BTreeSet<Value>),
+    Map(OrderedMap<Value, Value>),
+    Set(OrderedSet<Value>),
     Tuple(Box<Tuple>),
     Optional(Option<Box<Value>>),
     Result(Result<Box<Value>, Box<Value>>),
@@ -445,6 +445,7 @@ pub mod math;
 pub mod net;
 pub mod object;
 pub mod optional;
+pub mod ordered;
 pub mod panic;
 pub mod random;
 pub mod refcount;

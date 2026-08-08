@@ -2,7 +2,6 @@
 //! extraction, list slicing, env access, enum boxing, and no-op frees.
 #![allow(clippy::mutable_key_type)]
 
-use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::CString;
 
 use mux_runtime::optional::{mux_optional_get_value, mux_optional_is_none, mux_optional_is_some};
@@ -35,7 +34,7 @@ fn some_none_ok_err_wrappers() {
 
 #[test]
 fn container_extraction() {
-    let mut m = BTreeMap::new();
+    let mut m = mux_runtime::ordered::OrderedMap::new();
     m.insert(Value::String("k".into()), Value::Int(1));
     let map_val = mux_rc_alloc(Value::Map(m));
     let raw_map = mux_value_get_map(map_val);
@@ -43,7 +42,7 @@ fn container_extraction() {
     mux_free_map(raw_map);
     assert!(mux_rc_dec(map_val));
 
-    let mut s = BTreeSet::new();
+    let mut s = mux_runtime::ordered::OrderedSet::new();
     s.insert(Value::Int(7));
     let set_val = mux_rc_alloc(Value::Set(s));
     let raw_set = mux_value_get_set(set_val);
@@ -67,7 +66,7 @@ fn container_extraction() {
 
 #[test]
 fn value_map_get_value_reads_without_cloning_whole_map() {
-    let mut m = BTreeMap::new();
+    let mut m = mux_runtime::ordered::OrderedMap::new();
     m.insert(Value::String("k".into()), Value::Int(42));
     let map_val = mux_rc_alloc(Value::Map(m));
 

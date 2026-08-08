@@ -162,14 +162,14 @@ fn deep_clone_value(val: &Value) -> Value {
             Value::List(out)
         }
         Value::Map(entries) => {
-            let mut out = std::collections::BTreeMap::new();
+            let mut out = crate::ordered::OrderedMap::new();
             for (k, v) in entries {
                 out.insert(deep_clone_value(k), deep_clone_value(v));
             }
             Value::Map(out)
         }
         Value::Set(items) => {
-            let mut out = std::collections::BTreeSet::new();
+            let mut out = crate::ordered::OrderedSet::new();
             for item in items {
                 out.insert(deep_clone_value(item));
             }
@@ -495,9 +495,7 @@ mod tests {
     #[test]
     #[allow(clippy::mutable_key_type)]
     fn test_nested_collections() {
-        use std::collections::BTreeMap;
-
-        let mut map = BTreeMap::new();
+        let mut map = crate::ordered::OrderedMap::new();
         map.insert(Value::String("key1".to_string()), Value::Int(100));
         map.insert(
             Value::String("key2".to_string()),

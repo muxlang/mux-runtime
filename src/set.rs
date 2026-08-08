@@ -1,13 +1,13 @@
+use crate::ordered::OrderedSet;
 use crate::refcount::mux_rc_alloc;
 use crate::Value;
-use std::collections::BTreeSet;
 use std::ffi::CString;
 use std::fmt;
 
 #[derive(Clone, Debug)]
-pub struct Set(pub BTreeSet<Value>);
+pub struct Set(pub OrderedSet<Value>);
 
-/// Mutate the `BTreeSet` backing a `Value::Set` in place.
+/// Mutate the `OrderedSet` backing a `Value::Set` in place.
 ///
 /// The `*_value` set mutators are in-place operators by ABI: they return nothing
 /// and mutate whatever `set_val` points at, so the change is always observed
@@ -23,7 +23,7 @@ pub struct Set(pub BTreeSet<Value>);
 #[inline]
 unsafe fn with_set_mut<R>(
     set_val: *mut Value,
-    f: impl FnOnce(&mut BTreeSet<Value>) -> R,
+    f: impl FnOnce(&mut OrderedSet<Value>) -> R,
 ) -> Option<R> {
     if set_val.is_null() {
         return None;

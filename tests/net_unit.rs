@@ -10,8 +10,6 @@
 
 mod common;
 
-use std::collections::BTreeMap;
-
 use common::{assert_err, ok_string};
 use mux_runtime::net::*;
 use mux_runtime::refcount::{mux_rc_alloc, mux_rc_dec};
@@ -141,9 +139,9 @@ fn http_request_response_loopback() {
     assert!(mux_rc_dec(parsed));
 
     // Server writes a JSON response.
-    let mut resp = BTreeMap::new();
+    let mut resp = mux_runtime::ordered::OrderedMap::new();
     resp.insert(Value::String("status".into()), Value::Int(200));
-    let mut headers = BTreeMap::new();
+    let mut headers = mux_runtime::ordered::OrderedMap::new();
     headers.insert(Value::String("X-Test".into()), Value::String("yes".into()));
     resp.insert(Value::String("headers".into()), Value::Map(headers));
     resp.insert(Value::String("body".into()), Value::String("hello".into()));
@@ -229,7 +227,7 @@ fn http_client_against_local_server() {
     let url = format!("http://{}/", server_addr);
 
     // GET
-    let mut get = BTreeMap::new();
+    let mut get = mux_runtime::ordered::OrderedMap::new();
     get.insert(Value::String("method".into()), Value::String("GET".into()));
     get.insert(Value::String("url".into()), Value::String(url.clone()));
     let get_val = mux_rc_alloc(Value::Map(get));
@@ -239,7 +237,7 @@ fn http_client_against_local_server() {
     assert!(mux_rc_dec(get_val));
 
     // POST with a body (exercises send_string + Content-Type defaulting)
-    let mut post = BTreeMap::new();
+    let mut post = mux_runtime::ordered::OrderedMap::new();
     post.insert(Value::String("method".into()), Value::String("POST".into()));
     post.insert(Value::String("url".into()), Value::String(url));
     post.insert(
@@ -258,14 +256,14 @@ fn http_client_against_local_server() {
 #[test]
 fn http_request_errors() {
     // missing required fields
-    let mut no_url = BTreeMap::new();
+    let mut no_url = mux_runtime::ordered::OrderedMap::new();
     no_url.insert(Value::String("method".into()), Value::String("GET".into()));
     let no_url_val = mux_rc_alloc(Value::Map(no_url));
     assert_err(mux_net_http_request(no_url_val));
     assert!(mux_rc_dec(no_url_val));
 
     // transport failure: nothing is listening on port 1
-    let mut refused = BTreeMap::new();
+    let mut refused = mux_runtime::ordered::OrderedMap::new();
     refused.insert(Value::String("method".into()), Value::String("GET".into()));
     refused.insert(
         Value::String("url".into()),
@@ -288,21 +286,21 @@ fn http_response_validation_and_udp_extras() {
     let server = ok_data(mux_net_tcp_listener_accept(listener));
 
     // missing status
-    let no_status = mux_rc_alloc(Value::Map(BTreeMap::new()));
+    let no_status = mux_rc_alloc(Value::Map(mux_runtime::ordered::OrderedMap::new()));
     assert_err(mux_net_http_write_response(server, no_status));
     assert!(mux_rc_dec(no_status));
 
     // status out of range
-    let mut bad = BTreeMap::new();
+    let mut bad = mux_runtime::ordered::OrderedMap::new();
     bad.insert(Value::String("status".into()), Value::Int(99));
     let bad_val = mux_rc_alloc(Value::Map(bad));
     assert_err(mux_net_http_write_response(server, bad_val));
     assert!(mux_rc_dec(bad_val));
 
     // non-string header value
-    let mut hdr = BTreeMap::new();
+    let mut hdr = mux_runtime::ordered::OrderedMap::new();
     hdr.insert(Value::String("status".into()), Value::Int(200));
-    let mut headers = BTreeMap::new();
+    let mut headers = mux_runtime::ordered::OrderedMap::new();
     headers.insert(Value::String("X".into()), Value::Int(1));
     hdr.insert(Value::String("headers".into()), Value::Map(headers));
     let hdr_val = mux_rc_alloc(Value::Map(hdr));

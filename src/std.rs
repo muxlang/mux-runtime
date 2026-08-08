@@ -66,12 +66,12 @@ pub extern "C" fn mux_new_list() -> *mut List {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn mux_new_map() -> *mut Map {
-    Box::into_raw(Box::new(Map(std::collections::BTreeMap::new())))
+    Box::into_raw(Box::new(Map(crate::ordered::OrderedMap::new())))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn mux_new_set() -> *mut Set {
-    Box::into_raw(Box::new(Set(std::collections::BTreeSet::new())))
+    Box::into_raw(Box::new(Set(crate::ordered::OrderedSet::new())))
 }
 
 #[allow(clippy::not_unsafe_ptr_arg_deref)]

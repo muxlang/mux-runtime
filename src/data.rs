@@ -1,5 +1,4 @@
 use crate::Value;
-use std::collections::BTreeMap;
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 
@@ -49,7 +48,7 @@ fn collect_rows(reader: &mut csv::Reader<&[u8]>) -> Result<Vec<Value>, *mut Valu
 
 #[allow(clippy::mutable_key_type)]
 fn csv_value(headers: Value, rows: Vec<Value>) -> Value {
-    let mut map = BTreeMap::new();
+    let mut map = crate::ordered::OrderedMap::new();
     map.insert(Value::String("headers".to_string()), headers);
     map.insert(Value::String("rows".to_string()), Value::List(rows));
     Value::Map(map)

@@ -1,8 +1,6 @@
 //! Unit tests for the collection cores (list, map, set).
 #![allow(clippy::mutable_key_type)] // Value keys are logically immutable here.
 
-use std::collections::{BTreeMap, BTreeSet};
-
 use mux_runtime::list::List;
 use mux_runtime::map::Map;
 use mux_runtime::set::Set;
@@ -34,7 +32,7 @@ fn list_display_contains_elements() {
 
 #[test]
 fn map_insert_get_remove_contains() {
-    let mut map = Map(BTreeMap::new());
+    let mut map = Map(mux_runtime::ordered::OrderedMap::new());
     map.insert(Value::String("k".to_string()), Value::Int(10));
     assert!(map.contains(&Value::String("k".to_string())));
     assert_eq!(
@@ -53,7 +51,7 @@ fn map_insert_get_remove_contains() {
 
 #[test]
 fn set_add_remove_contains() {
-    let mut set = Set(BTreeSet::new());
+    let mut set = Set(mux_runtime::ordered::OrderedSet::new());
     set.add(Value::Int(1));
     set.add(Value::Int(1)); // duplicate ignored
     assert!(set.contains(&Value::Int(1)));

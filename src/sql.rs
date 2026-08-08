@@ -11,7 +11,7 @@ use postgres::{Client as PostgresClient, NoTls};
 use rusqlite::types::{Value as SqliteValue, ValueRef};
 use rusqlite::{params_from_iter, Connection as SqliteConnection};
 use std::cell::RefCell;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::ffi::{c_char, c_void, CStr};
 use std::sync::atomic::{AtomicI64, Ordering};
 
@@ -589,7 +589,7 @@ fn sqlite_query(
         .next()
         .map_err(|e| format!("sql query failed: {}", e))?
     {
-        let mut map = BTreeMap::new();
+        let mut map = crate::ordered::OrderedMap::new();
         for idx in 0..column_count {
             let col_name = columns
                 .get(idx)
@@ -680,7 +680,7 @@ fn postgres_query(
         .collect();
     let mut out_rows = Vec::new();
     for row in rows {
-        let mut map = BTreeMap::new();
+        let mut map = crate::ordered::OrderedMap::new();
         for (idx, col) in stmt.columns().iter().enumerate() {
             let value = postgres_query_value(&row, idx, col.type_())?;
             map.insert(Value::String(col.name().to_string()), value);
@@ -770,7 +770,7 @@ fn mysql_query(
         let values: Vec<MySqlValue> = (0..columns.len())
             .map(|idx| row.take(idx).unwrap_or(MySqlValue::NULL))
             .collect();
-        let mut map = BTreeMap::new();
+        let mut map = crate::ordered::OrderedMap::new();
         for (idx, raw) in values.into_iter().enumerate() {
             let col_name = columns
                 .get(idx)
