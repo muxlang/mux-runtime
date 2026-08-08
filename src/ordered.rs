@@ -291,7 +291,10 @@ impl<'a, K, V> Iterator for Iter<'a, K, V> {
                 self.remaining -= 1;
                 Some((key, value))
             }
-            Slot::Free { .. } => None,
+            // Loud rather than silent: the link chain only reaches live slots,
+            // and a map quietly losing entries is worse than a panic. Every
+            // other impossible-state path here does the same.
+            Slot::Free { .. } => unreachable!("the link chain reached a free slot"),
         }
     }
 
@@ -398,17 +401,37 @@ where
         self.map.clear();
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = &T> {
-        self.map.keys()
+    pub fn iter(&self) -> SetIter<'_, T> {
+        SetIter {
+            inner: self.map.iter(),
+        }
+    }
+}
+
+/// Named so `&OrderedSet` can implement `IntoIterator` without boxing the
+/// iterator, which cost a heap allocation on every traversal.
+pub struct SetIter<'a, T> {
+    inner: Iter<'a, T, ()>,
+}
+
+impl<'a, T> Iterator for SetIter<'a, T> {
+    type Item = &'a T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.inner.next().map(|(value, ())| value)
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.inner.size_hint()
     }
 }
 
 impl<'a, T: Hash + Eq, S: BuildHasher> IntoIterator for &'a OrderedSet<T, S> {
     type Item = &'a T;
-    type IntoIter = Box<dyn Iterator<Item = &'a T> + 'a>;
+    type IntoIter = SetIter<'a, T>;
 
     fn into_iter(self) -> Self::IntoIter {
-        Box::new(self.iter())
+        self.iter()
     }
 }
 
@@ -508,29 +531,49 @@ impl<K: Hash + Eq, V, S: BuildHasher> Extend<(K, V)> for OrderedMap<K, V, S> {
     }
 }
 
+/// Consuming iteration, still in insertion order. Takes each entry out of the
+/// slab as it walks, so it allocates nothing beyond the map it consumes.
+pub struct IntoIter<K, V> {
+    slab: Vec<Slot<K, V>>,
+    next: Option<usize>,
+    remaining: usize,
+}
+
+impl<K, V> Iterator for IntoIter<K, V> {
+    type Item = (K, V);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let index = self.next?;
+        match std::mem::replace(&mut self.slab[index], Slot::Free { next_free: None }) {
+            Slot::Occupied {
+                key,
+                value,
+                next: following,
+                ..
+            } => {
+                self.next = following;
+                self.remaining -= 1;
+                Some((key, value))
+            }
+            Slot::Free { .. } => unreachable!("the link chain reached a free slot"),
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (self.remaining, Some(self.remaining))
+    }
+}
+
 impl<K: Hash + Eq, V, S: BuildHasher> IntoIterator for OrderedMap<K, V, S> {
     type Item = (K, V);
-    type IntoIter = std::vec::IntoIter<(K, V)>;
+    type IntoIter = IntoIter<K, V>;
 
     fn into_iter(self) -> Self::IntoIter {
-        let mut items = Vec::with_capacity(self.len);
-        let mut next = self.head;
-        let mut slab: Vec<Option<Slot<K, V>>> = self.slab.into_iter().map(Some).collect();
-        while let Some(index) = next {
-            match slab[index].take() {
-                Some(Slot::Occupied {
-                    key,
-                    value,
-                    next: n,
-                    ..
-                }) => {
-                    items.push((key, value));
-                    next = n;
-                }
-                _ => break,
-            }
+        IntoIter {
+            slab: self.slab,
+            next: self.head,
+            remaining: self.len,
         }
-        items.into_iter()
     }
 }
 
@@ -544,14 +587,29 @@ impl<T: Hash + Eq, S: BuildHasher> Extend<T> for OrderedSet<T, S> {
 
 impl<T: Hash + Eq, S: BuildHasher> IntoIterator for OrderedSet<T, S> {
     type Item = T;
-    type IntoIter = std::vec::IntoIter<T>;
+    type IntoIter = SetIntoIter<T>;
 
     fn into_iter(self) -> Self::IntoIter {
-        self.map
-            .into_iter()
-            .map(|(k, _)| k)
-            .collect::<Vec<_>>()
-            .into_iter()
+        SetIntoIter {
+            inner: self.map.into_iter(),
+        }
+    }
+}
+
+/// Consuming set iteration, allocation-free for the same reason as the map's.
+pub struct SetIntoIter<T> {
+    inner: IntoIter<T, ()>,
+}
+
+impl<T> Iterator for SetIntoIter<T> {
+    type Item = T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.inner.next().map(|(value, ())| value)
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.inner.size_hint()
     }
 }
 
@@ -672,6 +730,40 @@ mod tests {
         assert!(!set.insert("a"));
         assert_eq!(set.iter().copied().collect::<Vec<_>>(), vec!["a", "b"]);
         assert_eq!(set.len(), 2);
+    }
+
+    #[test]
+    fn consuming_iteration_yields_insertion_order_and_all_entries() {
+        let mut map = OrderedMap::new();
+        for key in [5, 1, 4] {
+            map.insert(key, key * 2);
+        }
+        map.remove(&1);
+        map.insert(9, 18);
+        let drained: Vec<_> = map.into_iter().collect();
+        assert_eq!(drained, vec![(5, 10), (4, 8), (9, 18)]);
+    }
+
+    #[test]
+    fn consuming_set_iteration_yields_insertion_order() {
+        let mut set = OrderedSet::new();
+        for value in ["c", "a", "b"] {
+            set.insert(value);
+        }
+        set.remove("a");
+        assert_eq!(set.into_iter().collect::<Vec<_>>(), vec!["c", "b"]);
+    }
+
+    #[test]
+    fn iterators_report_an_exact_size() {
+        let mut map = OrderedMap::new();
+        for key in 0..5 {
+            map.insert(key, key);
+        }
+        map.remove(&2);
+        assert_eq!(map.iter().size_hint(), (4, Some(4)));
+        let set: OrderedSet<i32> = (0..3).collect();
+        assert_eq!(set.iter().size_hint(), (3, Some(3)));
     }
 
     #[test]
