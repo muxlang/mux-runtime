@@ -49,6 +49,13 @@ itself - see
   their data through a handle, so mutating one after it became a key moved
   where the key belonged without moving the entry, stranding it where no lookup
   would go.
+- **Content-based keying now requires an equality as well as a hash.** A hash
+  alone cannot key anything: two entries landing in one bucket need something
+  to tell them apart, and without it equality stayed pointer identity while the
+  key came from the contents - so two distinct objects whose hashes collided
+  ordered equal while comparing unequal. Such a type is keyed by identity,
+  which is consistent for both. The compiler requires `eq` of every `Hashable`
+  class, so this is only reachable through the FFI directly.
 - **Content-based keying now requires the type to be copyable.** A key is
   stored at a position derived from its contents, and the only way to snapshot
   one away from the caller's handle is the registered copy callback. A type

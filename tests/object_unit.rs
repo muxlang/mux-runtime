@@ -281,3 +281,61 @@ fn content_keying_without_a_copy_callback_falls_back_to_identity() {
     mux_free_object(b);
     mux_free_object(a);
 }
+
+#[test]
+fn a_hash_without_an_equality_falls_back_to_identity() {
+    let name = CString::new("HashOnly").unwrap();
+    let tid = mux_register_object_type(name.as_ptr(), std::mem::size_of::<u64>());
+    mux_register_object_copy(tid, copy_u64);
+    // A hash but nothing to tell two entries in one bucket apart. Equality
+    // would stay pointer identity while the key came from the contents, so two
+    // distinct objects sharing a hash would order equal while comparing
+    // unequal. Identity keys both consistently.
+    mux_register_object_hash(tid, hash_u64);
+
+    let a = alloc_u64_object(tid, 6);
+    let b = alloc_u64_object(tid, 6);
+
+    unsafe {
+        // Identical contents and therefore an identical hash, so this is the
+        // colliding case; ordering must still separate them, because equality
+        // does.
+        assert_ne!(&*a, &*b);
+        assert_ne!((*a).cmp(&*b), std::cmp::Ordering::Equal);
+        assert_eq!((*a).cmp(&*a), std::cmp::Ordering::Equal);
+        assert_ne!(hash_of(&*a), hash_of(&*b));
+    }
+
+    mux_free_object(b);
+    mux_free_object(a);
+}
+
+#[test]
+fn ordering_agrees_with_equality_for_a_fully_declared_class() {
+    let name = CString::new("FullyDeclared").unwrap();
+    let tid = mux_register_object_type(name.as_ptr(), std::mem::size_of::<u64>());
+    mux_register_object_copy(tid, copy_u64);
+    mux_register_object_compare(tid, compare_u64);
+    mux_register_object_equals(tid, equals_u64);
+    mux_register_object_hash(tid, hash_u64);
+
+    let a = alloc_u64_object(tid, 1);
+    let b = alloc_u64_object(tid, 1);
+    let c = alloc_u64_object(tid, 2);
+
+    unsafe {
+        // With a comparator there is no disagreement left: cmp is Equal exactly
+        // when eq is true, for every pair.
+        for (x, y) in [(a, b), (a, c), (b, c), (a, a)] {
+            assert_eq!(
+                (*x).cmp(&*y) == std::cmp::Ordering::Equal,
+                *x == *y,
+                "ordering and equality must agree"
+            );
+        }
+    }
+
+    mux_free_object(c);
+    mux_free_object(b);
+    mux_free_object(a);
+}

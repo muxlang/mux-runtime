@@ -90,21 +90,30 @@ impl ObjectRef {
 
     /// The callbacks this object is actually keyed by.
     ///
-    /// Content-based keying additionally requires the type to be copyable. A
-    /// key is stored at a position derived from its contents, and the only way
-    /// to take a copy independent of the caller's handle is the registered copy
-    /// callback. Without one, the caller keeps a handle to the very object the
-    /// table is keyed on, and mutating it moves where the key belongs without
-    /// moving the entry - stranding it where no lookup will go.
+    /// Content-based keying needs two things beyond a hash, and a type missing
+    /// either is keyed by identity instead - the same answer it had before it
+    /// registered anything.
     ///
-    /// So a type that registers equality or a hash but no copy falls back to
-    /// identity, which is stable under mutation and is the same answer it had
-    /// before it registered anything. The compiler registers copy for every
-    /// class, so this only bites a caller that registers an object type through
-    /// the FFI directly - and it bites as a weaker guarantee, not a lost entry.
+    /// It must be **copyable**. A key is stored at a position derived from its
+    /// contents, and the only way to take a copy independent of the caller's
+    /// handle is the registered copy callback. Without one the caller keeps a
+    /// handle to the very object the table is keyed on, and mutating it moves
+    /// where the key belongs without moving the entry.
+    ///
+    /// It must supply an **equality** (`equals`, or `compare` which answers
+    /// equality too). A hash alone cannot key anything: two entries landing in
+    /// one bucket need something to tell them apart, and without it equality
+    /// stays pointer identity while the key is content-derived - so two
+    /// distinct objects whose hashes collide would order equal while comparing
+    /// unequal. Identity keys both consistently.
+    ///
+    /// The compiler registers copy for every class and requires `eq` of every
+    /// `Hashable` one, so neither gap is reachable from Mux source; both are
+    /// combinations only a direct FFI caller can build.
     fn keying(&self) -> object::ObjectCallbacks {
         let callbacks = object::object_callbacks(self.type_id());
-        if callbacks.can_snapshot {
+        let has_equality = callbacks.equals.is_some() || callbacks.compare.is_some();
+        if callbacks.can_snapshot && has_equality {
             callbacks
         } else {
             object::ObjectCallbacks::default()
@@ -474,6 +483,16 @@ impl Ord for Value {
                 // ones: mixing content equality with address ordering was not
                 // transitive, and `sort_by` may panic on a comparison that is
                 // not a total order.
+                //
+                // One disagreement with `==` survives here and cannot be
+                // removed: a class that declares equality but no order shares
+                // one key across instances its `eq` separates, so two unequal
+                // instances order equal. An arbitrary equivalence relation
+                // admits no consistent total order without a comparator, and
+                // every alternative either reintroduces the non-transitivity
+                // above or invents an order the class never defined. Declaring
+                // `Comparable` is how a class supplies the real one, and that
+                // takes the branch above.
                 None => (a.type_id(), a.structural_key()).cmp(&(b.type_id(), b.structural_key())),
             },
             (Value::Opaque(a), Value::Opaque(b)) => a.cmp(b),
