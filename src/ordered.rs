@@ -78,11 +78,30 @@ where
         self.hasher.hash_one(key)
     }
 
-    fn key_at(&self, index: usize) -> &K {
-        match &self.slab[index] {
-            Slot::Occupied { key, .. } => key,
-            Slot::Free { .. } => unreachable!("table index points at a free slot"),
+    /// The live entry at `index`, or `None` when the index is out of range or
+    /// names a free slot.
+    ///
+    /// Every index this structure stores - in the hash table, in the free list,
+    /// in the order links - should name a live slot. `None` therefore means an
+    /// invariant broke, and each caller answers as if the entry were simply
+    /// absent. This is a library linked into compiled programs: aborting one
+    /// because a map is inconsistent turns a container bug into a crash the
+    /// program cannot handle, and the honest answer to "is this key here" is
+    /// still "no". `debug_assert` keeps it loud where it can be acted on.
+    fn entry_at(&self, index: usize) -> Option<(&K, &V, Option<usize>)> {
+        match self.slab.get(index) {
+            Some(Slot::Occupied {
+                key, value, next, ..
+            }) => Some((key, value, *next)),
+            _ => {
+                debug_assert!(false, "index {index} does not name a live slot");
+                None
+            }
         }
+    }
+
+    fn key_at(&self, index: usize) -> Option<&K> {
+        self.entry_at(index).map(|(key, _, _)| key)
     }
 
     pub fn len(&self) -> usize {
@@ -110,7 +129,7 @@ where
         Q: Hash + Eq + ?Sized,
     {
         self.table
-            .find(hash, |&i| self.key_at(i).borrow() == key)
+            .find(hash, |&i| self.key_at(i).is_some_and(|k| k.borrow() == key))
             .copied()
     }
 
@@ -120,10 +139,7 @@ where
         Q: Hash + Eq + ?Sized,
     {
         let index = self.index_of(key)?;
-        match &self.slab[index] {
-            Slot::Occupied { value, .. } => Some(value),
-            Slot::Free { .. } => None,
-        }
+        self.entry_at(index).map(|(_, value, _)| value)
     }
 
     pub fn get_mut<Q>(&mut self, key: &Q) -> Option<&mut V>
@@ -132,9 +148,9 @@ where
         Q: Hash + Eq + ?Sized,
     {
         let index = self.index_of(key)?;
-        match &mut self.slab[index] {
-            Slot::Occupied { value, .. } => Some(value),
-            Slot::Free { .. } => None,
+        match self.slab.get_mut(index) {
+            Some(Slot::Occupied { value, .. }) => Some(value),
+            _ => None,
         }
     }
 
@@ -149,13 +165,25 @@ where
     /// Take a slot for a new entry, reusing a hole when one exists.
     fn alloc_slot(&mut self, slot: Slot<K, V>) -> usize {
         match self.free_head {
+            // A free list that names a live slot would hand out an index that
+            // is already in use, so abandon the list rather than corrupt the
+            // entry it points at; the slab grows by one instead.
+            Some(index) if !matches!(self.slab.get(index), Some(Slot::Free { .. })) => {
+                debug_assert!(false, "free list points at a live slot");
+                self.free_head = None;
+                self.slab.push(slot);
+                self.slab.len() - 1
+            }
             Some(index) => {
-                let next_free = match self.slab[index] {
-                    Slot::Free { next_free } => next_free,
-                    Slot::Occupied { .. } => unreachable!("free list points at a live slot"),
+                let next_free = match self.slab.get(index) {
+                    Some(Slot::Free { next_free }) => *next_free,
+                    // Guarded by the arm above.
+                    _ => None,
                 };
                 self.free_head = next_free;
-                self.slab[index] = slot;
+                if let Some(hole) = self.slab.get_mut(index) {
+                    *hole = slot;
+                }
                 index
             }
             None => {
@@ -171,10 +199,9 @@ where
     pub fn insert(&mut self, key: K, value: V) -> Option<V> {
         let hash = self.hash_of(&key);
         if let Some(index) = self.index_of_hashed(hash, &key) {
-            let Slot::Occupied { value: slot, .. } = &mut self.slab[index] else {
-                unreachable!("table index points at a free slot");
-            };
-            return Some(std::mem::replace(slot, value));
+            if let Some(Slot::Occupied { value: slot, .. }) = self.slab.get_mut(index) {
+                return Some(std::mem::replace(slot, value));
+            }
         }
 
         let index = self.alloc_slot(Slot::Occupied {
@@ -186,7 +213,7 @@ where
 
         match self.tail {
             Some(previous) => {
-                if let Slot::Occupied { next, .. } = &mut self.slab[previous] {
+                if let Some(Slot::Occupied { next, .. }) = self.slab.get_mut(previous) {
                     *next = Some(index);
                 }
             }
@@ -198,10 +225,17 @@ where
         // reading its key back out of the slab.
         let slab = &self.slab;
         let hasher = &self.hasher;
-        self.table.insert_unique(hash, index, |&i| match &slab[i] {
-            Slot::Occupied { key, .. } => hasher.hash_one(key),
-            Slot::Free { .. } => unreachable!("table index points at a free slot"),
-        });
+        // Rehashing needs each stored index's own hash, which means reading its
+        // key back out of the slab. A slot with no key cannot supply one; 0
+        // merely misplaces an entry that is already inconsistent.
+        self.table
+            .insert_unique(hash, index, |&i| match slab.get(i) {
+                Some(Slot::Occupied { key, .. }) => hasher.hash_one(key),
+                _ => {
+                    debug_assert!(false, "table index {i} does not name a live slot");
+                    0
+                }
+            });
         self.len += 1;
         None
     }
@@ -213,28 +247,43 @@ where
         Q: Hash + Eq + ?Sized,
     {
         let hash = self.hash_of(key);
-        let index = *self.table.find(hash, |&i| self.key_at(i).borrow() == key)?;
+        let index = *self
+            .table
+            .find(hash, |&i| self.key_at(i).is_some_and(|k| k.borrow() == key))?;
         self.table
             .find_entry(hash, |&i| i == index)
             .ok()
             .map(|entry| entry.remove());
 
+        // Tested before the swap, not after: replacing a slot that is already
+        // free would push its index onto the free list a second time, and the
+        // list would then hand the same slot out twice.
+        // Checked before the swap rather than after, so an index that does not
+        // name a live entry leaves the slab untouched: replacing a slot that is
+        // already free would drop its free-list link and push its index onto
+        // the list a second time.
+        if !matches!(self.slab.get(index), Some(Slot::Occupied { .. })) {
+            debug_assert!(false, "table index {index} does not name a live slot");
+            return None;
+        }
+        let free_head = self.free_head;
+        let slot = self.slab.get_mut(index)?;
         let Slot::Occupied {
             value, prev, next, ..
         } = std::mem::replace(
-            &mut self.slab[index],
+            slot,
             Slot::Free {
-                next_free: self.free_head,
+                next_free: free_head,
             },
         )
         else {
-            unreachable!("table index points at a free slot");
+            return None;
         };
         self.free_head = Some(index);
 
         match prev {
             Some(p) => {
-                if let Slot::Occupied { next: n, .. } = &mut self.slab[p] {
+                if let Some(Slot::Occupied { next: n, .. }) = self.slab.get_mut(p) {
                     *n = next;
                 }
             }
@@ -242,7 +291,7 @@ where
         }
         match next {
             Some(n) => {
-                if let Slot::Occupied { prev: p, .. } = &mut self.slab[n] {
+                if let Some(Slot::Occupied { prev: p, .. }) = self.slab.get_mut(n) {
                     *p = prev;
                 }
             }
@@ -292,18 +341,27 @@ impl<'a, K, V> Iterator for Iter<'a, K, V> {
 
     fn next(&mut self) -> Option<Self::Item> {
         let index = self.next?;
-        match &self.slab[index] {
-            Slot::Occupied {
+        match self.slab.get(index) {
+            Some(Slot::Occupied {
                 key, value, next, ..
-            } => {
+            }) => {
                 self.next = *next;
-                self.remaining -= 1;
+                self.remaining = self.remaining.saturating_sub(1);
                 Some((key, value))
             }
-            // Loud rather than silent: the link chain only reaches live slots,
-            // and a map quietly losing entries is worse than a panic. Every
-            // other impossible-state path here does the same.
-            Slot::Free { .. } => unreachable!("the link chain reached a free slot"),
+            // The chain should only reach live slots. Ending iteration yields a
+            // short map; panicking ends the program that was reading it. Short
+            // is recoverable and this is a library, so it ends here and
+            // `debug_assert` catches it where it can be fixed.
+            _ => {
+                debug_assert!(
+                    false,
+                    "the link chain reached index {index}, not a live slot"
+                );
+                self.next = None;
+                self.remaining = 0;
+                None
+            }
         }
     }
 
@@ -553,7 +611,11 @@ impl<K, V> Iterator for IntoIter<K, V> {
 
     fn next(&mut self) -> Option<Self::Item> {
         let index = self.next?;
-        match std::mem::replace(&mut self.slab[index], Slot::Free { next_free: None }) {
+        let taken = match self.slab.get_mut(index) {
+            Some(slot) => std::mem::replace(slot, Slot::Free { next_free: None }),
+            None => Slot::Free { next_free: None },
+        };
+        match taken {
             Slot::Occupied {
                 key,
                 value,
@@ -561,10 +623,20 @@ impl<K, V> Iterator for IntoIter<K, V> {
                 ..
             } => {
                 self.next = following;
-                self.remaining -= 1;
+                self.remaining = self.remaining.saturating_sub(1);
                 Some((key, value))
             }
-            Slot::Free { .. } => unreachable!("the link chain reached a free slot"),
+            // See `Iter::next`: a broken chain ends iteration rather than the
+            // program reading it.
+            Slot::Free { .. } => {
+                debug_assert!(
+                    false,
+                    "the link chain reached index {index}, not a live slot"
+                );
+                self.next = None;
+                self.remaining = 0;
+                None
+            }
         }
     }
 
@@ -709,6 +781,36 @@ mod tests {
         assert_eq!(map.keys().count(), 0);
         map.insert("again", 2);
         assert_eq!(map.keys().copied().collect::<Vec<_>>(), vec!["again"]);
+    }
+
+    // These pin the degradation, not the invariant: `debug_assert` fires in a
+    // debug build, so they run only under `--release`, where the question is
+    // whether a broken structure answers or aborts. This is a library linked
+    // into compiled programs, and a container bug must not become a crash the
+    // program has no way to handle.
+    #[test]
+    #[cfg(not(debug_assertions))]
+    fn a_broken_link_chain_ends_iteration_instead_of_aborting() {
+        let mut map = OrderedMap::new();
+        map.insert("a", 1);
+        map.insert("b", 2);
+        // Point the head at a slot that does not exist.
+        map.head = Some(999);
+        assert_eq!(map.iter().count(), 0);
+        assert_eq!(map.into_iter().count(), 0);
+    }
+
+    #[test]
+    #[cfg(not(debug_assertions))]
+    fn a_lookup_past_the_slab_answers_absent_instead_of_aborting() {
+        let mut map: OrderedMap<&str, i32> = OrderedMap::new();
+        map.insert("a", 1);
+        // A table entry naming a slot that does not exist must read as absent,
+        // and removing it must not push its index onto the free list.
+        map.slab.clear();
+        assert_eq!(map.get("a"), None);
+        assert_eq!(map.remove("a"), None);
+        assert!(map.free_head.is_none());
     }
 
     #[test]
