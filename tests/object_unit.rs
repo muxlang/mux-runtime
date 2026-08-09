@@ -106,6 +106,9 @@ fn alloc_u64_object(tid: TypeId, contents: u64) -> *mut mux_runtime::Value {
 fn registered_compare_and_hash_make_objects_structural() {
     let name = CString::new("Keyed").unwrap();
     let tid = mux_register_object_type(name.as_ptr(), std::mem::size_of::<u64>());
+    // Content keying requires copyability: a key has to be snapshotted away
+    // from the caller's handle. A class always registers this.
+    mux_register_object_copy(tid, copy_u64);
     mux_register_object_compare(tid, compare_u64);
     mux_register_object_equals(tid, equals_u64);
     mux_register_object_hash(tid, hash_u64);
@@ -135,6 +138,7 @@ fn objects_are_map_keys_by_contents() {
 
     let name = CString::new("MapKey").unwrap();
     let tid = mux_register_object_type(name.as_ptr(), std::mem::size_of::<u64>());
+    mux_register_object_copy(tid, copy_u64);
     mux_register_object_equals(tid, equals_u64);
     mux_register_object_hash(tid, hash_u64);
 
@@ -181,6 +185,7 @@ fn compare_does_not_cross_types() {
     let right = CString::new("RightType").unwrap();
     let left_tid = mux_register_object_type(left.as_ptr(), std::mem::size_of::<u64>());
     let right_tid = mux_register_object_type(right.as_ptr(), std::mem::size_of::<u64>());
+    mux_register_object_copy(left_tid, copy_u64);
     mux_register_object_compare(left_tid, compare_u64);
     mux_register_object_equals(left_tid, equals_u64);
     mux_register_object_hash(left_tid, hash_u64);
@@ -202,6 +207,7 @@ fn compare_does_not_cross_types() {
 fn equality_without_a_hash_still_hashes_consistently() {
     let name = CString::new("EqOnly").unwrap();
     let tid = mux_register_object_type(name.as_ptr(), std::mem::size_of::<u64>());
+    mux_register_object_copy(tid, copy_u64);
     mux_register_object_equals(tid, equals_u64);
 
     let a = alloc_u64_object(tid, 4);
@@ -231,6 +237,7 @@ fn equality_without_a_hash_still_hashes_consistently() {
 fn a_registered_hash_keeps_unequal_instances_apart() {
     let name = CString::new("EqAndHash").unwrap();
     let tid = mux_register_object_type(name.as_ptr(), std::mem::size_of::<u64>());
+    mux_register_object_copy(tid, copy_u64);
     mux_register_object_equals(tid, equals_u64);
     mux_register_object_hash(tid, hash_u64);
 
@@ -246,6 +253,31 @@ fn a_registered_hash_keeps_unequal_instances_apart() {
     }
 
     mux_free_object(c);
+    mux_free_object(b);
+    mux_free_object(a);
+}
+
+#[test]
+fn content_keying_without_a_copy_callback_falls_back_to_identity() {
+    let name = CString::new("NoCopyKeyed").unwrap();
+    let tid = mux_register_object_type(name.as_ptr(), std::mem::size_of::<u64>());
+    // Equality and a hash, but nothing to snapshot with. A key is stored at a
+    // position derived from its contents, so without a copy the caller keeps a
+    // handle to the very object the table is keyed on and could move the key
+    // out from under its entry. Identity is stable under that, so the type is
+    // keyed the way it was before it registered anything.
+    mux_register_object_equals(tid, equals_u64);
+    mux_register_object_hash(tid, hash_u64);
+
+    let a = alloc_u64_object(tid, 8);
+    let b = alloc_u64_object(tid, 8);
+
+    unsafe {
+        assert_ne!(&*a, &*b, "same contents, but keyed by identity");
+        assert_eq!(&*a, &*a);
+        assert_ne!(hash_of(&*a), hash_of(&*b));
+    }
+
     mux_free_object(b);
     mux_free_object(a);
 }

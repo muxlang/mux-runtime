@@ -88,6 +88,29 @@ impl ObjectRef {
         refcount::mux_rc_alloc(Value::Object(self.clone()))
     }
 
+    /// The callbacks this object is actually keyed by.
+    ///
+    /// Content-based keying additionally requires the type to be copyable. A
+    /// key is stored at a position derived from its contents, and the only way
+    /// to take a copy independent of the caller's handle is the registered copy
+    /// callback. Without one, the caller keeps a handle to the very object the
+    /// table is keyed on, and mutating it moves where the key belongs without
+    /// moving the entry - stranding it where no lookup will go.
+    ///
+    /// So a type that registers equality or a hash but no copy falls back to
+    /// identity, which is stable under mutation and is the same answer it had
+    /// before it registered anything. The compiler registers copy for every
+    /// class, so this only bites a caller that registers an object type through
+    /// the FFI directly - and it bites as a weaker guarantee, not a lost entry.
+    fn keying(&self) -> object::ObjectCallbacks {
+        let callbacks = object::object_callbacks(self.type_id());
+        if callbacks.can_snapshot {
+            callbacks
+        } else {
+            object::ObjectCallbacks::default()
+        }
+    }
+
     /// The value this object is keyed by, for both hashing and - absent a
     /// registered comparison - ordering. Using one key for both is what keeps
     /// them agreeing.
@@ -98,7 +121,7 @@ impl ObjectRef {
     /// answer that cannot be wrong. Everything else is keyed by its address,
     /// which is exactly as precise as the identity equality it pairs with.
     fn structural_key(&self) -> u64 {
-        let callbacks = object::object_callbacks(self.type_id());
+        let callbacks = self.keying();
         if let Some(hash) = callbacks.hash {
             return self.call_with_boxed(hash);
         }
@@ -118,7 +141,7 @@ impl ObjectRef {
         if self.type_id() != other.type_id() {
             return None;
         }
-        let callbacks = object::object_callbacks(self.type_id());
+        let callbacks = self.keying();
         if let Some(equals) = callbacks.equals {
             return Some(self.call_with_boxed_pair(other, equals));
         }
@@ -133,7 +156,7 @@ impl ObjectRef {
         if self.type_id() != other.type_id() {
             return None;
         }
-        let compare = object::object_callbacks(self.type_id()).compare?;
+        let compare = self.keying().compare?;
         Some(self.call_with_boxed_pair(other, compare).cmp(&0))
     }
 

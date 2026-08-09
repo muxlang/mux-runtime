@@ -49,6 +49,12 @@ itself - see
   their data through a handle, so mutating one after it became a key moved
   where the key belonged without moving the entry, stranding it where no lookup
   would go.
+- **Content-based keying now requires the type to be copyable.** A key is
+  stored at a position derived from its contents, and the only way to snapshot
+  one away from the caller's handle is the registered copy callback. A type
+  that registered equality or a hash without one is keyed by identity instead,
+  which is stable under mutation. Every class the compiler emits registers copy,
+  so this only reaches an object type registered through the FFI directly.
 - **An object with registered equality but no registered hash** compared by
   contents and hashed by address, so equal instances hashed differently.
   Hashing and ordering now share one key, which also keeps the ordering a total

@@ -305,6 +305,10 @@ pub struct ObjectCallbacks {
     pub equals: Option<extern "C" fn(*mut Value, *mut Value) -> bool>,
     pub compare: Option<extern "C" fn(*mut Value, *mut Value) -> i32>,
     pub hash: Option<extern "C" fn(*mut Value) -> u64>,
+    /// Whether the type can be copied, which is what lets a key be snapshotted
+    /// independently of the caller's handle. Content-based keying is only sound
+    /// for a type that has this.
+    pub can_snapshot: bool,
 }
 
 /// The three callbacks registered for `type_id`, read under one lock.
@@ -320,6 +324,7 @@ pub fn object_callbacks(type_id: TypeId) -> ObjectCallbacks {
             equals: obj_type.equals,
             compare: obj_type.compare,
             hash: obj_type.hash,
+            can_snapshot: obj_type.copy.is_some(),
         },
         None => ObjectCallbacks::default(),
     }
