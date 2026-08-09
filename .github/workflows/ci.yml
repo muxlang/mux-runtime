@@ -398,6 +398,13 @@ jobs:
     # when the compiler PR genuinely carries the other half of this change -
     # both have to merge, so the accommodation is reviewable rather than hidden.
     #
+    # Apply the label before the run you want it to affect. `pull_request` here
+    # fires on opened/synchronize/reopened, so labelling does not start a run,
+    # and re-running an existing one replays the original event payload - which
+    # still has no label. Push a commit or reopen the PR to pick it up. The
+    # `labeled` trigger is deliberately absent: it would rerun the whole
+    # workflow on every label change of any kind.
+    #
     # Depend on rust_checks so this only runs once the runtime is known to
     # compile cleanly in isolation, keeping failure attribution clear.
     needs: [detect-changes, rust_checks]
