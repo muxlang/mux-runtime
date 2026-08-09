@@ -24,7 +24,7 @@ jobs:
       runtime_src: ${{ steps.filter.outputs.runtime_src }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: dorny/paths-filter@7b450fff21473bca461d4b92ce414b9d0420d706 # v4.0.2
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         id: filter
         with:
           filters: |
@@ -129,7 +129,7 @@ jobs:
         # every PR run would churn the 10GB per-repo cache limit and evict the
         # entries this exists to provide. PRs restore from main, which is the
         # state they branch from anyway.
-        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Clippy
@@ -190,7 +190,7 @@ jobs:
       # would have fought over the same directory and a stale restore could
       # have left the comparison running against the wrong baseline.
       - name: Cache Cargo registry and build artifacts
-        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       # Exact-SHA key with no restore-keys fallback, deliberately: a hit on an
@@ -274,7 +274,7 @@ jobs:
         with:
           toolchain: 1.93.1
       - name: Cache Cargo registry and build artifacts
-        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Restore baseline criterion data
@@ -359,7 +359,7 @@ jobs:
         # every PR run would churn the 10GB per-repo cache limit and evict the
         # entries this exists to provide. PRs restore from main, which is the
         # state they branch from anyway.
-        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Install cargo-llvm-cov
@@ -552,7 +552,7 @@ jobs:
         # every PR run would churn the 10GB per-repo cache limit and evict the
         # entries this exists to provide. PRs restore from main, which is the
         # state they branch from anyway.
-        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Run tests under Valgrind
