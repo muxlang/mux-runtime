@@ -3,7 +3,6 @@
 #![allow(clippy::mutable_key_type)]
 
 use std::collections::hash_map::DefaultHasher;
-use std::collections::{BTreeMap, BTreeSet};
 use std::hash::{Hash, Hasher};
 
 use mux_runtime::{Tuple, Value};
@@ -35,11 +34,11 @@ fn value_display_composites() {
         "[1, 2]"
     );
 
-    let mut map = BTreeMap::new();
+    let mut map = mux_runtime::ordered::OrderedMap::new();
     map.insert(Value::Int(1), Value::Int(2));
     assert_eq!(format!("{}", Value::Map(map)), "{1: 2}");
 
-    let mut set = BTreeSet::new();
+    let mut set = mux_runtime::ordered::OrderedSet::new();
     set.insert(Value::Int(1));
     set.insert(Value::Int(2));
     assert_eq!(format!("{}", Value::Set(set)), "{1, 2}");
@@ -177,9 +176,9 @@ fn optional_and_result_hash() {
 
 #[test]
 fn type_tags_for_all_variants() {
-    let mut map = BTreeMap::new();
+    let mut map = mux_runtime::ordered::OrderedMap::new();
     map.insert(Value::Int(1), Value::Int(2));
-    let mut set = BTreeSet::new();
+    let mut set = mux_runtime::ordered::OrderedSet::new();
     set.insert(Value::Int(1));
     assert_eq!(Value::Map(map).type_tag(), 5);
     assert_eq!(Value::Set(set).type_tag(), 6);
@@ -194,13 +193,13 @@ fn type_tags_for_all_variants() {
 
 #[test]
 fn map_set_hash_and_order() {
-    let mut m1 = BTreeMap::new();
+    let mut m1 = mux_runtime::ordered::OrderedMap::new();
     m1.insert(Value::String("a".into()), Value::Int(1));
-    let mut m2 = BTreeMap::new();
+    let mut m2 = mux_runtime::ordered::OrderedMap::new();
     m2.insert(Value::String("a".into()), Value::Int(1));
     assert_eq!(hash_of(&Value::Map(m1.clone())), hash_of(&Value::Map(m2)));
 
-    let mut s1 = BTreeSet::new();
+    let mut s1 = mux_runtime::ordered::OrderedSet::new();
     s1.insert(Value::Int(1));
     s1.insert(Value::Int(2));
     let s2 = s1.clone();
@@ -219,6 +218,37 @@ fn map_set_hash_and_order() {
 #[test]
 fn empty_collection_display() {
     assert_eq!(format!("{}", Value::List(vec![])), "[]");
-    assert_eq!(format!("{}", Value::Map(BTreeMap::new())), "{}");
-    assert_eq!(format!("{}", Value::Set(BTreeSet::new())), "{}");
+    assert_eq!(
+        format!("{}", Value::Map(mux_runtime::ordered::OrderedMap::new())),
+        "{}"
+    );
+    assert_eq!(
+        format!("{}", Value::Set(mux_runtime::ordered::OrderedSet::new())),
+        "{}"
+    );
+}
+
+#[test]
+fn map_and_set_hash_does_not_depend_on_insertion_order() {
+    let mut a = mux_runtime::ordered::OrderedMap::new();
+    a.insert(Value::String("x".into()), Value::Int(1));
+    a.insert(Value::String("y".into()), Value::Int(2));
+    let mut b = mux_runtime::ordered::OrderedMap::new();
+    b.insert(Value::String("y".into()), Value::Int(2));
+    b.insert(Value::String("x".into()), Value::Int(1));
+    let (a, b) = (Value::Map(a), Value::Map(b));
+    // Equality ignores insertion order, so hashing has to as well, or a map
+    // used as a key is stored where nothing will look for it.
+    assert_eq!(a, b);
+    assert_eq!(hash_of(&a), hash_of(&b));
+
+    let mut c = mux_runtime::ordered::OrderedSet::new();
+    c.insert(Value::Int(1));
+    c.insert(Value::Int(2));
+    let mut d = mux_runtime::ordered::OrderedSet::new();
+    d.insert(Value::Int(2));
+    d.insert(Value::Int(1));
+    let (c, d) = (Value::Set(c), Value::Set(d));
+    assert_eq!(c, d);
+    assert_eq!(hash_of(&c), hash_of(&d));
 }

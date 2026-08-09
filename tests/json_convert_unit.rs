@@ -4,7 +4,6 @@
 
 mod common;
 
-use std::collections::BTreeMap;
 use std::ffi::CString;
 
 use common::{assert_err, assert_ok};
@@ -36,12 +35,12 @@ fn value_to_json_error_cases() {
     assert!(value_to_json(&Value::Float(ordered_float::OrderedFloat(f64::NAN))).is_err());
     assert!(value_to_json(&Value::Float(ordered_float::OrderedFloat(f64::INFINITY))).is_err());
 
-    let mut bad_key = BTreeMap::new();
+    let mut bad_key = mux_runtime::ordered::OrderedMap::new();
     bad_key.insert(Value::Int(1), Value::Int(2)); // non-string key
     assert!(value_to_json(&Value::Map(bad_key)).is_err());
 
     // Set is not representable as JSON.
-    let set = Value::Set(std::collections::BTreeSet::new());
+    let set = Value::Set(mux_runtime::ordered::OrderedSet::new());
     assert!(value_to_json(&set).is_err());
 }
 
@@ -87,7 +86,7 @@ fn json_stringify_extern() {
 
 #[test]
 fn json_from_and_to_map_extern() {
-    let mut map = BTreeMap::new();
+    let mut map = mux_runtime::ordered::OrderedMap::new();
     map.insert(Value::String("k".into()), Value::Int(1));
     let map_val = mux_rc_alloc(Value::Map(map));
 

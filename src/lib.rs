@@ -1,7 +1,7 @@
 extern crate std as rust_std;
 
+use crate::ordered::{OrderedMap, OrderedSet};
 use rust_std::cmp;
-use rust_std::collections::{BTreeMap, BTreeSet};
 use rust_std::ffi::c_void;
 use rust_std::fmt;
 use rust_std::hash;
@@ -76,6 +76,120 @@ impl ObjectRef {
     pub fn dec_ref(&self) -> usize {
         self.data.ref_count.fetch_sub(1, Ordering::Relaxed)
     }
+
+    /// Box this object the way compiled code expects to receive `self`: a
+    /// reference-counted `Value::Object` sharing this object's data.
+    ///
+    /// The registered callbacks are the class's own methods, which take `self`
+    /// as a `*mut Value` and are free to retain it, so they cannot be handed a
+    /// borrowed `&Value` that may live in a collection rather than in a
+    /// reference-counted block. The caller releases the box with `mux_rc_dec`.
+    fn boxed_for_callback(&self) -> *mut Value {
+        refcount::mux_rc_alloc(Value::Object(self.clone()))
+    }
+
+    /// The callbacks this object is actually keyed by.
+    ///
+    /// Content-based keying needs two things beyond a hash, and a type missing
+    /// either is keyed by identity instead - the same answer it had before it
+    /// registered anything.
+    ///
+    /// It must be **copyable**. A key is stored at a position derived from its
+    /// contents, and the only way to take a copy independent of the caller's
+    /// handle is the registered copy callback. Without one the caller keeps a
+    /// handle to the very object the table is keyed on, and mutating it moves
+    /// where the key belongs without moving the entry.
+    ///
+    /// It must supply an **equality** (`equals`, or `compare` which answers
+    /// equality too). A hash alone cannot key anything: two entries landing in
+    /// one bucket need something to tell them apart, and without it equality
+    /// stays pointer identity while the key is content-derived - so two
+    /// distinct objects whose hashes collide would order equal while comparing
+    /// unequal. Identity keys both consistently.
+    ///
+    /// The compiler registers copy for every class and requires `eq` of every
+    /// `Hashable` one, so neither gap is reachable from Mux source; both are
+    /// combinations only a direct FFI caller can build.
+    fn keying(&self) -> object::ObjectCallbacks {
+        let callbacks = object::object_callbacks(self.type_id());
+        let has_equality = callbacks.equals.is_some() || callbacks.compare.is_some();
+        if callbacks.can_snapshot && has_equality {
+            callbacks
+        } else {
+            object::ObjectCallbacks::default()
+        }
+    }
+
+    /// The value this object is keyed by, for both hashing and - absent a
+    /// registered comparison - ordering. Using one key for both is what keeps
+    /// them agreeing.
+    ///
+    /// A class that hashes itself is keyed by that hash. One that only compares
+    /// itself is keyed by a constant: any two of its instances may turn out to
+    /// be equal, so they all have to hash alike, and colliding is the only
+    /// answer that cannot be wrong. Everything else is keyed by its address,
+    /// which is exactly as precise as the identity equality it pairs with.
+    fn structural_key(&self) -> u64 {
+        let callbacks = self.keying();
+        if let Some(hash) = callbacks.hash {
+            return self.call_with_boxed(hash);
+        }
+        // Registered equality without a hash: any two instances may be equal,
+        // so they all have to collide.
+        if callbacks.equals.is_some() || callbacks.compare.is_some() {
+            return 0;
+        }
+        self.ptr() as u64
+    }
+
+    /// Whether this object equals another of the same type by its contents,
+    /// using the class's own `eq` (or `cmp`, which also answers equality).
+    /// None when the two are different types, or when the class declared
+    /// neither - the caller then falls back to identity.
+    fn structural_eq(&self, other: &ObjectRef) -> Option<bool> {
+        if self.type_id() != other.type_id() {
+            return None;
+        }
+        let callbacks = self.keying();
+        if let Some(equals) = callbacks.equals {
+            return Some(self.call_with_boxed_pair(other, equals));
+        }
+        let compare = callbacks.compare?;
+        Some(self.call_with_boxed_pair(other, compare) == 0)
+    }
+
+    /// Order this object against another of the same type by its contents,
+    /// using the comparison the class registered for `Comparable`. None when
+    /// the two are different types, or when the class declared no order.
+    fn structural_cmp(&self, other: &ObjectRef) -> Option<cmp::Ordering> {
+        if self.type_id() != other.type_id() {
+            return None;
+        }
+        let compare = self.keying().compare?;
+        Some(self.call_with_boxed_pair(other, compare).cmp(&0))
+    }
+
+    /// Run a one-argument callback on this object, boxed and then released.
+    fn call_with_boxed<R>(&self, callback: extern "C" fn(*mut Value) -> R) -> R {
+        let boxed = self.boxed_for_callback();
+        let result = callback(boxed);
+        refcount::mux_rc_dec(boxed);
+        result
+    }
+
+    /// Run a two-argument callback on this object and another, each boxed and
+    /// then released.
+    fn call_with_boxed_pair<R>(
+        &self,
+        other: &ObjectRef,
+        callback: extern "C" fn(*mut Value, *mut Value) -> R,
+    ) -> R {
+        let (a, b) = (self.boxed_for_callback(), other.boxed_for_callback());
+        let result = callback(a, b);
+        refcount::mux_rc_dec(b);
+        refcount::mux_rc_dec(a);
+        result
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -100,6 +214,16 @@ pub type EnumGlueFn = extern "C" fn(*mut u8);
 /// correctly as a map key or set member (issue #309).
 pub type EnumCmpFn = extern "C" fn(*mut u8, *mut u8) -> i32;
 
+/// Structural hash of one boxed enum, emitted by the compiler per enum. It
+/// combines the discriminant with the active variant's payload fields, so two
+/// enums that `EnumCmpFn` reports as equal always hash the same - the contract
+/// every hash table depends on.
+///
+/// Hashing the raw bytes instead would be wrong: the inline struct has padding
+/// between the discriminant and the payload, and between fields, and those
+/// bytes are not guaranteed equal for two otherwise equal values.
+pub type EnumHashFn = extern "C" fn(*mut u8) -> u64;
+
 /// An enum that carries reference-counted payloads, boxed as a first-class
 /// Value with value semantics. Unlike a raw `Opaque` (whose bytes may hold
 /// payload pointers the runtime cannot see), a `BoxedEnum` runs the compiler's
@@ -115,16 +239,17 @@ pub type EnumCmpFn = extern "C" fn(*mut u8, *mut u8) -> i32;
 /// Equality, ordering, and hashing are structural, delegating to the compiler's
 /// per-enum `cmp_glue`: it compares discriminants and payloads by value, so two
 /// logically equal clones (whose payload pointers differ) compare equal and a
-/// payload-carrying enum works as a map key or set member. Hashing uses only the
-/// discriminant, which is cheap and consistent with the structural equality
-/// (equal enums share a discriminant); Mux's map/set are `BTreeMap`/`BTreeSet`
-/// and order by `cmp_glue`, so the coarse hash never affects them.
+/// payload-carrying enum works as a map key or set member. Hashing goes through
+/// `hash_glue` for the same reason comparison goes through `cmp_glue`: map and
+/// set are hash tables, so hashing the discriminant alone would put every
+/// `Code(1)`, `Code(2)`, `Code(3)` in one bucket and make lookup linear.
 pub struct BoxedEnum {
     words: Box<[u64]>,
     len: usize,
     clone_glue: EnumGlueFn,
     drop_glue: EnumGlueFn,
     cmp_glue: EnumCmpFn,
+    hash_glue: EnumHashFn,
 }
 
 impl BoxedEnum {
@@ -136,6 +261,7 @@ impl BoxedEnum {
         clone_glue: EnumGlueFn,
         drop_glue: EnumGlueFn,
         cmp_glue: EnumCmpFn,
+        hash_glue: EnumHashFn,
     ) -> Self {
         let mut words = vec![0u64; src.len().div_ceil(8).max(1)].into_boxed_slice();
         // SAFETY: `words` provides at least `src.len()` bytes of 8-aligned,
@@ -153,6 +279,7 @@ impl BoxedEnum {
             clone_glue,
             drop_glue,
             cmp_glue,
+            hash_glue,
         }
     }
 
@@ -172,15 +299,11 @@ impl BoxedEnum {
         self.words.as_ptr() as *const u8
     }
 
-    /// The enum's discriminant (the first four bytes of the inline struct), used
-    /// as the hash so equal enums (which share a discriminant) hash equally.
-    fn discriminant(&self) -> u32 {
-        let b = self.bytes();
-        if b.len() >= 4 {
-            u32::from_ne_bytes([b[0], b[1], b[2], b[3]])
-        } else {
-            0
-        }
+    /// Structural hash, through the compiler-emitted glue, so two enums that
+    /// compare equal hash equally.
+    fn hash_value(&self) -> u64 {
+        // The glue only reads its operand; the *mut is C-ABI convention.
+        (self.hash_glue)(self.as_ptr() as *mut u8)
     }
 
     /// Structural ordering. Two enums of the same type share a `cmp_glue`, so it
@@ -207,6 +330,7 @@ impl Clone for BoxedEnum {
             clone_glue: self.clone_glue,
             drop_glue: self.drop_glue,
             cmp_glue: self.cmp_glue,
+            hash_glue: self.hash_glue,
         };
         (cloned.clone_glue)(cloned.as_mut_ptr());
         cloned
@@ -234,8 +358,8 @@ pub enum Value {
     Float(ordered_float::OrderedFloat<f64>),
     String(String),
     List(Vec<Value>),
-    Map(BTreeMap<Value, Value>),
-    Set(BTreeSet<Value>),
+    Map(OrderedMap<Value, Value>),
+    Set(OrderedSet<Value>),
     Tuple(Box<Tuple>),
     Optional(Option<Box<Value>>),
     Result(Result<Box<Value>, Box<Value>>),
@@ -258,9 +382,12 @@ impl PartialEq for Value {
             (Value::Tuple(a), Value::Tuple(b)) => a == b,
             (Value::Optional(a), Value::Optional(b)) => a == b,
             (Value::Result(a), Value::Result(b)) => a == b,
-            (Value::Object(a), Value::Object(b)) => {
-                a.ptr() == b.ptr() && a.type_id() == b.type_id()
-            }
+            (Value::Object(a), Value::Object(b)) => match a.structural_eq(b) {
+                Some(equal) => equal,
+                // A class that declares no `Equatable`/`Comparable` is still
+                // equal to itself, by identity.
+                None => a.ptr() == b.ptr() && a.type_id() == b.type_id(),
+            },
             (Value::Opaque(a), Value::Opaque(b)) => a == b,
             (Value::BoxedEnum(a), Value::BoxedEnum(b)) => a.compare(b) == cmp::Ordering::Equal,
             _ => false,
@@ -280,28 +407,21 @@ impl hash::Hash for Value {
             Value::Float(f) => f.hash(state),
             Value::String(s) => s.hash(state),
             Value::List(l) => l.hash(state),
-            Value::Map(m) => {
-                for (k, v) in m {
-                    k.hash(state);
-                    v.hash(state);
-                }
-            }
-            Value::Set(s) => {
-                for v in s {
-                    v.hash(state);
-                }
-            }
+            // Delegated, not hand-rolled: these combine entry hashes
+            // commutatively, matching an equality that ignores insertion order.
+            // Hashing in iteration order gave two maps that compare equal
+            // different hashes, so a map used as a key could not be found.
+            Value::Map(m) => m.hash(state),
+            Value::Set(s) => s.hash(state),
             Value::Tuple(t) => t.hash(state),
             Value::Optional(o) => o.hash(state),
             Value::Result(r) => r.hash(state),
             Value::Object(obj) => {
-                (obj.ptr() as usize).hash(state);
                 obj.type_id().hash(state);
+                obj.structural_key().hash(state);
             }
             Value::Opaque(bytes) => bytes.hash(state),
-            // Hash the discriminant only: cheap and consistent with the
-            // structural equality above (equal enums share a discriminant).
-            Value::BoxedEnum(be) => be.discriminant().hash(state),
+            Value::BoxedEnum(be) => be.hash_value().hash(state),
         }
     }
 }
@@ -354,9 +474,27 @@ impl Ord for Value {
             (Value::Tuple(a), Value::Tuple(b)) => a.cmp(b),
             (Value::Optional(a), Value::Optional(b)) => a.cmp(b),
             (Value::Result(a), Value::Result(b)) => a.cmp(b),
-            (Value::Object(a), Value::Object(b)) => {
-                (a.type_id(), a.ptr() as usize).cmp(&(b.type_id(), b.ptr() as usize))
-            }
+            (Value::Object(a), Value::Object(b)) => match a.structural_cmp(b) {
+                Some(ordering) => ordering,
+                // A class that declares no order has none to give, and the
+                // language never orders one either - `<` requires `Comparable`.
+                // Ordering by the same key that hashes it keeps equal instances
+                // ordering equal without inventing an order between unequal
+                // ones: mixing content equality with address ordering was not
+                // transitive, and `sort_by` may panic on a comparison that is
+                // not a total order.
+                //
+                // One disagreement with `==` survives here and cannot be
+                // removed: a class that declares equality but no order shares
+                // one key across instances its `eq` separates, so two unequal
+                // instances order equal. An arbitrary equivalence relation
+                // admits no consistent total order without a comparator, and
+                // every alternative either reintroduces the non-transitivity
+                // above or invents an order the class never defined. Declaring
+                // `Comparable` is how a class supplies the real one, and that
+                // takes the branch above.
+                None => (a.type_id(), a.structural_key()).cmp(&(b.type_id(), b.structural_key())),
+            },
             (Value::Opaque(a), Value::Opaque(b)) => a.cmp(b),
             (Value::BoxedEnum(a), Value::BoxedEnum(b)) => a.compare(b),
             _ => self.variant_order().cmp(&other.variant_order()),
@@ -387,7 +525,7 @@ impl fmt::Display for Value {
             Value::Unit => write!(f, "()"),
             Value::Bool(b) => write!(f, "{}", b),
             Value::Int(i) => write!(f, "{}", i),
-            Value::Float(fl) => write!(f, "{}", fl),
+            Value::Float(fl) => write!(f, "{}", crate::float::format_float(fl.into_inner())),
             Value::String(s) => write!(f, "{}", s),
             Value::List(list) => {
                 write_delimited(f, "[", "]", list.iter(), |f, item| write!(f, "{}", item))
@@ -445,6 +583,7 @@ pub mod math;
 pub mod net;
 pub mod object;
 pub mod optional;
+pub mod ordered;
 pub mod panic;
 pub mod random;
 pub mod refcount;

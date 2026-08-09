@@ -1,15 +1,15 @@
+use crate::ordered::OrderedMap;
 use crate::refcount::mux_rc_alloc;
 use crate::Tuple;
 use crate::Value;
-use std::collections::BTreeMap;
 use std::ffi::CString;
 use std::fmt;
 use std::os::raw::c_char;
 
 #[derive(Clone, Debug)]
-pub struct Map(pub BTreeMap<Value, Value>);
+pub struct Map(pub OrderedMap<Value, Value>);
 
-/// Mutate the `BTreeMap` backing a `Value::Map` in place.
+/// Mutate the `OrderedMap` backing a `Value::Map` in place.
 ///
 /// The `*_value` map mutators are in-place operators by ABI: they return nothing
 /// and mutate whatever `map_val` points at, so the change is always observed
@@ -25,7 +25,7 @@ pub struct Map(pub BTreeMap<Value, Value>);
 #[inline]
 unsafe fn with_map_mut<R>(
     map_val: *mut Value,
-    f: impl FnOnce(&mut BTreeMap<Value, Value>) -> R,
+    f: impl FnOnce(&mut OrderedMap<Value, Value>) -> R,
 ) -> Option<R> {
     if map_val.is_null() {
         return None;
@@ -89,7 +89,7 @@ pub extern "C" fn mux_map_get(map: *const Map, key: *const Value) -> *mut Value 
 #[unsafe(no_mangle)]
 pub extern "C" fn mux_map_put(map: *mut Map, key: *mut Value, val: *mut Value) {
     let map = unsafe { &mut *map };
-    let key = unsafe { (*key).clone() };
+    let key = unsafe { crate::refcount::snapshot_key(&*key) };
     let val = unsafe { (*val).clone() };
     map.insert(key, val);
 }
@@ -101,7 +101,7 @@ pub extern "C" fn mux_map_put_value(map_val: *mut Value, key: *mut Value, val: *
     if map_val.is_null() || key.is_null() || val.is_null() {
         return;
     }
-    let key_clone = unsafe { (*key).clone() };
+    let key_clone = unsafe { crate::refcount::snapshot_key(&*key) };
     let val_clone = unsafe { (*val).clone() };
     unsafe {
         with_map_mut(map_val, |map_data| {

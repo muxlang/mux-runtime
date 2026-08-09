@@ -114,3 +114,18 @@ fn string_ops() {
     let b = MuxString("same".to_string()).hash();
     assert_eq!(a, b);
 }
+
+#[test]
+fn whole_floats_keep_their_decimal_at_every_magnitude() {
+    use mux_runtime::float::format_float;
+    assert_eq!(format_float(6.0), "6.0");
+    assert_eq!(format_float(-3.0), "-3.0");
+    assert_eq!(format_float(1.5), "1.5");
+    // A magnitude cap used to send large whole floats back to integer
+    // spelling, which is the same defect at a different scale.
+    assert_eq!(format_float(1e10), "10000000000.0");
+    assert_eq!(format_float(1e15), "1000000000000000.0");
+    // Neither infinity nor NaN has a fractional part to test.
+    assert_eq!(format_float(f64::INFINITY), "inf");
+    assert_eq!(format_float(f64::NAN), "NaN");
+}

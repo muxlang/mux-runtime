@@ -17,6 +17,16 @@ extern "C" fn noop_glue(_bytes: *mut u8) {}
 // A compare glue that treats the whole inline byte buffer as the value, ordering
 // two enums by their raw bytes. Real glue emitted by the compiler compares
 // payloads structurally, but byte order is enough to exercise the plumbing.
+/// Hash matching `cmp_bytes`: it compares the same eight bytes, so hashing them
+/// keeps equal values hashing equally.
+extern "C" fn hash_bytes(a: *mut u8) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let bytes = unsafe { std::slice::from_raw_parts(a, 8) };
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    bytes.hash(&mut hasher);
+    hasher.finish()
+}
+
 extern "C" fn cmp_bytes(a: *mut u8, b: *mut u8) -> i32 {
     // The test buffers are 8 bytes wide.
     let av = unsafe { std::slice::from_raw_parts(a, 8) };
@@ -30,7 +40,7 @@ extern "C" fn cmp_bytes(a: *mut u8, b: *mut u8) -> i32 {
 
 fn boxed_value(bytes: &[u8]) -> Value {
     Value::BoxedEnum(BoxedEnum::from_bytes(
-        bytes, noop_glue, noop_glue, cmp_bytes,
+        bytes, noop_glue, noop_glue, cmp_bytes, hash_bytes,
     ))
 }
 
@@ -43,6 +53,7 @@ fn box_enum_managed_roundtrips_and_tags_as_opaque() {
         noop_glue,
         noop_glue,
         cmp_bytes,
+        hash_bytes,
     );
     assert!(!val.is_null());
     // A BoxedEnum is indistinguishable from an Opaque to the language (tag 12).
@@ -68,7 +79,7 @@ extern "C" fn drop_a(_bytes: *mut u8) {
 
 #[test]
 fn clone_and_drop_run_the_glue() {
-    let original = BoxedEnum::from_bytes(&[0u8; 8], clone_a, drop_a, cmp_bytes);
+    let original = BoxedEnum::from_bytes(&[0u8; 8], clone_a, drop_a, cmp_bytes, hash_bytes);
     let copy = original.clone();
     assert_eq!(
         CLONE_A.load(Ordering::SeqCst),
@@ -93,16 +104,22 @@ fn value_boxed_enum_structural_eq_ord_hash_display() {
     assert_ne!(a, b);
     assert!(a < b);
 
-    // Equal values hash equally (hash is discriminant-only, so `a` and `b`
-    // share a hash - allowed - while a different discriminant differs).
+    // Equal values hash equally - the contract a hash table depends on.
     let hash_of = |v: &Value| {
         let mut h = DefaultHasher::new();
         v.hash(&mut h);
         h.finish()
     };
     assert_eq!(hash_of(&a), hash_of(&a2));
-    assert_eq!(hash_of(&a), hash_of(&b), "same discriminant -> same hash");
     assert_ne!(hash_of(&a), hash_of(&other_disc));
+    // The payload participates too. Hashing the discriminant alone was correct
+    // but put every value of one variant in a single bucket, which stopped
+    // being acceptable once map and set became hash tables.
+    assert_ne!(
+        hash_of(&a),
+        hash_of(&b),
+        "payload should participate in the hash"
+    );
 
     assert_eq!(format!("{}", a), "<enum 8 bytes>");
     assert_eq!(a.type_tag(), 12);
@@ -124,6 +141,7 @@ fn deep_clone_runs_the_clone_glue() {
         clone_b,
         noop_glue,
         cmp_bytes,
+        hash_bytes,
     );
     assert_eq!(CLONE_B.load(Ordering::SeqCst), 1, "boxing deep-clones once");
 

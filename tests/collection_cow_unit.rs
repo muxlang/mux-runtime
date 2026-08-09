@@ -157,7 +157,7 @@ fn list_mutation_on_shared_value_is_in_place() {
 
 #[test]
 fn map_put_and_remove_uniquely_owned() {
-    let map_val = mux_rc_alloc(Value::Map(std::collections::BTreeMap::new()));
+    let map_val = mux_rc_alloc(Value::Map(mux_runtime::ordered::OrderedMap::new()));
     for i in 0..500 {
         with_scalar(Value::Int(i), |k| {
             with_scalar(Value::Int(i * 10), |v| mux_map_put_value(map_val, k, v));
@@ -185,7 +185,7 @@ fn map_put_and_remove_uniquely_owned() {
 
 #[test]
 fn map_put_on_shared_value_is_in_place() {
-    let shared = mux_rc_alloc(Value::Map(std::collections::BTreeMap::new()));
+    let shared = mux_rc_alloc(Value::Map(mux_runtime::ordered::OrderedMap::new()));
     mux_rc_inc(shared);
     with_scalar(Value::Int(1), |k| {
         with_scalar(Value::Int(2), |v| mux_map_put_value(shared, k, v));
@@ -202,7 +202,7 @@ fn map_put_on_shared_value_is_in_place() {
 
 #[test]
 fn set_add_and_remove_uniquely_owned() {
-    let set_val = mux_rc_alloc(Value::Set(std::collections::BTreeSet::new()));
+    let set_val = mux_rc_alloc(Value::Set(mux_runtime::ordered::OrderedSet::new()));
     for i in 0..500 {
         with_scalar(Value::Int(i % 250), |v| mux_set_add_value(set_val, v));
     }
@@ -220,7 +220,7 @@ fn set_add_and_remove_uniquely_owned() {
 
 #[test]
 fn set_add_on_shared_value_is_in_place() {
-    let shared = mux_rc_alloc(Value::Set(std::collections::BTreeSet::new()));
+    let shared = mux_rc_alloc(Value::Set(mux_runtime::ordered::OrderedSet::new()));
     mux_rc_inc(shared);
     with_scalar(Value::Int(7), |v| mux_set_add_value(shared, v));
     let Value::Set(s) = (unsafe { &*shared }) else {

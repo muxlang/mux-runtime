@@ -2,7 +2,6 @@
 #![cfg(feature = "csv")]
 #![allow(clippy::mutable_key_type)]
 
-use std::collections::BTreeMap;
 use std::ffi::CString;
 
 use mux_runtime::data::{mux_csv_parse, mux_csv_parse_with_headers, mux_csv_to_string};
@@ -36,7 +35,7 @@ fn parse_null_is_error() {
 #[test]
 fn to_string_roundtrip() {
     // Build the {headers, rows} map shape the writer expects.
-    let mut map = BTreeMap::new();
+    let mut map = mux_runtime::ordered::OrderedMap::new();
     map.insert(
         Value::String("headers".to_string()),
         Value::List(vec![

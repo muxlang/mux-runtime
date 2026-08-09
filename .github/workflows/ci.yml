@@ -383,9 +383,28 @@ jobs:
         run: ./scripts/ci/rc-leak-probe.sh
   downstream_compiler_smoke:
     name: Downstream Compiler Smoke Test
-    # Verifies that muxlang/mux-compiler (main) still builds and links against
-    # THIS branch's runtime source. Catches breaking FFI/symbol changes in the
+    # Verifies that muxlang/mux-compiler still builds and links against THIS
+    # branch's runtime source. Catches breaking FFI/symbol changes in the
     # runtime PR that introduces them, instead of after merge/publish.
+    #
+    # Checks out compiler `main` by default. A coupled change is one runtime PR
+    # and one compiler PR (muxlang/mux-context ADR 0003, 0004), so for those
+    # `main` is expected to fail until the compiler side lands - it has neither
+    # the new FFI nor the updated snapshots. A `paired-compiler:<branch>` label
+    # points this job at that branch instead, so the pair is verified together.
+    #
+    # The label is opt-in and every ordinary runtime PR ignores it: breaking
+    # compiler `main` is a real failure and should stay one. Reach for it only
+    # when the compiler PR genuinely carries the other half of this change -
+    # both have to merge, so the accommodation is reviewable rather than hidden.
+    #
+    # Apply the label before the run you want it to affect. `pull_request` here
+    # fires on opened/synchronize/reopened, so labelling does not start a run,
+    # and re-running an existing one replays the original event payload - which
+    # still has no label. Push a commit or reopen the PR to pick it up. The
+    # `labeled` trigger is deliberately absent: it would rerun the whole
+    # workflow on every label change of any kind.
+    #
     # Depend on rust_checks so this only runs once the runtime is known to
     # compile cleanly in isolation, keeping failure attribution clear.
     needs: [detect-changes, rust_checks]
@@ -415,11 +434,41 @@ jobs:
     steps:
       - name: Check out runtime (this PR)
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Check out mux-compiler (main)
+      - name: Resolve the mux-compiler ref to build against
+        id: compiler_ref
+        env:
+          # Read through env rather than interpolated into the script: a label
+          # is attacker-controlled on a fork PR, and `${{ }}` inside `run:` is
+          # substituted before the shell sees it. On a push there is no pull
+          # request, so this is the string "null" and the default stands.
+          PR_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+        run: |
+          set -euo pipefail
+          ref=main
+          paired=$(printf '%s' "$PR_LABELS" \
+            | jq -r 'if type == "array" then .[] else empty end
+                     | select(startswith("paired-compiler:"))
+                     | sub("^paired-compiler:"; "")' \
+            | head -n 1)
+          if [ -n "$paired" ]; then
+            # A branch name may contain '/', so this bounds the character set
+            # rather than forbidding paths. The repository below is hardcoded,
+            # so only a branch in muxlang/mux-compiler is ever reachable.
+            case "$paired" in
+              -* | *..* | *[!A-Za-z0-9._/-]*)
+                echo "::error::paired-compiler label is not a valid branch name: $paired"
+                exit 1
+                ;;
+            esac
+            ref="$paired"
+          fi
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+          echo "Building muxlang/mux-compiler@$ref against this PR's runtime."
+      - name: Check out mux-compiler
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: muxlang/mux-compiler
-          ref: main
+          ref: ${{ steps.compiler_ref.outputs.ref }}
           path: mux-compiler
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9 # untagged master commit; the repo's only tag (v1) is OLDER than this

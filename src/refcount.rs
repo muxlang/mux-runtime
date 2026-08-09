@@ -149,6 +149,18 @@ pub unsafe extern "C" fn mux_value_deep_clone(val: *const Value) -> *mut Value {
     mux_rc_alloc(cloned)
 }
 
+/// An independent snapshot of a value about to become a map key or set member.
+///
+/// A key is stored at a position derived from its contents, so it has to stop
+/// changing once it is in. Every `Value` clones its contents already except an
+/// object, where `ObjectRef` is a shared handle: mutating the object a caller
+/// still holds would move where the key belongs without moving the entry,
+/// stranding it at a position nothing looks for again. This only mattered once
+/// objects were keyed by contents rather than by address.
+pub(crate) fn snapshot_key(value: &Value) -> Value {
+    deep_clone_value(value)
+}
+
 #[allow(clippy::mutable_key_type)]
 fn deep_clone_value(val: &Value) -> Value {
     match val {
@@ -162,14 +174,14 @@ fn deep_clone_value(val: &Value) -> Value {
             Value::List(out)
         }
         Value::Map(entries) => {
-            let mut out = std::collections::BTreeMap::new();
+            let mut out = crate::ordered::OrderedMap::new();
             for (k, v) in entries {
                 out.insert(deep_clone_value(k), deep_clone_value(v));
             }
             Value::Map(out)
         }
         Value::Set(items) => {
-            let mut out = std::collections::BTreeSet::new();
+            let mut out = crate::ordered::OrderedSet::new();
             for item in items {
                 out.insert(deep_clone_value(item));
             }
@@ -495,9 +507,7 @@ mod tests {
     #[test]
     #[allow(clippy::mutable_key_type)]
     fn test_nested_collections() {
-        use std::collections::BTreeMap;
-
-        let mut map = BTreeMap::new();
+        let mut map = crate::ordered::OrderedMap::new();
         map.insert(Value::String("key1".to_string()), Value::Int(100));
         map.insert(
             Value::String("key2".to_string()),

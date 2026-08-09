@@ -17,6 +17,23 @@ Compiled Mux programs link against it. Part of the multi-repo
 - **No clippy warnings**: `cargo clippy --all-targets --all-features -- -D warnings`.
 - **Idiomatic Rust**: `Result<T, E>`, the `?` operator, no `.unwrap()` outside
   tests, document public APIs with `///`.
+- **No panics on internal invariants.** `unreachable!`, `panic!`, `expect`,
+  `.unwrap()` and indexing that can go out of range are all the same thing: a
+  compiled Mux program aborts, and the program has no way to handle it. That is
+  a container bug becoming a crash in someone else's code. This is stricter
+  than it is for the compiler, which is a tool a developer runs and where
+  failing loudly is fine.
+
+  A state you believe impossible still needs a total answer. Pick the one that
+  is correct if it somehow happened - a lookup says "absent", an iterator ends,
+  an allocator takes a fresh slot - and pair it with `debug_assert!`, so tests
+  and debug builds still fail loudly where someone can act on it. `mux_panic_*`
+  is for reporting a *program's* error (a missing map key, an out-of-bounds
+  index) to its author, not for the runtime's own consistency.
+
+  The one deliberate exception is the `rc-leak-check` feature, whose whole
+  purpose is to assert at exit; it sits outside `full` so no shipped runtime
+  carries it.
 - **Understand existing code first**; follow existing patterns.
 - **Remove outdated comments.**
 

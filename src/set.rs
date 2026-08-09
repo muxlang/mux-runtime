@@ -1,13 +1,13 @@
+use crate::ordered::OrderedSet;
 use crate::refcount::mux_rc_alloc;
 use crate::Value;
-use std::collections::BTreeSet;
 use std::ffi::CString;
 use std::fmt;
 
 #[derive(Clone, Debug)]
-pub struct Set(pub BTreeSet<Value>);
+pub struct Set(pub OrderedSet<Value>);
 
-/// Mutate the `BTreeSet` backing a `Value::Set` in place.
+/// Mutate the `OrderedSet` backing a `Value::Set` in place.
 ///
 /// The `*_value` set mutators are in-place operators by ABI: they return nothing
 /// and mutate whatever `set_val` points at, so the change is always observed
@@ -23,7 +23,7 @@ pub struct Set(pub BTreeSet<Value>);
 #[inline]
 unsafe fn with_set_mut<R>(
     set_val: *mut Value,
-    f: impl FnOnce(&mut BTreeSet<Value>) -> R,
+    f: impl FnOnce(&mut OrderedSet<Value>) -> R,
 ) -> Option<R> {
     if set_val.is_null() {
         return None;
@@ -69,7 +69,7 @@ pub extern "C" fn mux_set_value(set: *mut Set) -> *mut Value {
 #[unsafe(no_mangle)]
 pub extern "C" fn mux_set_add(set: *mut Set, val: *mut Value) {
     let set = unsafe { &mut *set };
-    let val = unsafe { (*val).clone() };
+    let val = unsafe { crate::refcount::snapshot_key(&*val) };
     set.add(val);
 }
 
@@ -77,7 +77,7 @@ pub extern "C" fn mux_set_add(set: *mut Set, val: *mut Value) {
 #[allow(clippy::mutable_key_type)]
 #[unsafe(no_mangle)]
 pub extern "C" fn mux_set_add_value(set_val: *mut Value, val: *mut Value) {
-    let value = unsafe { (*val).clone() };
+    let value = unsafe { crate::refcount::snapshot_key(&*val) };
     unsafe {
         with_set_mut(set_val, |set_data| {
             set_data.insert(value);

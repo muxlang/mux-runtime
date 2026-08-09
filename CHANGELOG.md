@@ -13,7 +13,60 @@ itself - see
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+- **A class can key a map or join a set.** An object type may now register the
+  class's own equality, ordering and hash
+  (`mux_register_object_equals` / `_compare` / `_hash`) alongside its copy and
+  destructor, so a map, a set or `contains` matches instances the way the
+  operators do. Unlike the copy and destructor callbacks, these take the boxed
+  object - the same `*mut Value` a class method receives as `self`. A class that
+  registers none of them keeps identity semantics.
+
+### Changed
+- **`map` and `set` are hash tables that preserve insertion order**, replacing
+  the `BTreeMap`/`BTreeSet` behind them. Lookup, insert and remove are now O(1)
+  rather than O(log n), which is what a user of a hash-based collection expects
+  in any other language, and iteration yields insertion order rather than sorted
+  order. Re-assigning an existing key keeps its original position, matching
+  Python and JavaScript. Equality and hashing stay order-insensitive: two maps
+  with the same pairs are equal however they were built. This is also what makes
+  `Hashable` implementable at all, since the runtime now hashes.
+- **A whole-number float keeps its `.0` wherever it is printed.** One inside a
+  list, map, set, tuple or optional printed through a plain format and rendered
+  `6.0` as `6`, so a list of floats was indistinguishable from a list of ints
+  and the same value disagreed with itself depending on where it appeared.
+- **`mux_box_enum_managed` takes a hash callback.** An exported signature
+  change, so it lands with the matching `mux-compiler` update per ADR 0004.
+
+### Fixed
+- **A map or set used as a key hashed by insertion order** while its equality
+  ignored order, so two equal maps had different hashes and one used as a key
+  could not be found.
+- **A boxed enum hashed only its discriminant**, putting every value of one
+  variant in a single bucket - correct, but no longer acceptable once map and
+  set became hash tables.
+- **A map key or set member is now an independent snapshot.** Objects share
+  their data through a handle, so mutating one after it became a key moved
+  where the key belonged without moving the entry, stranding it where no lookup
+  would go.
+- **Content-based keying now requires an equality as well as a hash.** A hash
+  alone cannot key anything: two entries landing in one bucket need something
+  to tell them apart, and without it equality stayed pointer identity while the
+  key came from the contents - so two distinct objects whose hashes collided
+  ordered equal while comparing unequal. Such a type is keyed by identity,
+  which is consistent for both. The compiler requires `eq` of every `Hashable`
+  class, so this is only reachable through the FFI directly.
+- **Content-based keying now requires the type to be copyable.** A key is
+  stored at a position derived from its contents, and the only way to snapshot
+  one away from the caller's handle is the registered copy callback. A type
+  that registered equality or a hash without one is keyed by identity instead,
+  which is stable under mutation. Every class the compiler emits registers copy,
+  so this only reaches an object type registered through the FFI directly.
+- **An object with registered equality but no registered hash** compared by
+  contents and hashed by address, so equal instances hashed differently.
+  Hashing and ordering now share one key, which also keeps the ordering a total
+  order - mixing content equality with address ordering was not transitive, and
+  `sort_by` may panic on that.
 
 ## [0.5.0] - 2026-07-13
 

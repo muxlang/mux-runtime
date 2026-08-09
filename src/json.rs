@@ -79,7 +79,7 @@ pub fn json_to_value(j: &Json) -> Value {
         Json::String(s) => Value::String(s.clone()),
         Json::Array(a) => Value::List(a.iter().map(json_to_value).collect()),
         Json::Object(m) => {
-            let mut map = std::collections::BTreeMap::new();
+            let mut map = crate::ordered::OrderedMap::new();
             for (k, v) in m.iter() {
                 map.insert(Value::String(k.clone()), json_to_value(v));
             }
