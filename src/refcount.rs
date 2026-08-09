@@ -149,7 +149,6 @@ pub unsafe extern "C" fn mux_value_deep_clone(val: *const Value) -> *mut Value {
     mux_rc_alloc(cloned)
 }
 
-#[allow(clippy::mutable_key_type)]
 /// An independent snapshot of a value about to become a map key or set member.
 ///
 /// A key is stored at a position derived from its contents, so it has to stop
@@ -162,6 +161,7 @@ pub(crate) fn snapshot_key(value: &Value) -> Value {
     deep_clone_value(value)
 }
 
+#[allow(clippy::mutable_key_type)]
 fn deep_clone_value(val: &Value) -> Value {
     match val {
         Value::Unit | Value::Int(_) | Value::Bool(_) | Value::Float(_) => val.clone(),
