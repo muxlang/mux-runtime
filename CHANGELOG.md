@@ -13,6 +13,21 @@ itself - see
 
 ## [Unreleased]
 
+### Changed
+- **A closure capture cell is reference counted and shared.** Each capture slot
+  used to point at a plain `malloc`'d cell that the closure freed outright, so a
+  cell could belong to exactly one closure. That forced the compiler to copy a
+  captured variable into a fresh cell and rebind the variable to it, which is
+  why a capture made inside a block stopped being shared once the block ended
+  (mux-compiler#384). A cell is now `[refcount | *mut Value]` from
+  `mux_cell_alloc`, retained and released via `mux_cell_retain` /
+  `mux_cell_release`, so the captured variable and every closure capturing it
+  can name the same cell. `mux_closure_release` drops a reference instead of
+  freeing.
+
+  Coupled change: the compiler must allocate capture cells with `mux_cell_alloc`
+  rather than `malloc`.
+
 ### Added
 - **A class can key a map or join a set.** An object type may now register the
   class's own equality, ordering and hash
