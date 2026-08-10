@@ -73,10 +73,18 @@ Conventions that matter when adding or changing FFI functions:
 - **Closures are reference-counted separately from `Value`s.** A closure is
   `[refcount | fn_ptr | captures_ptr | capture_count]` managed by
   `mux_closure_retain` / `mux_closure_release` (atomic header, `src/closure.rs`);
-  the final release walks the `capture_count` heap cells, drops one reference per
-  captured value, and frees the closure. `mux_sync_spawn` retains the closure for
-  the worker thread, which releases it when its body finishes (normal return or
-  panic-unwind).
+  the final release drops one reference to each capture cell and frees the
+  closure. `mux_sync_spawn` retains the closure for the worker thread, which
+  releases it when its body finishes (normal return or panic-unwind).
+- **A capture cell is shared, not owned by one closure.** Each capture slot
+  points at a `[refcount | *mut Value]` cell from `mux_cell_alloc`, managed by
+  `mux_cell_retain` / `mux_cell_release`. The cell IS the captured variable's
+  storage: the variable and every closure capturing it name the same cell, which
+  is what makes a write through one visible to the others. It is reference
+  counted because a variable can be captured by two closures, an ordinary local
+  outlives the closures capturing it, and a returned closure outlives the
+  function that declared it. A closure freeing its cells outright is what made a
+  capture stop being shared at a block boundary (mux-compiler#384).
 
 ## Features
 

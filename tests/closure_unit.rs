@@ -7,7 +7,9 @@
 
 use std::ffi::c_void;
 
-use mux_runtime::closure::{mux_closure_release, mux_closure_retain};
+use mux_runtime::closure::{
+    mux_cell_alloc, mux_cell_release, mux_cell_retain, mux_closure_release, mux_closure_retain,
+};
 use mux_runtime::refcount::{mux_rc_dec, mux_rc_inc};
 use mux_runtime::std::mux_int_value;
 use mux_runtime::Value;
@@ -21,8 +23,10 @@ extern "C" fn noop() {}
 ///   [ i64 refcount=1 | fn_ptr | captures_ptr | i64 capture_count ]
 ///
 /// `captures` are the already-owned (+1) values the closure holds one reference
-/// to; each is wrapped in its own heap-storage cell, exactly like codegen. The
-/// whole thing is `libc::malloc`'d so `mux_closure_release` can `libc::free` it.
+/// to; each is wrapped in a reference-counted cell via `mux_cell_alloc`, exactly
+/// like codegen. A cell is shared with the variable it is the storage of, so the
+/// closure holds a reference to it rather than owning it outright. The closure
+/// itself is `libc::malloc`'d so `mux_closure_release` can `libc::free` it.
 /// Returns the pointer to the closure struct (the `fn_ptr` field, 8 bytes past
 /// the refcount header).
 unsafe fn make_closure(func: extern "C" fn(), captures: &[*mut Value]) -> *mut c_void {
@@ -38,10 +42,9 @@ unsafe fn make_closure(func: extern "C" fn(), captures: &[*mut Value]) -> *mut c
             let arr = libc::malloc(captures.len() * WORD) as *mut *mut c_void;
             assert!(!arr.is_null());
             for (i, &value) in captures.iter().enumerate() {
-                let cell = libc::malloc(WORD) as *mut *mut Value;
+                let cell = mux_cell_alloc(value);
                 assert!(!cell.is_null());
-                *cell = value;
-                *arr.add(i) = cell as *mut c_void;
+                *arr.add(i) = cell;
             }
             arr as *mut c_void
         };
@@ -123,5 +126,37 @@ fn shared_closure_frees_capture_only_on_last_release() {
             mux_rc_dec(v),
             "closure did not release its capture on final release"
         );
+    }
+}
+
+#[test]
+fn cell_release_frees_its_value_on_the_last_holder() {
+    let value = mux_int_value(7);
+    // A live reference the test keeps, so the cell's release is not the last.
+    mux_rc_inc(value);
+    let cell = mux_cell_alloc(value);
+    assert!(!cell.is_null());
+
+    mux_cell_release(cell);
+    // The test's own reference kept the value alive through that, so it is
+    // still valid and this final decrement is what frees it.
+    mux_rc_dec(value);
+}
+
+#[test]
+fn cell_survives_until_every_holder_releases() {
+    unsafe {
+        let value = mux_int_value(9);
+        let cell = mux_cell_alloc(value);
+        mux_cell_retain(cell); // a second holder, as a closure capturing a live variable is
+
+        mux_cell_release(cell); // 2 -> 1: the cell and its value must survive
+        assert_eq!(
+            *(cell as *const *mut Value),
+            value,
+            "a non-final release must not disturb the cell"
+        );
+
+        mux_cell_release(cell); // 1 -> 0: now it frees the value and the cell
     }
 }

@@ -15,8 +15,13 @@
 //!
 //! `captures_ptr` is null for a capture-free closure. Otherwise it is a
 //! C-`malloc`'d array of `capture_count` pointers; each element points at a
-//! C-`malloc`'d one-pointer cell ("heap storage") holding an owned (`+1`)
-//! `*mut Value` capture. The closure owns one reference to each captured value.
+//! reference-counted cell (`mux_cell_alloc`) holding a `*mut Value`.
+//!
+//! A cell is the storage of the captured variable itself, shared rather than
+//! copied: the variable and every closure capturing it name the same cell, so a
+//! write through one is visible to the others. The closure holds a reference to
+//! each cell and drops it on release; the cell frees itself and the value it
+//! holds when the last holder goes away.
 //!
 //! These functions manage that ownership so closures - and everything they
 //! capture - are released exactly once when the last reference is dropped.
@@ -38,6 +43,76 @@ const CAPTURE_COUNT_FIELD_WORD: usize = 2; // closure + 16 -> capture_count
 #[inline]
 unsafe fn header(closure: *mut c_void) -> *const AtomicI64 {
     unsafe { (closure as *const AtomicI64).sub(1) }
+}
+
+/// The refcount header of a capture cell, one i64 before the cell pointer -
+/// the same convention the closure struct uses.
+#[inline]
+unsafe fn cell_header(cell: *mut c_void) -> *const AtomicI64 {
+    unsafe { (cell as *const AtomicI64).sub(1) }
+}
+
+/// Allocate a capture cell holding `initial`, with a reference count of 1.
+///
+/// A cell is the storage of a variable that some closure captures. It is
+/// shared, not copied: the variable and every closure capturing it name the
+/// same cell, which is what makes a write through one visible to the others.
+/// That is why it is reference counted rather than owned outright by a single
+/// closure - a variable may be captured by two closures, and it outlives them
+/// when it is an ordinary local, while a returned closure outlives the function
+/// that declared it.
+///
+/// Layout mirrors the closure's: one allocation, refcount first, and the
+/// pointer handed back points at the payload, so reading a cell is still just
+/// dereferencing it as a `*mut Value`.
+///
+/// ```text
+/// [ i64 refcount | *mut Value ]
+///   ^base          ^--- cell pointer returned to codegen
+/// ```
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[unsafe(no_mangle)]
+pub extern "C" fn mux_cell_alloc(initial: *mut Value) -> *mut c_void {
+    unsafe {
+        let base = libc::malloc(std::mem::size_of::<i64>() + std::mem::size_of::<*mut Value>());
+        if base.is_null() {
+            return std::ptr::null_mut();
+        }
+        *(base as *mut i64) = 1;
+        let cell = (base as *mut i64).add(1) as *mut c_void;
+        *(cell as *mut *mut Value) = initial;
+        cell
+    }
+}
+
+/// Increment a capture cell's reference count, for each additional holder: a
+/// closure capturing a variable that already has one.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[unsafe(no_mangle)]
+pub extern "C" fn mux_cell_retain(cell: *mut c_void) {
+    if cell.is_null() {
+        return;
+    }
+    unsafe {
+        (*cell_header(cell)).fetch_add(1, Ordering::Relaxed);
+    }
+}
+
+/// Decrement a capture cell's reference count, releasing the value it holds and
+/// freeing the cell when the last holder drops it. Null-safe.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[unsafe(no_mangle)]
+pub extern "C" fn mux_cell_release(cell: *mut c_void) {
+    if cell.is_null() {
+        return;
+    }
+    unsafe {
+        if (*cell_header(cell)).fetch_sub(1, Ordering::AcqRel) > 1 {
+            return;
+        }
+        crate::refcount::mux_rc_dec(*(cell as *const *mut Value));
+        libc::free((cell as *mut i64).sub(1) as *mut c_void);
+    }
 }
 
 /// Increment a closure's reference count. Used when ownership is shared (e.g. a
@@ -77,13 +152,10 @@ pub extern "C" fn mux_closure_release(closure: *mut c_void) {
         if !captures_ptr.is_null() && capture_count > 0 {
             let slots = captures_ptr as *const *mut c_void;
             for i in 0..capture_count as usize {
-                let heap_storage = *slots.add(i);
-                if !heap_storage.is_null() {
-                    // Each heap-storage cell holds one owned reference to a Value.
-                    let captured = *(heap_storage as *const *mut Value);
-                    crate::refcount::mux_rc_dec(captured);
-                    libc::free(heap_storage);
-                }
+                // A cell is shared with the variable it is the storage of, and
+                // with any other closure capturing that variable, so the
+                // closure drops its reference rather than freeing the cell.
+                mux_cell_release(*slots.add(i));
             }
             libc::free(captures_ptr);
         }
