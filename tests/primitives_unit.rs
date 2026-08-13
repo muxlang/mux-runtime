@@ -109,6 +109,11 @@ fn string_ops() {
     assert_eq!(joined.0, "foobar");
     assert_eq!(MuxString("hello".to_string()).length(), 5);
     assert_eq!(format!("{}", MuxString("hi".to_string())), "hi");
+    // Length counts CHARACTERS. Every case above is ASCII and so passes either
+    // way, which is exactly why a byte count went unnoticed - these do not.
+    assert_eq!(MuxString("h\u{e9}llo".to_string()).length(), 5);
+    assert_eq!(MuxString("\u{4f60}\u{597d}".to_string()).length(), 2);
+    assert_eq!(MuxString("\u{1f600}".to_string()).length(), 1);
     // hash is stable for equal inputs.
     let a = MuxString("same".to_string()).hash();
     let b = MuxString("same".to_string()).hash();

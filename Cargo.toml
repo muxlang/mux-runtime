@@ -16,7 +16,10 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 [features]
 default = ["full"]
 core = []
-json = ["dep:serde_json"]
+# `preserve_order` makes serde_json parse objects into an insertion-ordered map
+# rather than a sorted one. Without it the key order is gone before our own
+# conversion ever runs, so `Json::Object` could not preserve what it never saw.
+json = ["dep:serde_json", "serde_json/preserve_order", "dep:indexmap"]
 csv = ["dep:csv"]
 net = ["json", "dep:ureq", "dep:httparse"]
 sql = ["dep:rusqlite", "dep:postgres", "dep:mysql"]
@@ -38,6 +41,7 @@ libc = "0.2"
 paste = "1.0"
 chrono = "0.4"
 serde_json = { version = "1.0", optional = true }
+indexmap = { version = "2", optional = true }
 csv = { version = "1", optional = true }
 ureq = { version = "2.10", optional = true }
 httparse = { version = "1.10", optional = true }

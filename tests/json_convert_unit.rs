@@ -17,10 +17,10 @@ use mux_runtime::Value;
 fn value_to_json_scalars_and_collections() {
     assert_eq!(value_to_json(&Value::Unit).unwrap(), Json::Null);
     assert_eq!(value_to_json(&Value::Bool(true)).unwrap(), Json::Bool(true));
-    assert_eq!(value_to_json(&Value::Int(3)).unwrap(), Json::Number(3.0));
+    assert_eq!(value_to_json(&Value::Int(3)).unwrap(), Json::Int(3));
     assert_eq!(
         value_to_json(&Value::Float(ordered_float::OrderedFloat(1.5))).unwrap(),
-        Json::Number(1.5)
+        Json::Float(1.5)
     );
     assert_eq!(
         value_to_json(&Value::String("s".into())).unwrap(),
@@ -49,10 +49,11 @@ fn json_to_value_roundtrip() {
     let j = Json::parse(r#"{"a": [1, true, null], "b": "x"}"#).unwrap();
     let v = json_to_value(&j);
     assert!(matches!(v, Value::Map(_)));
-    // numbers become floats
+    // An integer stays an integer; only a real becomes a float.
+    assert_eq!(json_to_value(&Json::Int(2)), Value::Int(2));
     assert_eq!(
-        json_to_value(&Json::Number(2.0)),
-        Value::Float(ordered_float::OrderedFloat(2.0))
+        json_to_value(&Json::Float(2.5)),
+        Value::Float(ordered_float::OrderedFloat(2.5))
     );
     assert_eq!(json_to_value(&Json::Null), Value::Unit);
 }

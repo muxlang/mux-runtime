@@ -22,8 +22,31 @@ impl MuxString {
         MuxString(self.0.clone() + &other.0)
     }
 
+    /// Length in CHARACTERS, not bytes.
+    ///
+    /// `String::len` is a byte count, so any non-ASCII character made this
+    /// wrong - an accented letter counted 2, most CJK 3, an emoji 4. Mux treats
+    /// a string as a sequence of characters, so every position-based operation
+    /// has to agree on that, or `s[s.length() - 1]` is wrong for exactly the
+    /// inputs nobody tests with.
+    ///
+    /// This is O(n) where the byte length was O(1). If that ever matters, cache
+    /// a count alongside the string; do not go back to bytes.
     pub fn length(&self) -> i64 {
-        self.0.len() as i64
+        self.0.chars().count() as i64
+    }
+
+    /// Lexicographic ordering, as negative / zero / positive like C's `strcmp`.
+    ///
+    /// Rust's `str` ordering is byte-wise, which for UTF-8 gives the same
+    /// answer as comparing code points, so this is character ordering despite
+    /// operating on bytes.
+    pub fn compare(&self, other: &MuxString) -> i64 {
+        match self.0.cmp(&other.0) {
+            std::cmp::Ordering::Less => -1,
+            std::cmp::Ordering::Equal => 0,
+            std::cmp::Ordering::Greater => 1,
+        }
     }
 
     pub fn hash(&self) -> i64 {
@@ -111,6 +134,20 @@ pub extern "C" fn mux_string_length(s: *const c_char) -> i64 {
     let c_str = unsafe { CStr::from_ptr(s) };
     let rust_str = c_str.to_string_lossy();
     MuxString(rust_str.to_string()).length()
+}
+
+/// Compare two strings lexicographically, returning negative / zero / positive.
+///
+/// The compiler's relational operators on `string` lower to this. Without it
+/// they fell through to the numeric path, which unboxed the string POINTER as
+/// an integer - so `<` and `>` compared addresses and every ordering answer was
+/// meaningless, silently.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[unsafe(no_mangle)]
+pub extern "C" fn mux_string_compare(a: *const c_char, b: *const c_char) -> i64 {
+    let left = unsafe { CStr::from_ptr(a) }.to_string_lossy();
+    let right = unsafe { CStr::from_ptr(b) }.to_string_lossy();
+    MuxString(left.to_string()).compare(&MuxString(right.to_string()))
 }
 
 #[allow(clippy::not_unsafe_ptr_arg_deref)]

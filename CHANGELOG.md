@@ -13,6 +13,40 @@ itself - see
 
 ## [Unreleased]
 
+### Fixed
+- **`random.next_range` returned only the lower half of its range.** The
+  fixed-point scale shifted by 32 while `mux_rand_int` yields 31 bits, so
+  `next_range(1, 7)` - the dice roll in the stdlib docs - could never return 4,
+  5 or 6. The shift is now derived from `RAND_MAX` so the two cannot drift
+  apart. The previous test asserted only that results were *within* the range,
+  which a too-narrow range satisfies; the new one asserts the range is fully
+  covered (mux-runtime#50).
+- **JSON integers became floats, and large ones changed value.** `Json` had a
+  single `Number(f64)` case, so `{"n":42}` re-serialized as `{"n":42.0}` and
+  `9007199254740993` came back as `9007199254740992`. `Json` now has separate
+  `Int(i64)` and `Float(f64)` cases and asks serde_json which one the literal
+  was. An HTTP response `status` is consequently an integer, so a caller reads
+  `201` rather than `201.0` (mux-runtime#52).
+- **JSON object keys were re-ordered alphabetically.** `Json::Object` was a
+  `BTreeMap`, so `{"zebra":1,"apple":2}` round-tripped sorted and a program
+  could not read a document and write it back unchanged. It is now an
+  insertion-ordered `JsonMap`, with serde_json's `preserve_order` feature so the
+  parse order survives to reach it - matching the reasoning `ordered.rs` already
+  gives for Mux's own `map` (mux-runtime#53).
+- **`string.length()` counted bytes rather than characters.** Any non-ASCII
+  character made it wrong - an accented letter counted 2, an emoji 4. It now
+  counts characters, which is what every position-based string operation has to
+  agree on. This makes `length` O(n) rather than O(1); if that matters later,
+  cache a count rather than returning to byte semantics (mux-runtime#51).
+
+### Added
+- **`mux_string_compare`**, lexicographic ordering returning negative / zero /
+  positive. The compiler's relational operators on `string` had no runtime
+  function to call and fell through to the numeric path, which unboxed the
+  string pointer as an integer - so `<` and `>` compared addresses and answered
+  `false` in both directions (mux-compiler#390). The compiler side of that fix
+  lands separately.
+
 ### Changed
 - **A closure capture cell is reference counted and shared.** Each capture slot
   used to point at a plain `malloc`'d cell that the closure freed outright, so a
