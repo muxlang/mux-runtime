@@ -142,9 +142,25 @@ pub extern "C" fn mux_string_length(s: *const c_char) -> i64 {
 /// they fell through to the numeric path, which unboxed the string POINTER as
 /// an integer - so `<` and `>` compared addresses and every ordering answer was
 /// meaningless, silently.
+/// # Safety
+///
+/// `a` and `b` must each be either null or a valid pointer to a NUL-terminated
+/// C string that stays alive for the call. Null is handled here; anything else
+/// invalid is undefined behaviour, as for every other string entry point.
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
 pub extern "C" fn mux_string_compare(a: *const c_char, b: *const c_char) -> i64 {
+    // Guarded rather than dereferenced blind, matching `mux_string_equal`. A
+    // null sorts before any real string, and two nulls are equal, so the result
+    // is still a total order and a caller cannot crash the program by passing
+    // one.
+    if a.is_null() || b.is_null() {
+        return match (a.is_null(), b.is_null()) {
+            (true, true) => 0,
+            (true, false) => -1,
+            _ => 1,
+        };
+    }
     let left = unsafe { CStr::from_ptr(a) }.to_string_lossy();
     let right = unsafe { CStr::from_ptr(b) }.to_string_lossy();
     MuxString(left.to_string()).compare(&MuxString(right.to_string()))
