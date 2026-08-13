@@ -59,31 +59,35 @@ fn string_equality() {
 /// directions at once.
 #[test]
 fn string_comparison() {
-    assert!(mux_string_compare(cs("apple").as_ptr(), cs("pear").as_ptr()) < 0);
-    assert!(mux_string_compare(cs("pear").as_ptr(), cs("apple").as_ptr()) > 0);
-    assert_eq!(
-        mux_string_compare(cs("same").as_ptr(), cs("same").as_ptr()),
-        0
-    );
+    // Every pointer below is a live CString or an explicit null, which is the
+    // contract the function documents.
+    unsafe {
+        assert!(mux_string_compare(cs("apple").as_ptr(), cs("pear").as_ptr()) < 0);
+        assert!(mux_string_compare(cs("pear").as_ptr(), cs("apple").as_ptr()) > 0);
+        assert_eq!(
+            mux_string_compare(cs("same").as_ptr(), cs("same").as_ptr()),
+            0
+        );
 
-    // A prefix sorts before the longer string that extends it.
-    assert!(mux_string_compare(cs("ab").as_ptr(), cs("abc").as_ptr()) < 0);
-    assert!(mux_string_compare(cs("").as_ptr(), cs("a").as_ptr()) < 0);
+        // A prefix sorts before the longer string that extends it.
+        assert!(mux_string_compare(cs("ab").as_ptr(), cs("abc").as_ptr()) < 0);
+        assert!(mux_string_compare(cs("").as_ptr(), cs("a").as_ptr()) < 0);
 
-    // Antisymmetry: reversing the operands must reverse the sign. This is what
-    // the pointer comparison could not do, since it reported "not less" both
-    // ways round.
-    // Null is handled rather than dereferenced: it sorts before any real
-    // string and two nulls are equal, so the result stays a total order.
-    assert_eq!(mux_string_compare(std::ptr::null(), std::ptr::null()), 0);
-    assert!(mux_string_compare(std::ptr::null(), cs("a").as_ptr()) < 0);
-    assert!(mux_string_compare(cs("a").as_ptr(), std::ptr::null()) > 0);
+        // Null is handled rather than dereferenced: it sorts before any real
+        // string and two nulls are equal, so the result stays a total order.
+        assert_eq!(mux_string_compare(std::ptr::null(), std::ptr::null()), 0);
+        assert!(mux_string_compare(std::ptr::null(), cs("a").as_ptr()) < 0);
+        assert!(mux_string_compare(cs("a").as_ptr(), std::ptr::null()) > 0);
 
-    let pairs = [("a", "b"), ("apple", "apricot"), ("Z", "a"), ("1", "2")];
-    for (left, right) in pairs {
-        let forward = mux_string_compare(cs(left).as_ptr(), cs(right).as_ptr());
-        let backward = mux_string_compare(cs(right).as_ptr(), cs(left).as_ptr());
-        assert_eq!(forward, -backward, "{left} vs {right} is not antisymmetric");
+        // Antisymmetry: reversing the operands must reverse the sign. This is
+        // what the pointer comparison could not do, since it reported "not
+        // less" in both directions at once.
+        let pairs = [("a", "b"), ("apple", "apricot"), ("Z", "a"), ("1", "2")];
+        for (left, right) in pairs {
+            let forward = mux_string_compare(cs(left).as_ptr(), cs(right).as_ptr());
+            let backward = mux_string_compare(cs(right).as_ptr(), cs(left).as_ptr());
+            assert_eq!(forward, -backward, "{left} vs {right} is not antisymmetric");
+        }
     }
 }
 
