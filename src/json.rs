@@ -309,6 +309,20 @@ pub extern "C" fn mux_json_to_map(val: *const Value) -> *mut Value {
 // checks rather than a second representation to keep in step.
 
 /// Some(x) when `val` matches `want`, mapped through `f`; none otherwise.
+///
+/// # Safety contract for every accessor below
+///
+/// `val` must be either null or a valid pointer to a live `Value` that stays
+/// alive for the duration of the call. Null is handled here and yields `none`;
+/// a dangling or misaligned pointer is undefined behaviour. Each accessor
+/// borrows its argument and never takes ownership - the caller still releases
+/// what it passed - and returns a NEW owned optional the caller releases with
+/// `mux_rc_dec`.
+///
+/// These stay safe `extern "C"` rather than `unsafe fn` to match the other
+/// entry points in this module (`mux_json_parse`, `mux_json_stringify`,
+/// `mux_json_from_map`, `mux_json_to_map`), which take the same shape of
+/// argument under the same contract.
 fn json_accessor<F>(val: *const Value, f: F) -> *mut Value
 where
     F: FnOnce(&Value) -> Option<Value>,
@@ -334,9 +348,16 @@ pub extern "C" fn mux_json_as_string(val: *const Value) -> *mut Value {
     })
 }
 
-/// An integer, exactly. A float is accepted only when it is integral, so a
-/// document written `{"n": 42.0}` still reads as 42, while 1.5 is `none`
+/// An integer, exactly. A float is accepted only when it is integral AND fits,
+/// so a document written `{"n": 42.0}` still reads as 42, while 1.5 is `none`
 /// rather than silently truncated.
+///
+/// The range check is not redundant: `1e30` is integral and finite, and `as
+/// i64` SATURATES rather than wrapping, so without it a value far outside the
+/// range came back as `i64::MAX` - a plausible number that is not the one in
+/// the document. Comparing against the bounds as `f64` is deliberate; casting
+/// `i64::MAX` to `f64` rounds up, so `>=` on the upper bound is what excludes
+/// exactly the values that would not survive the conversion.
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
 pub extern "C" fn mux_json_as_int(val: *const Value) -> *mut Value {
@@ -344,7 +365,8 @@ pub extern "C" fn mux_json_as_int(val: *const Value) -> *mut Value {
         Value::Int(i) => Some(Value::Int(*i)),
         Value::Float(f) => {
             let f = f.into_inner();
-            if f.fract() == 0.0 && f.is_finite() {
+            let in_range = f >= (i64::MIN as f64) && f < (i64::MAX as f64);
+            if f.fract() == 0.0 && f.is_finite() && in_range {
                 Some(Value::Int(f as i64))
             } else {
                 None

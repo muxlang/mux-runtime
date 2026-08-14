@@ -199,6 +199,30 @@ fn number_accessors_convert_deliberately() {
     );
     assert!(mux_rc_dec(got));
 
+    // Out of i64 range. These are integral and finite, so only the range check
+    // rejects them - without it `as i64` SATURATES and hands back i64::MAX, a
+    // plausible number that is not the one in the document.
+    for enormous in [1e30_f64, -1e30_f64, f64::MAX, f64::MIN] {
+        let v = Value::Float(ordered_float::OrderedFloat(enormous));
+        let got = mux_json_as_int(&v);
+        assert_eq!(
+            unsafe { &*got },
+            &Value::Optional(None),
+            "{enormous} is outside i64 and must be none, not a saturated bound"
+        );
+        assert!(mux_rc_dec(got));
+    }
+
+    // The largest float that still converts exactly, to pin the boundary rather
+    // than only the far side of it.
+    let big = Value::Float(ordered_float::OrderedFloat(9007199254740992.0));
+    let got = mux_json_as_int(&big);
+    assert_eq!(
+        unsafe { &*got },
+        &Value::Optional(Some(Box::new(Value::Int(9007199254740992))))
+    );
+    assert!(mux_rc_dec(got));
+
     let whole = Value::Int(3);
     let got = mux_json_as_float(&whole);
     assert_eq!(
