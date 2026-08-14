@@ -1,4 +1,4 @@
-use crate::json::{json_to_value, value_to_json, Json};
+use crate::json::{json_to_value, value_to_json, Json, JsonMap};
 use crate::object::{alloc_object, get_object_ptr, register_object_type};
 use crate::refcount::{mux_rc_alloc, mux_rc_dec};
 use crate::{Tuple, TypeId, Value};
@@ -272,7 +272,7 @@ fn net_result_string(result: Result<String, String>) -> *mut Value {
     }
 }
 
-fn value_to_json_map(value: *const Value, label: &str) -> Result<BTreeMap<String, Json>, String> {
+fn value_to_json_map(value: *const Value, label: &str) -> Result<JsonMap, String> {
     if value.is_null() {
         return Err(format!("{} is null", label));
     }
@@ -284,11 +284,7 @@ fn value_to_json_map(value: *const Value, label: &str) -> Result<BTreeMap<String
     }
 }
 
-fn json_get_string(
-    map: &BTreeMap<String, Json>,
-    key: &str,
-    required: bool,
-) -> Result<Option<String>, String> {
+fn json_get_string(map: &JsonMap, key: &str, required: bool) -> Result<Option<String>, String> {
     match map.get(key) {
         Some(Json::String(value)) => Ok(Some(value.clone())),
         Some(_) => Err(format!("'{}' must be a string", key)),
@@ -297,10 +293,7 @@ fn json_get_string(
     }
 }
 
-fn json_headers(
-    map: &BTreeMap<String, Json>,
-    key: &str,
-) -> Result<BTreeMap<String, String>, String> {
+fn json_headers(map: &JsonMap, key: &str) -> Result<BTreeMap<String, String>, String> {
     let Some(headers_value) = map.get(key) else {
         return Ok(BTreeMap::new());
     };
@@ -321,7 +314,7 @@ fn json_headers(
 
 fn read_http_response(response: ureq::Response) -> Result<Value, String> {
     let status = i64::from(response.status());
-    let mut response_headers = BTreeMap::new();
+    let mut response_headers = JsonMap::new();
     for name in response.headers_names() {
         // `ureq::Response::header` returns only the first value for a header name.
         // HTTP allows multiple values for the same header (e.g. Set-Cookie). Join
@@ -343,8 +336,10 @@ fn read_http_response(response: ureq::Response) -> Result<Value, String> {
         Json::parse(&body_text).unwrap_or(Json::String(body_text))
     };
 
-    let mut response_map = BTreeMap::new();
-    response_map.insert("status".to_string(), Json::Number(status as f64));
+    let mut response_map = JsonMap::new();
+    // An HTTP status is an integer and must read back as one. This used to be a
+    // float, so a caller inspecting the response saw 201.0 rather than 201.
+    response_map.insert("status".to_string(), Json::Int(status));
     response_map.insert("headers".to_string(), Json::Object(response_headers));
     response_map.insert("body".to_string(), body_json);
     Ok(json_to_value(&Json::Object(response_map)))
@@ -426,10 +421,7 @@ fn reason_phrase(status: u16) -> &'static str {
     }
 }
 
-fn json_get_optional_object(
-    map: &BTreeMap<String, Json>,
-    key: &str,
-) -> Result<Option<BTreeMap<String, Json>>, String> {
+fn json_get_optional_object(map: &JsonMap, key: &str) -> Result<Option<JsonMap>, String> {
     match map.get(key) {
         Some(Json::Object(obj)) => Ok(Some(obj.clone())),
         Some(_) => Err(format!("'{}' must be an object", key)),
@@ -437,17 +429,19 @@ fn json_get_optional_object(
     }
 }
 
-fn json_get_required_int(map: &BTreeMap<String, Json>, key: &str) -> Result<i64, String> {
+fn json_get_required_int(map: &JsonMap, key: &str) -> Result<i64, String> {
     match map.get(key) {
-        Some(Json::Number(value)) => {
+        Some(Json::Int(value)) => Ok(*value),
+        // A float is still accepted when it is exactly integral, so a document
+        // written as `{"status": 200.0}` keeps working.
+        Some(Json::Float(value)) => {
             if !value.is_finite() {
                 return Err(format!("'{}' must be a finite number", key));
             }
-            let rounded = value.round();
             if value.fract() != 0.0 {
                 return Err(format!("'{}' must be an integer", key));
             }
-            Ok(rounded as i64)
+            Ok(value.round() as i64)
         }
         Some(_) => Err(format!("'{}' must be a number", key)),
         None => Err(format!("missing required field '{}'", key)),
@@ -582,7 +576,7 @@ fn build_http_request_json(
     } else {
         (raw_target, String::new())
     };
-    let mut req_map = BTreeMap::new();
+    let mut req_map = JsonMap::new();
     req_map.insert("method".to_string(), Json::String(method));
     req_map.insert("path".to_string(), Json::String(path));
     req_map.insert("query".to_string(), Json::String(query));

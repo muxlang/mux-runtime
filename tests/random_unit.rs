@@ -26,6 +26,35 @@ fn range_bounds() {
     }
 }
 
+/// A containment assertion cannot catch a range that is too NARROW: `[10, 15)`
+/// sits happily inside `[10, 20)`, which is why `range_bounds` above passed
+/// while `mux_rand_range` returned only the lower half of every range.
+///
+/// So assert coverage instead - every value in a small range must appear, and a
+/// large range must reach its top. Both fail if the scaling is off by a factor.
+#[test]
+fn range_covers_whole_span() {
+    mux_rand_init(20260812);
+
+    let mut seen = [false; 6];
+    for _ in 0..6000 {
+        let v = mux_rand_range(0, 6);
+        assert!((0..6).contains(&v), "out of range: {v}");
+        seen[v as usize] = true;
+    }
+    for (value, hit) in seen.iter().enumerate() {
+        assert!(*hit, "value {value} never produced by mux_rand_range(0, 6)");
+    }
+
+    // With 6000 draws over 100 values, never reaching the top half would mean
+    // the scaling is wrong, not that we were unlucky.
+    let highest = (0..6000).map(|_| mux_rand_range(0, 100)).max().unwrap_or(0);
+    assert!(
+        highest >= 50,
+        "mux_rand_range(0, 100) never exceeded {highest}; expected values across the full span"
+    );
+}
+
 #[test]
 fn float_within_unit_interval() {
     for _ in 0..100 {

@@ -1,16 +1,31 @@
 use crate::Value;
-use std::collections::BTreeMap;
+use indexmap::IndexMap;
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 
+/// The map backing a JSON object.
+///
+/// Insertion-ordered, not sorted. A `BTreeMap` re-ordered keys alphabetically,
+/// so a program could not read a document and write it back unchanged. That is
+/// the same reasoning `ordered.rs` gives for Mux's own `map`: printed output
+/// must not depend on the container's internal arrangement.
+pub type JsonMap = IndexMap<String, Json>;
+
+/// A parsed JSON document.
+///
+/// Integers and reals are separate cases on purpose. Collapsing both into one
+/// `f64` meant `{"n":42}` re-serialized as `{"n":42.0}` and any integer past
+/// 2^53 came back a different number - so a program could not read JSON and
+/// write it out again without altering it.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Json {
     Null,
     Bool(bool),
-    Number(f64),
+    Int(i64),
+    Float(f64),
     String(String),
     Array(Vec<Json>),
-    Object(BTreeMap<String, Json>),
+    Object(JsonMap),
 }
 
 impl Json {
@@ -37,11 +52,21 @@ fn convert_serde_value(v: &serde_json::Value) -> Json {
     match v {
         serde_json::Value::Null => Json::Null,
         serde_json::Value::Bool(b) => Json::Bool(*b),
-        serde_json::Value::Number(n) => Json::Number(n.as_f64().unwrap_or(0.0)),
+        // Ask for an integer first. serde_json already tracks whether the
+        // literal was integral, and that is the distinction worth keeping; a
+        // u64 above i64::MAX is the one case with no exact home, and falls back
+        // to the float it would previously always have been.
+        serde_json::Value::Number(n) => match n.as_i64() {
+            Some(i) => Json::Int(i),
+            None => match n.as_f64() {
+                Some(f) => Json::Float(f),
+                None => Json::Null,
+            },
+        },
         serde_json::Value::String(s) => Json::String(s.clone()),
         serde_json::Value::Array(arr) => Json::Array(arr.iter().map(convert_serde_value).collect()),
         serde_json::Value::Object(map) => {
-            let mut m = BTreeMap::new();
+            let mut m = JsonMap::new();
             for (k, v) in map.iter() {
                 m.insert(k.clone(), convert_serde_value(v));
             }
@@ -54,7 +79,10 @@ fn convert_to_serde_value(j: &Json) -> serde_json::Value {
     match j {
         Json::Null => serde_json::Value::Null,
         Json::Bool(b) => serde_json::Value::Bool(*b),
-        Json::Number(n) => serde_json::Number::from_f64(*n)
+        Json::Int(i) => serde_json::Value::Number((*i).into()),
+        // NaN and infinity have no JSON representation, so `from_f64` returns
+        // None and the value becomes null.
+        Json::Float(f) => serde_json::Number::from_f64(*f)
             .map(serde_json::Value::Number)
             .unwrap_or(serde_json::Value::Null),
         Json::String(s) => serde_json::Value::String(s.clone()),
@@ -75,7 +103,8 @@ pub fn json_to_value(j: &Json) -> Value {
     match j {
         Json::Null => Value::Unit,
         Json::Bool(b) => Value::Bool(*b),
-        Json::Number(n) => Value::Float(ordered_float::OrderedFloat(*n)),
+        Json::Int(i) => Value::Int(*i),
+        Json::Float(f) => Value::Float(ordered_float::OrderedFloat(*f)),
         Json::String(s) => Value::String(s.clone()),
         Json::Array(a) => Value::List(a.iter().map(json_to_value).collect()),
         Json::Object(m) => {
@@ -92,11 +121,11 @@ pub fn value_to_json(v: &Value) -> Result<Json, String> {
     match v {
         Value::Unit => Ok(Json::Null),
         Value::Bool(b) => Ok(Json::Bool(*b)),
-        Value::Int(i) => Ok(Json::Number(*i as f64)),
+        Value::Int(i) => Ok(Json::Int(*i)),
         Value::Float(f) => {
             let float_val = f.into_inner();
             if float_val.is_finite() {
-                Ok(Json::Number(float_val))
+                Ok(Json::Float(float_val))
             } else if float_val.is_nan() {
                 Err("cannot serialize NaN to JSON".to_string())
             } else {
@@ -112,7 +141,7 @@ pub fn value_to_json(v: &Value) -> Result<Json, String> {
             Ok(Json::Array(items))
         }
         Value::Map(map) => {
-            let mut m = BTreeMap::new();
+            let mut m = JsonMap::new();
             for (k, v) in map.iter() {
                 // only string keys allowed in JSON
                 if let Value::String(key_str) = k {
@@ -205,7 +234,7 @@ pub extern "C" fn mux_json_from_map(val: *const Value) -> *mut Value {
     match v {
         Value::Map(map) => {
             // Convert each value to Json to validate
-            let mut jmap = BTreeMap::new();
+            let mut jmap = JsonMap::new();
             for (k, vv) in map.iter() {
                 if let Value::String(key_str) = k {
                     match value_to_json(vv) {
