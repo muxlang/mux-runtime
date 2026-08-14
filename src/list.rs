@@ -296,3 +296,37 @@ pub extern "C" fn mux_list_concat(a: *const List, b: *const List) -> *mut List {
 pub extern "C" fn mux_list_contains(list: *const List, val: *const Value) -> bool {
     unsafe { (*list).0.iter().any(|item| item == &*val) }
 }
+
+/// Half-open slice, `[start, end)`, as a new list.
+///
+/// Python's rules, matching what `xs[1:3]`, `xs[:3]`, `xs[2:]` and `xs[-2:]`
+/// lead people to expect: a negative bound counts from the end, an
+/// out-of-range bound clamps rather than failing, and a start at or past the
+/// end yields empty rather than reversing. Indexing already wraps negatives
+/// (see `normalized_index`), so slicing agreeing with it is what keeps the two
+/// forms one rule instead of two.
+///
+/// The elements are cloned: Mux is value-semantic, so a slice must not alias
+/// the list it came from.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[unsafe(no_mangle)]
+pub extern "C" fn mux_list_slice_value(list_val: *const Value, start: i64, end: i64) -> *mut Value {
+    let items: &Vec<Value> = match unsafe { list_val.as_ref() } {
+        Some(Value::List(items)) => items,
+        _ => return mux_rc_alloc(Value::List(Vec::new())),
+    };
+
+    let count = items.len() as i64;
+    let resolve = |i: i64| -> i64 {
+        let wrapped = if i < 0 { count + i } else { i };
+        wrapped.clamp(0, count)
+    };
+    let from = resolve(start);
+    let to = resolve(end);
+    if to <= from {
+        return mux_rc_alloc(Value::List(Vec::new()));
+    }
+
+    let slice = items[from as usize..to as usize].to_vec();
+    mux_rc_alloc(Value::List(slice))
+}

@@ -344,3 +344,181 @@ pub extern "C" fn mux_char_to_string(c: i64) -> *mut c_char {
         }
     }
 }
+
+// String decomposition.
+//
+// A string could previously only be measured, parsed whole, compared and
+// concatenated - there was no split, no indexing, no iteration. So a program
+// could receive text (io.read_file hands back a whole file as one string) and
+// had no way to take it apart (mux-compiler#389).
+//
+// Every position here is a CHARACTER position, matching `length`. Indexing by
+// byte would make `s[s.length() - 1]` wrong for any non-ASCII string, which is
+// a bug only someone else would find.
+
+/// Character at `index`, or `none`. Negative indices count from the end, the
+/// same rule lists use.
+fn char_at_index(s: &str, index: i64) -> Option<char> {
+    let count = s.chars().count() as i64;
+    let wrapped = if index < 0 { count + index } else { index };
+    if wrapped < 0 || wrapped >= count {
+        return None;
+    }
+    s.chars().nth(wrapped as usize)
+}
+
+/// Resolve a half-open slice range to character offsets.
+///
+/// Python's rules, which is what `xs[1:3]`, `xs[:3]`, `xs[2:]` and `xs[-2:]`
+/// lead people to expect: negative counts from the end, out-of-range clamps
+/// rather than failing, and a start past the end yields empty rather than
+/// reversing.
+fn slice_bounds(count: i64, start: i64, end: i64) -> (usize, usize) {
+    let resolve = |i: i64| -> i64 {
+        let wrapped = if i < 0 { count + i } else { i };
+        wrapped.clamp(0, count)
+    };
+    let from = resolve(start);
+    let to = resolve(end);
+    if to <= from {
+        (from as usize, from as usize)
+    } else {
+        (from as usize, to as usize)
+    }
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[unsafe(no_mangle)]
+pub extern "C" fn mux_string_char_at(s: *const c_char, index: i64) -> *mut Value {
+    if s.is_null() {
+        return crate::optional::mux_optional_none();
+    }
+    let text = unsafe { CStr::from_ptr(s) }.to_string_lossy();
+    match char_at_index(&text, index) {
+        Some(c) => {
+            crate::refcount::mux_rc_alloc(Value::Optional(Some(Box::new(Value::Int(c as i64)))))
+        }
+        None => crate::optional::mux_optional_none(),
+    }
+}
+
+/// Half-open character slice, `[start, end)`.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[unsafe(no_mangle)]
+pub extern "C" fn mux_string_slice(s: *const c_char, start: i64, end: i64) -> *mut c_char {
+    let text = if s.is_null() {
+        String::new()
+    } else {
+        unsafe { CStr::from_ptr(s) }.to_string_lossy().into_owned()
+    };
+    let count = text.chars().count() as i64;
+    let (from, to) = slice_bounds(count, start, end);
+    let out: String = text.chars().skip(from).take(to - from).collect();
+    owned_cstr(out)
+}
+
+/// Split on a separator. An empty separator splits into single characters,
+/// which is what makes it the inverse of joining a character list.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[unsafe(no_mangle)]
+pub extern "C" fn mux_string_split(s: *const c_char, sep: *const c_char) -> *mut Value {
+    let text = borrowed_str(s);
+    let separator = borrowed_str(sep);
+
+    let parts: Vec<Value> = if separator.is_empty() {
+        text.chars().map(|c| Value::String(c.to_string())).collect()
+    } else {
+        text.split(separator.as_str())
+            .map(|p| Value::String(p.to_string()))
+            .collect()
+    };
+    crate::refcount::mux_rc_alloc(Value::List(parts))
+}
+
+/// The characters, as a list. This is what makes `for char c in s` work
+/// without the loop needing a string case of its own.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[unsafe(no_mangle)]
+pub extern "C" fn mux_string_to_list(s: *const c_char) -> *mut Value {
+    let text = borrowed_str(s);
+    let chars: Vec<Value> = text.chars().map(|c| Value::Int(c as i64)).collect();
+    crate::refcount::mux_rc_alloc(Value::List(chars))
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[unsafe(no_mangle)]
+pub extern "C" fn mux_string_trim(s: *const c_char) -> *mut c_char {
+    owned_cstr(borrowed_str(s).trim().to_string())
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[unsafe(no_mangle)]
+pub extern "C" fn mux_string_to_upper(s: *const c_char) -> *mut c_char {
+    owned_cstr(borrowed_str(s).to_uppercase())
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[unsafe(no_mangle)]
+pub extern "C" fn mux_string_to_lower(s: *const c_char) -> *mut c_char {
+    owned_cstr(borrowed_str(s).to_lowercase())
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[unsafe(no_mangle)]
+pub extern "C" fn mux_string_starts_with(s: *const c_char, prefix: *const c_char) -> bool {
+    borrowed_str(s).starts_with(borrowed_str(prefix).as_str())
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[unsafe(no_mangle)]
+pub extern "C" fn mux_string_ends_with(s: *const c_char, suffix: *const c_char) -> bool {
+    borrowed_str(s).ends_with(borrowed_str(suffix).as_str())
+}
+
+/// First CHARACTER index of `needle`, or -1. Rust's `find` returns a byte
+/// offset, which would disagree with every other position in this module.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[unsafe(no_mangle)]
+pub extern "C" fn mux_string_index_of(s: *const c_char, needle: *const c_char) -> i64 {
+    let text = borrowed_str(s);
+    let pat = borrowed_str(needle);
+    match text.find(pat.as_str()) {
+        Some(byte_offset) => text[..byte_offset].chars().count() as i64,
+        None => -1,
+    }
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[unsafe(no_mangle)]
+pub extern "C" fn mux_string_replace(
+    s: *const c_char,
+    from: *const c_char,
+    to: *const c_char,
+) -> *mut c_char {
+    let text = borrowed_str(s);
+    let needle = borrowed_str(from);
+    // Replacing an empty pattern inserts between every character, which is
+    // never what a caller means; return the text unchanged instead.
+    if needle.is_empty() {
+        return owned_cstr(text);
+    }
+    owned_cstr(text.replace(needle.as_str(), borrowed_str(to).as_str()))
+}
+
+/// Read a borrowed C string, treating null as empty.
+fn borrowed_str(s: *const c_char) -> String {
+    if s.is_null() {
+        return String::new();
+    }
+    unsafe { CStr::from_ptr(s) }.to_string_lossy().into_owned()
+}
+
+/// Hand back an owned C string the caller frees with `mux_free_string`.
+fn owned_cstr(s: String) -> *mut c_char {
+    match CString::new(s) {
+        Ok(c) => c.into_raw(),
+        // An interior NUL cannot survive a C string; an empty result is the
+        // total answer, and the runtime must not panic into a compiled program.
+        Err(_) => CString::default().into_raw(),
+    }
+}
