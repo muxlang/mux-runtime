@@ -505,6 +505,38 @@ jobs:
         working-directory: mux-compiler
         run: cargo test -p mux-lang --test executable_integration
 
+      # The published examples, against this PR's runtime.
+      #
+      # This repo has no release workflow - merging to main is what makes a
+      # change available (see AGENTS.md) - so a PR is the last point at which a
+      # runtime change that breaks a published example can be caught before
+      # users get it. The executable tests above cover linking and FFI; these
+      # cover OUTPUT, which is where a behaviour change shows up. Both of the
+      # JSON fixes in #54 would have altered example output while linking
+      # perfectly.
+      - name: Check out mux-examples
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: muxlang/mux-examples
+          ref: main
+          path: mux-examples
+
+      - name: Build the compiler binary
+        # The test step above builds `mux` incidentally, as a dependency of a
+        # test that runs it through CARGO_BIN_EXE_mux. Relying on that would
+        # make this step break silently if that test is ever changed, so ask
+        # for the binary directly. Cached, so it costs nothing here.
+        working-directory: mux-compiler
+        run: cargo build -p mux-lang --locked
+
+      - name: Run the published examples against this PR's runtime
+        working-directory: mux-examples
+        env:
+          # The compiler built above, linked against MUX_RUNTIME_LIB, which the
+          # job already points at this checkout's archive.
+          MUX_BIN: ${{ github.workspace }}/mux-compiler/target/debug/mux
+        run: ./scripts/run-examples.sh
+
   valgrind:
     name: Valgrind Memory Checks
     needs: detect-changes
