@@ -40,6 +40,18 @@ itself - see
   cache a count rather than returning to byte semantics (mux-runtime#51).
 
 ### Added
+- **Typed JSON accessors**: `mux_json_as_string`, `mux_json_as_int`,
+  `mux_json_as_float`, `mux_json_as_bool`, `mux_json_as_list`,
+  `mux_json_as_map` and `mux_json_is_null`. Each returns an `optional`, `none`
+  when the value is a different kind - ordinary control flow when reading a
+  document, not an error worth reporting.
+
+  `stringify` was previously the only way to inspect a value, so a string field
+  came back JSON-encoded with its quotes and there was no way to strip them; a
+  string could not be read out of a document at all. An integral float reads as
+  an int so `{"n": 42.0}` still works, while a fractional one is `none` rather
+  than silently truncated. The compiler side lands separately
+  (mux-compiler#392).
 - **`mux_string_compare`**, lexicographic ordering returning negative / zero /
   positive. The compiler's relational operators on `string` had no runtime
   function to call and fell through to the numeric path, which unboxed the

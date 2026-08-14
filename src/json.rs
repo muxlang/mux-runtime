@@ -290,3 +290,116 @@ pub extern "C" fn mux_json_to_map(val: *const Value) -> *mut Value {
         }
     }
 }
+
+// Typed accessors.
+//
+// `stringify` was the only method a `Json` had, so reading a value meant
+// serializing it back to JSON text: a string field came out as `"Ada"` WITH the
+// quotes, and undoing that needs string operations Mux does not have yet
+// (mux-compiler#389). So a string could not be read out of a document at all,
+// and a number took `stringify` then `to_float` then `to_int` because
+// `"36.0".to_int()` fails.
+//
+// Each returns `optional<T>`, `none` when the value is a different kind.
+// `optional` rather than `result` because "this field held a string, not a
+// number" is ordinary control flow when reading a document, not an error with
+// something to report - the same reasoning that makes `list.get` an optional.
+//
+// `mux_json_parse` already converts to a native `Value`, so these are variant
+// checks rather than a second representation to keep in step.
+
+/// Some(x) when `val` matches `want`, mapped through `f`; none otherwise.
+fn json_accessor<F>(val: *const Value, f: F) -> *mut Value
+where
+    F: FnOnce(&Value) -> Option<Value>,
+{
+    if val.is_null() {
+        return crate::optional::mux_optional_none();
+    }
+    match f(unsafe { &*val }) {
+        // Wrap directly rather than through mux_optional_some_value, which
+        // clones its argument without consuming it and would leak the
+        // intermediate allocation (see mux_json_parse).
+        Some(inner) => crate::refcount::mux_rc_alloc(Value::Optional(Some(Box::new(inner)))),
+        None => crate::optional::mux_optional_none(),
+    }
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[unsafe(no_mangle)]
+pub extern "C" fn mux_json_as_string(val: *const Value) -> *mut Value {
+    json_accessor(val, |v| match v {
+        Value::String(s) => Some(Value::String(s.clone())),
+        _ => None,
+    })
+}
+
+/// An integer, exactly. A float is accepted only when it is integral, so a
+/// document written `{"n": 42.0}` still reads as 42, while 1.5 is `none`
+/// rather than silently truncated.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[unsafe(no_mangle)]
+pub extern "C" fn mux_json_as_int(val: *const Value) -> *mut Value {
+    json_accessor(val, |v| match v {
+        Value::Int(i) => Some(Value::Int(*i)),
+        Value::Float(f) => {
+            let f = f.into_inner();
+            if f.fract() == 0.0 && f.is_finite() {
+                Some(Value::Int(f as i64))
+            } else {
+                None
+            }
+        }
+        _ => None,
+    })
+}
+
+/// A float. An integer widens, since every JSON number is a number first and
+/// asking for a float is asking how to read it, not what it was written as.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[unsafe(no_mangle)]
+pub extern "C" fn mux_json_as_float(val: *const Value) -> *mut Value {
+    json_accessor(val, |v| match v {
+        Value::Float(f) => Some(Value::Float(*f)),
+        Value::Int(i) => Some(Value::Float(ordered_float::OrderedFloat(*i as f64))),
+        _ => None,
+    })
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[unsafe(no_mangle)]
+pub extern "C" fn mux_json_as_bool(val: *const Value) -> *mut Value {
+    json_accessor(val, |v| match v {
+        Value::Bool(b) => Some(Value::Bool(*b)),
+        _ => None,
+    })
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[unsafe(no_mangle)]
+pub extern "C" fn mux_json_as_list(val: *const Value) -> *mut Value {
+    json_accessor(val, |v| match v {
+        Value::List(items) => Some(Value::List(items.clone())),
+        _ => None,
+    })
+}
+
+/// The object as a map. `json.to_map` does the same thing as a free function
+/// returning a `result`; this is the method form, and `none` rather than an
+/// error message for a non-object.
+#[allow(clippy::mutable_key_type)]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[unsafe(no_mangle)]
+pub extern "C" fn mux_json_as_map(val: *const Value) -> *mut Value {
+    json_accessor(val, |v| match v {
+        Value::Map(m) => Some(Value::Map(m.clone())),
+        _ => None,
+    })
+}
+
+/// JSON null. `Value::Unit` is what `json_to_value` maps it to.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[unsafe(no_mangle)]
+pub extern "C" fn mux_json_is_null(val: *const Value) -> bool {
+    !val.is_null() && matches!(unsafe { &*val }, Value::Unit)
+}
