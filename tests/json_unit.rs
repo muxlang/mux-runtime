@@ -106,3 +106,130 @@ fn integers_and_reals_stay_distinct() {
     assert_eq!(Json::Int(42).stringify(None), "42");
     assert_eq!(Json::Float(42.0).stringify(None), "42.0");
 }
+
+/// Typed accessors return the DECODED value, which is the whole point: reading
+/// a string out of a document used to be impossible, because `stringify` gave
+/// back `"Ada"` with the quotes and nothing could strip them.
+#[test]
+fn accessors_return_decoded_values() {
+    use mux_runtime::json::{json_to_value, mux_json_as_bool, mux_json_as_int, mux_json_as_string};
+    use mux_runtime::refcount::mux_rc_dec;
+    use mux_runtime::Value;
+
+    let doc = Json::parse(r#"{"name":"Ada","age":36,"active":true}"#).unwrap();
+    let map = match doc {
+        Json::Object(m) => m,
+        other => panic!("expected object, got {other:?}"),
+    };
+
+    let name = json_to_value(map.get("name").unwrap());
+    let got = mux_json_as_string(&name);
+    assert_eq!(
+        unsafe { &*got },
+        &Value::Optional(Some(Box::new(Value::String("Ada".into())))),
+        "as_string must yield Ada, not \"Ada\""
+    );
+    assert!(mux_rc_dec(got));
+
+    let age = json_to_value(map.get("age").unwrap());
+    let got = mux_json_as_int(&age);
+    assert_eq!(
+        unsafe { &*got },
+        &Value::Optional(Some(Box::new(Value::Int(36))))
+    );
+    assert!(mux_rc_dec(got));
+
+    let active = json_to_value(map.get("active").unwrap());
+    let got = mux_json_as_bool(&active);
+    assert_eq!(
+        unsafe { &*got },
+        &Value::Optional(Some(Box::new(Value::Bool(true))))
+    );
+    assert!(mux_rc_dec(got));
+}
+
+/// Asking for the wrong kind is `none`, not a wrong answer. That is why these
+/// return an optional: a field holding a string where a number was expected is
+/// ordinary when reading a document.
+#[test]
+fn accessors_reject_the_wrong_kind() {
+    use mux_runtime::json::{mux_json_as_int, mux_json_as_string, mux_json_is_null};
+    use mux_runtime::refcount::mux_rc_dec;
+    use mux_runtime::Value;
+
+    let text = Value::String("not a number".into());
+    let got = mux_json_as_int(&text);
+    assert_eq!(unsafe { &*got }, &Value::Optional(None));
+    assert!(mux_rc_dec(got));
+
+    let number = Value::Int(7);
+    let got = mux_json_as_string(&number);
+    assert_eq!(unsafe { &*got }, &Value::Optional(None));
+    assert!(mux_rc_dec(got));
+
+    // A null is a kind of its own, not an absent value.
+    assert!(mux_json_is_null(&Value::Unit));
+    assert!(!mux_json_is_null(&Value::Int(0)));
+    assert!(!mux_json_is_null(std::ptr::null()));
+}
+
+/// Numbers convert the way a reader expects: an integral float reads as an int
+/// so `{"n": 42.0}` still works, a fractional one does not silently truncate,
+/// and an int widens to float on request.
+#[test]
+fn number_accessors_convert_deliberately() {
+    use mux_runtime::json::{mux_json_as_float, mux_json_as_int};
+    use mux_runtime::refcount::mux_rc_dec;
+    use mux_runtime::Value;
+
+    let integral = Value::Float(ordered_float::OrderedFloat(42.0));
+    let got = mux_json_as_int(&integral);
+    assert_eq!(
+        unsafe { &*got },
+        &Value::Optional(Some(Box::new(Value::Int(42))))
+    );
+    assert!(mux_rc_dec(got));
+
+    let fractional = Value::Float(ordered_float::OrderedFloat(1.5));
+    let got = mux_json_as_int(&fractional);
+    assert_eq!(
+        unsafe { &*got },
+        &Value::Optional(None),
+        "1.5 must not truncate to 1"
+    );
+    assert!(mux_rc_dec(got));
+
+    // Out of i64 range. These are integral and finite, so only the range check
+    // rejects them - without it `as i64` SATURATES and hands back i64::MAX, a
+    // plausible number that is not the one in the document.
+    for enormous in [1e30_f64, -1e30_f64, f64::MAX, f64::MIN] {
+        let v = Value::Float(ordered_float::OrderedFloat(enormous));
+        let got = mux_json_as_int(&v);
+        assert_eq!(
+            unsafe { &*got },
+            &Value::Optional(None),
+            "{enormous} is outside i64 and must be none, not a saturated bound"
+        );
+        assert!(mux_rc_dec(got));
+    }
+
+    // The largest float that still converts exactly, to pin the boundary rather
+    // than only the far side of it.
+    let big = Value::Float(ordered_float::OrderedFloat(9007199254740992.0));
+    let got = mux_json_as_int(&big);
+    assert_eq!(
+        unsafe { &*got },
+        &Value::Optional(Some(Box::new(Value::Int(9007199254740992))))
+    );
+    assert!(mux_rc_dec(got));
+
+    let whole = Value::Int(3);
+    let got = mux_json_as_float(&whole);
+    assert_eq!(
+        unsafe { &*got },
+        &Value::Optional(Some(Box::new(Value::Float(ordered_float::OrderedFloat(
+            3.0
+        )))))
+    );
+    assert!(mux_rc_dec(got));
+}
