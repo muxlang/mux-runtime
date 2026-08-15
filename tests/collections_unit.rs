@@ -59,3 +59,50 @@ fn set_add_remove_contains() {
     assert!(!set.remove(&Value::Int(1)));
     assert!(!set.contains(&Value::Int(1)));
 }
+
+/// Slicing follows the same rules as indexing, which already wraps negatives:
+/// half-open, negatives from the end, clamping rather than failing, and empty
+/// rather than reversed when the bounds cross.
+#[test]
+fn list_slice_bounds() {
+    use mux_runtime::list::mux_list_slice_value;
+    use mux_runtime::refcount::mux_rc_dec;
+    use mux_runtime::Value;
+
+    let xs = Value::List(vec![
+        Value::Int(1),
+        Value::Int(2),
+        Value::Int(3),
+        Value::Int(4),
+        Value::Int(5),
+    ]);
+
+    let check = |start: i64, end: i64, want: Vec<i64>| {
+        let got = mux_list_slice_value(&xs, start, end);
+        let expected = Value::List(want.into_iter().map(Value::Int).collect());
+        assert_eq!(
+            unsafe { &*got },
+            &expected,
+            "slice [{start}:{end}] did not match"
+        );
+        assert!(mux_rc_dec(got));
+    };
+
+    check(1, 3, vec![2, 3]);
+    check(0, 5, vec![1, 2, 3, 4, 5]);
+    check(2, 5, vec![3, 4, 5]);
+    check(-2, 5, vec![4, 5]);
+    check(0, -1, vec![1, 2, 3, 4]);
+    check(2, 99, vec![3, 4, 5]);
+    check(-99, 2, vec![1, 2]);
+    // Crossed bounds are empty, not reversed.
+    check(4, 2, vec![]);
+    check(99, 100, vec![]);
+
+    // A non-list is empty rather than a panic - the runtime must not abort a
+    // compiled program over a shape it did not expect.
+    let not_a_list = Value::Int(7);
+    let got = mux_list_slice_value(&not_a_list, 0, 1);
+    assert_eq!(unsafe { &*got }, &Value::List(vec![]));
+    assert!(mux_rc_dec(got));
+}

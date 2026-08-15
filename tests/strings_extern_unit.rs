@@ -166,3 +166,157 @@ fn boxing_roundtrips() {
     assert!(!s.is_null());
     assert!(mux_rc_dec(s));
 }
+
+/// Splitting, which is the operation whose absence meant a program could read
+/// a file with io.read_file and then do nothing with the text.
+#[test]
+fn string_split() {
+    use mux_runtime::Value;
+
+    let got = mux_string_split(cs("a,b,c").as_ptr(), cs(",").as_ptr());
+    assert_eq!(
+        unsafe { &*got },
+        &Value::List(vec![
+            Value::String("a".into()),
+            Value::String("b".into()),
+            Value::String("c".into()),
+        ])
+    );
+    assert!(mux_rc_dec(got));
+
+    // A separator that is not present yields the whole string, not nothing.
+    let got = mux_string_split(cs("abc").as_ptr(), cs(",").as_ptr());
+    assert_eq!(
+        unsafe { &*got },
+        &Value::List(vec![Value::String("abc".into())])
+    );
+    assert!(mux_rc_dec(got));
+
+    // An empty separator splits into characters, which is what makes this the
+    // inverse of joining a character list.
+    let got = mux_string_split(cs("hi").as_ptr(), cs("").as_ptr());
+    assert_eq!(
+        unsafe { &*got },
+        &Value::List(vec![Value::String("h".into()), Value::String("i".into())])
+    );
+    assert!(mux_rc_dec(got));
+}
+
+/// Positions are CHARACTERS, not bytes. Every assertion here passes either way
+/// for ASCII, so the non-ASCII cases are the ones doing the work.
+#[test]
+fn string_positions_are_characters() {
+    use mux_runtime::Value;
+
+    // Accented e is two bytes; the last character is 'o' at index 4, not 5.
+    let accented = cs("h\u{e9}llo");
+    let got = mux_string_char_at(accented.as_ptr(), 4);
+    assert_eq!(
+        unsafe { &*got },
+        &Value::Optional(Some(Box::new(Value::Int('o' as i64))))
+    );
+    assert!(mux_rc_dec(got));
+
+    // Negative indices count from the end, as they do for lists.
+    let got = mux_string_char_at(accented.as_ptr(), -1);
+    assert_eq!(
+        unsafe { &*got },
+        &Value::Optional(Some(Box::new(Value::Int('o' as i64))))
+    );
+    assert!(mux_rc_dec(got));
+
+    // Out of range is none rather than a panic.
+    let got = mux_string_char_at(accented.as_ptr(), 99);
+    assert_eq!(unsafe { &*got }, &Value::Optional(None));
+    assert!(mux_rc_dec(got));
+
+    // index_of reports a character offset; a byte offset would say 2 here.
+    assert_eq!(
+        mux_string_index_of(accented.as_ptr(), cs("llo").as_ptr()),
+        2
+    );
+    assert_eq!(
+        mux_string_index_of(accented.as_ptr(), cs("zz").as_ptr()),
+        -1
+    );
+
+    // Slicing counts characters too.
+    assert_eq!(
+        read_cstr(mux_string_slice(accented.as_ptr(), 0, 2)),
+        "h\u{e9}"
+    );
+}
+
+/// Slice bounds follow Python: half-open, negatives from the end, clamping
+/// rather than failing, and no reversal when the bounds cross.
+#[test]
+fn string_slice_bounds() {
+    let s = cs("abcdef");
+    assert_eq!(read_cstr(mux_string_slice(s.as_ptr(), 1, 3)), "bc");
+    assert_eq!(read_cstr(mux_string_slice(s.as_ptr(), 0, 6)), "abcdef");
+    assert_eq!(read_cstr(mux_string_slice(s.as_ptr(), -2, 6)), "ef");
+    assert_eq!(read_cstr(mux_string_slice(s.as_ptr(), 2, 99)), "cdef");
+    assert_eq!(read_cstr(mux_string_slice(s.as_ptr(), 4, 2)), "");
+    assert_eq!(read_cstr(mux_string_slice(s.as_ptr(), 99, 100)), "");
+    assert_eq!(read_cstr(mux_string_slice(s.as_ptr(), -99, 2)), "ab");
+}
+
+#[test]
+fn string_transforms_and_predicates() {
+    assert_eq!(read_cstr(mux_string_trim(cs("  hi \n").as_ptr())), "hi");
+    assert_eq!(read_cstr(mux_string_to_upper(cs("hi").as_ptr())), "HI");
+    assert_eq!(read_cstr(mux_string_to_lower(cs("Hi").as_ptr())), "hi");
+
+    assert!(mux_string_starts_with(
+        cs("hello").as_ptr(),
+        cs("he").as_ptr()
+    ));
+    assert!(!mux_string_starts_with(
+        cs("hello").as_ptr(),
+        cs("lo").as_ptr()
+    ));
+    assert!(mux_string_ends_with(
+        cs("hello").as_ptr(),
+        cs("lo").as_ptr()
+    ));
+    assert!(!mux_string_ends_with(
+        cs("hello").as_ptr(),
+        cs("he").as_ptr()
+    ));
+
+    assert_eq!(
+        read_cstr(mux_string_replace(
+            cs("a-b-c").as_ptr(),
+            cs("-").as_ptr(),
+            cs("+").as_ptr()
+        )),
+        "a+b+c"
+    );
+    // An empty pattern would otherwise insert between every character.
+    assert_eq!(
+        read_cstr(mux_string_replace(
+            cs("abc").as_ptr(),
+            cs("").as_ptr(),
+            cs("X").as_ptr()
+        )),
+        "abc"
+    );
+}
+
+/// to_list is what lets `for char c in s` work through the existing list loop
+/// rather than needing a string case of its own.
+#[test]
+fn string_to_list_yields_characters() {
+    use mux_runtime::Value;
+
+    let got = mux_string_to_list(cs("h\u{e9}i").as_ptr());
+    assert_eq!(
+        unsafe { &*got },
+        &Value::List(vec![
+            Value::Int('h' as i64),
+            Value::Int('\u{e9}' as i64),
+            Value::Int('i' as i64),
+        ])
+    );
+    assert!(mux_rc_dec(got));
+}
