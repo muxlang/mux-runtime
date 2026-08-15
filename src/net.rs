@@ -1,5 +1,5 @@
 use crate::json::{json_to_value, value_to_json, Json, JsonMap};
-use crate::object::{alloc_object, get_object_ptr, register_object_type};
+use crate::object::{alloc_object, get_object_ptr, register_object_type_with_copy};
 use crate::refcount::{mux_rc_alloc, mux_rc_dec};
 use crate::{Tuple, TypeId, Value};
 use lazy_static::lazy_static;
@@ -12,7 +12,21 @@ use std::net::{
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Arc, Mutex};
 
-type SocketMap<T> = Mutex<HashMap<i64, Arc<Mutex<T>>>>;
+/// A live socket, and how many Mux values name it.
+///
+/// A socket is a resource, not a value, so copying a `TcpListener` cannot mean
+/// opening a second one - both names have to mean the same socket, and the
+/// socket closes when the last one goes away. That is the same rule every other
+/// heap value in the language follows, so the count lives here rather than
+/// leaving a copy to fail (see `copy_socket_handle`).
+struct SocketEntry<T> {
+    socket: Arc<Mutex<T>>,
+    /// Number of Mux values holding this handle. Never zero while in the map:
+    /// the entry is removed at the drop that takes it there.
+    names: usize,
+}
+
+type SocketMap<T> = Mutex<HashMap<i64, SocketEntry<T>>>;
 
 static NEXT_HANDLE: AtomicI64 = AtomicI64::new(1);
 
@@ -23,20 +37,23 @@ lazy_static! {
 }
 
 lazy_static! {
-    static ref TCP_STREAM_TYPE_ID: TypeId = register_object_type(
+    static ref TCP_STREAM_TYPE_ID: TypeId = register_object_type_with_copy(
         "TcpStream",
         std::mem::size_of::<i64>(),
         Some(drop_tcp_stream as extern "C" fn(*mut c_void)),
+        Some(copy_tcp_stream as extern "C" fn(*mut c_void, *mut c_void)),
     );
-    static ref TCP_LISTENER_TYPE_ID: TypeId = register_object_type(
+    static ref TCP_LISTENER_TYPE_ID: TypeId = register_object_type_with_copy(
         "TcpListener",
         std::mem::size_of::<i64>(),
         Some(drop_tcp_listener as extern "C" fn(*mut c_void)),
+        Some(copy_tcp_listener as extern "C" fn(*mut c_void, *mut c_void)),
     );
-    static ref UDP_SOCKET_TYPE_ID: TypeId = register_object_type(
+    static ref UDP_SOCKET_TYPE_ID: TypeId = register_object_type_with_copy(
         "UdpSocket",
         std::mem::size_of::<i64>(),
         Some(drop_udp_socket as extern "C" fn(*mut c_void)),
+        Some(copy_udp_socket as extern "C" fn(*mut c_void, *mut c_void)),
     );
 }
 
@@ -52,9 +69,21 @@ extern "C" fn drop_udp_socket(ptr: *mut c_void) {
     drop_socket_handle(&UDP_SOCKETS, ptr);
 }
 
+extern "C" fn copy_tcp_stream(src: *mut c_void, dest: *mut c_void) {
+    copy_socket_handle(&TCP_STREAMS, src, dest);
+}
+
+extern "C" fn copy_tcp_listener(src: *mut c_void, dest: *mut c_void) {
+    copy_socket_handle(&TCP_LISTENERS, src, dest);
+}
+
+extern "C" fn copy_udp_socket(src: *mut c_void, dest: *mut c_void) {
+    copy_socket_handle(&UDP_SOCKETS, src, dest);
+}
+
 fn lock_map<'a, T>(
     map: &'a SocketMap<T>,
-) -> std::sync::MutexGuard<'a, HashMap<i64, Arc<Mutex<T>>>> {
+) -> std::sync::MutexGuard<'a, HashMap<i64, SocketEntry<T>>> {
     map.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
@@ -71,27 +100,89 @@ fn next_handle() -> i64 {
 
 fn insert_socket<T>(map: &SocketMap<T>, socket: T) -> i64 {
     let handle = next_handle();
-    lock_map(map).insert(handle, Arc::new(Mutex::new(socket)));
+    lock_map(map).insert(
+        handle,
+        SocketEntry {
+            socket: Arc::new(Mutex::new(socket)),
+            names: 1,
+        },
+    );
     handle
 }
 
+/// Close the socket outright, whatever else still names it.
+///
+/// This is `close()`, an explicit act by the program, so it is deliberately not
+/// the reference-counted path: the remaining names get "invalid handle" on
+/// their next call, which is the honest answer to using a socket someone closed.
 fn remove_socket<T>(map: &SocketMap<T>, handle: i64) {
     lock_map(map).remove(&handle);
 }
 
-fn get_socket_entry<T>(map: &SocketMap<T>, handle: i64) -> Option<Arc<Mutex<T>>> {
-    lock_map(map).get(&handle).cloned()
+/// Release one name for `handle`, closing the socket at the last one.
+fn release_socket<T>(map: &SocketMap<T>, handle: i64) {
+    let mut guard = lock_map(map);
+    let Some(entry) = guard.get_mut(&handle) else {
+        return;
+    };
+    entry.names = entry.names.saturating_sub(1);
+    if entry.names == 0 {
+        guard.remove(&handle);
+    }
 }
 
-fn drop_socket_handle<T>(map: &SocketMap<T>, ptr: *mut c_void) {
+fn get_socket_entry<T>(map: &SocketMap<T>, handle: i64) -> Option<Arc<Mutex<T>>> {
+    lock_map(map).get(&handle).map(|entry| entry.socket.clone())
+}
+
+/// Read a handle out of an object's data, if it holds a live one.
+fn handle_at(ptr: *mut c_void) -> Option<i64> {
     if ptr.is_null() {
-        return;
+        return None;
     }
     let handle = unsafe { *(ptr as *mut i64) };
     if handle == 0 {
+        None
+    } else {
+        Some(handle)
+    }
+}
+
+fn drop_socket_handle<T>(map: &SocketMap<T>, ptr: *mut c_void) {
+    let Some(handle) = handle_at(ptr) else {
+        return;
+    };
+    release_socket(map, handle);
+}
+
+/// Copy a socket handle into a second Mux value naming the same socket.
+///
+/// Without this the type registered no copy callback at all, so `copy_object`
+/// returned null and `auto keep = listener` produced a value whose handle was
+/// zero - every later call on it answered "invalid tcp listener". A socket
+/// cannot be duplicated, so the copy shares it and the count decides when it
+/// closes.
+///
+/// A handle whose entry is already gone copies as zero rather than as a
+/// dangling id, so the failure stays "invalid handle" instead of becoming a
+/// live socket that the copy does not own.
+fn copy_socket_handle<T>(map: &SocketMap<T>, src: *mut c_void, dest: *mut c_void) {
+    if dest.is_null() {
         return;
     }
-    remove_socket(map, handle);
+    let copied = handle_at(src)
+        .filter(|handle| {
+            let mut guard = lock_map(map);
+            match guard.get_mut(handle) {
+                Some(entry) => {
+                    entry.names += 1;
+                    true
+                }
+                None => false,
+            }
+        })
+        .unwrap_or(0);
+    unsafe { *(dest as *mut i64) = copied };
 }
 
 fn socket_entry_or_err<T>(
