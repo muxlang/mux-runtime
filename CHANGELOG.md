@@ -14,6 +14,20 @@ itself - see
 ## [Unreleased]
 
 ### Fixed
+- **Copying a socket produced an unusable one.** `TcpStream`, `TcpListener` and
+  `UdpSocket` registered a destructor but no copy callback, so `copy_object`
+  returned null and any value-semantics copy - `auto keep = listener`, passing a
+  listener to a function, assigning one out of a `match` arm - yielded a value
+  whose handle was zero. Every later call on it answered "invalid tcp listener",
+  including on the original spelling of the flat `result` style
+  (muxlang/mux-compiler#393).
+
+  A socket is a resource, not a value, so a copy cannot mean a second socket:
+  both names now mean the same one, and it closes when the last name goes away,
+  which is the rule every other heap value in the language already follows.
+  `close()` stays a hard close for every name - it is an explicit act by the
+  program, and the remaining names get "invalid handle" rather than silently
+  keeping a socket alive.
 - **`random.next_range` returned only the lower half of its range.** The
   fixed-point scale shifted by 32 while `mux_rand_int` yields 31 bits, so
   `next_range(1, 7)` - the dice roll in the stdlib docs - could never return 4,

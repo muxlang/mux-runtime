@@ -371,3 +371,58 @@ fn invalid_read_size_errors() {
     assert!(mux_rc_dec(client));
     assert!(mux_rc_dec(listener));
 }
+
+/// A copy of a socket names the SAME socket, and both names keep working.
+///
+/// The type registered a destructor but no copy callback, so `copy_object`
+/// returned null and `auto keep = listener` in Mux produced a value whose handle
+/// was zero - every later call on it answered "invalid tcp listener". A socket
+/// cannot be duplicated, so the copy shares it.
+#[test]
+fn a_copied_listener_names_the_same_socket() {
+    use mux_runtime::refcount::mux_value_deep_clone;
+
+    let bind_addr = addr_val("127.0.0.1:0");
+    let listener = ok_data(mux_net_tcp_listener_bind(bind_addr));
+    assert!(mux_rc_dec(bind_addr));
+
+    let original = ok_string(mux_net_tcp_listener_local_addr(listener));
+
+    let copy = unsafe { mux_value_deep_clone(listener) };
+    assert!(!copy.is_null(), "copying a listener must not yield null");
+
+    let from_copy = ok_string(mux_net_tcp_listener_local_addr(copy));
+    assert_eq!(
+        from_copy, original,
+        "the copy must name the same socket, not a different or absent one"
+    );
+
+    // Dropping one name leaves the other usable: the socket closes at the last
+    // one, not the first.
+    assert!(mux_rc_dec(copy));
+    let after_drop = ok_string(mux_net_tcp_listener_local_addr(listener));
+    assert_eq!(after_drop, original, "the socket closed while still named");
+
+    mux_net_tcp_listener_close(listener);
+    assert!(mux_rc_dec(listener));
+}
+
+/// An explicit `close()` closes the socket for every name, which is what the
+/// program asked for - unlike dropping a name, which only gives one up.
+#[test]
+fn close_is_not_reference_counted() {
+    use mux_runtime::refcount::mux_value_deep_clone;
+
+    let bind_addr = addr_val("127.0.0.1:0");
+    let listener = ok_data(mux_net_tcp_listener_bind(bind_addr));
+    assert!(mux_rc_dec(bind_addr));
+
+    let copy = unsafe { mux_value_deep_clone(listener) };
+    assert!(!copy.is_null());
+
+    mux_net_tcp_listener_close(listener);
+    assert_err(mux_net_tcp_listener_local_addr(copy));
+
+    assert!(mux_rc_dec(copy));
+    assert!(mux_rc_dec(listener));
+}
