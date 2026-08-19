@@ -13,6 +13,18 @@ itself - see
 
 ## [Unreleased]
 
+### Added
+- **`mux_json_field(value, key)`** - one field of a JSON object by name,
+  returning `optional<Json>`. `none` covers both "not an object" and "no such
+  key"; a field explicitly set to `null` comes back as `some(null)`, so an
+  ABSENT field stays distinguishable from a present null. Typed deserialization
+  (muxlang/mux-compiler#404) depends on that difference: a missing required
+  field is an error, while `optional<T>` accepts either spelling.
+
+  The compiler emits one call per declared field rather than converting the
+  whole object to a Mux map first, which would clone every value including the
+  ones the class never declares.
+
 ### Fixed
 - **Copying a socket produced an unusable one.** `TcpStream`, `TcpListener` and
   `UdpSocket` registered a destructor but no copy callback, so `copy_object`
