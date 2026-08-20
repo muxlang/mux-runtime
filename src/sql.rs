@@ -95,6 +95,18 @@ fn sql_result_err(msg: String) -> *mut Value {
     mux_rc_alloc(Value::Result(Err(Box::new(Value::String(msg)))))
 }
 
+/// A typed accessor's answer: the value, or why it is not that kind.
+///
+/// The conversion helpers already produce a message; this used to call `.ok()`
+/// on them and throw it away, so "not an int" reached the caller with no
+/// indication of what the column actually held.
+fn sql_accessor(converted: Result<Value, String>) -> *mut Value {
+    match converted {
+        Ok(value) => sql_result_ok(value),
+        Err(message) => sql_result_err(message),
+    }
+}
+
 fn sql_result_unit(result: Result<(), String>) -> *mut Value {
     match result {
         Ok(()) => sql_result_ok(Value::Unit),
@@ -999,63 +1011,51 @@ pub extern "C" fn mux_sql_value_is_null(value: *const Value) -> bool {
 #[unsafe(no_mangle)]
 pub extern "C" fn mux_sql_value_as_int(value: *const Value) -> *mut Value {
     if value.is_null() {
-        return sql_result_err("sql value pointer is null".to_string());
+        return sql_result_err("expected an int, found nothing".to_string());
     }
-    match sql_value_to_int(unsafe { &*value }) {
-        Ok(v) => sql_result_ok(Value::Int(v)),
-        Err(err) => sql_result_err(err),
-    }
+    sql_accessor(sql_value_to_int(unsafe { &*value }).map(Value::Int))
 }
 
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
 pub extern "C" fn mux_sql_value_as_bool(value: *const Value) -> *mut Value {
     if value.is_null() {
-        return sql_result_err("sql value pointer is null".to_string());
+        return sql_result_err("expected a bool, found nothing".to_string());
     }
-    match sql_value_to_bool(unsafe { &*value }) {
-        Ok(v) => sql_result_ok(Value::Bool(v)),
-        Err(err) => sql_result_err(err),
-    }
+    sql_accessor(sql_value_to_bool(unsafe { &*value }).map(Value::Bool))
 }
 
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
 pub extern "C" fn mux_sql_value_as_float(value: *const Value) -> *mut Value {
     if value.is_null() {
-        return sql_result_err("sql value pointer is null".to_string());
+        return sql_result_err("expected a float, found nothing".to_string());
     }
-    match sql_value_to_float(unsafe { &*value }) {
-        Ok(v) => sql_result_ok(Value::Float(ordered_float::OrderedFloat(v))),
-        Err(err) => sql_result_err(err),
-    }
+    sql_accessor(
+        sql_value_to_float(unsafe { &*value })
+            .map(|v| Value::Float(ordered_float::OrderedFloat(v))),
+    )
 }
 
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
 pub extern "C" fn mux_sql_value_as_string(value: *const Value) -> *mut Value {
     if value.is_null() {
-        return sql_result_err("sql value pointer is null".to_string());
+        return sql_result_err("expected a string, found nothing".to_string());
     }
-    match sql_value_to_strict_string(unsafe { &*value }) {
-        Ok(v) => sql_result_ok(Value::String(v)),
-        Err(err) => sql_result_err(err),
-    }
+    sql_accessor(sql_value_to_strict_string(unsafe { &*value }).map(Value::String))
 }
 
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
 pub extern "C" fn mux_sql_value_as_bytes(value: *const Value) -> *mut Value {
     if value.is_null() {
-        return sql_result_err("sql value pointer is null".to_string());
+        return sql_result_err("expected bytes, found nothing".to_string());
     }
-    match sql_value_to_bytes(unsafe { &*value }) {
-        Ok(v) => {
-            let values = v.into_iter().map(Value::Int).collect::<Vec<_>>();
-            sql_result_ok(Value::List(values))
-        }
-        Err(err) => sql_result_err(err),
-    }
+    sql_accessor(
+        sql_value_to_bytes(unsafe { &*value })
+            .map(|v| Value::List(v.into_iter().map(Value::Int).collect())),
+    )
 }
 
 #[unsafe(no_mangle)]

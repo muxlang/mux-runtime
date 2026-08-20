@@ -160,6 +160,29 @@ pub extern "C" fn mux_csv_rows_as_maps(val: *const Value) -> *mut Value {
     crate::refcount::mux_rc_alloc(Value::Optional(Some(Box::new(Value::List(out)))))
 }
 
+/// The table as CSV text, always.
+///
+/// The total counterpart to `mux_csv_to_string`, which returns a `result`
+/// because it validates the shape. Same reasoning as `mux_json_to_string`: a
+/// `Csv` that exists came from the parser and is well formed, so the failing
+/// branch is unreachable - and is still given an answer rather than a panic.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[unsafe(no_mangle)]
+pub extern "C" fn mux_csv_render(val: *const Value) -> *mut Value {
+    let text = if val.is_null() {
+        String::new()
+    } else {
+        match validate_and_extract_csv(unsafe { &*val }) {
+            Ok((headers, rows)) => build_csv_string(&headers, &rows, true),
+            Err(_) => {
+                debug_assert!(false, "a Csv value that is not a well formed table");
+                String::new()
+            }
+        }
+    };
+    crate::refcount::mux_rc_alloc(Value::String(text))
+}
+
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
 pub extern "C" fn mux_csv_to_string(val: *const Value) -> *mut Value {

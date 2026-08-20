@@ -13,6 +13,23 @@ itself - see
 
 ## [Unreleased]
 
+### Changed
+- **Typed accessors return `result` rather than `optional`**, on both `Json` and
+  `SqlValue`. The error names what was actually there - `expected an int, found
+  a string` - instead of a bare "no", which left a reader unable to tell a
+  string from a null from something else while debugging a document.
+
+  On the SQL side the message already existed and was being discarded: every
+  `sql_value_to_*` returns a `Result` with a reason, and the accessors called
+  `.ok()` on it. Those declarations were also out of step with the compiler,
+  which said `result` while the runtime returned `optional` - a program matching
+  `ok`/`err` worked only by coincidence of representation
+  (muxlang/mux-compiler#404).
+
+  `mux_json_field` stays `optional`: a key that is not there is the question
+  being asked, not a failure of expectation, and that is what lets an
+  `optional<T>` field accept a missing key.
+
 ### Added
 - **`mux_csv_rows_as_maps(csv)`** - a parsed CSV as one map per row, keyed by
   header name, returning `optional<list<map<string, string>>>`. The parsed form

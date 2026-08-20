@@ -1,5 +1,34 @@
 use mux_runtime::json::Json;
 
+/// The `ok` payload of an accessor result, asserting it succeeded.
+fn ok_payload(result: *mut mux_runtime::Value) -> mux_runtime::Value {
+    use mux_runtime::refcount::mux_rc_dec;
+    use mux_runtime::result::{mux_result_data, mux_result_is_ok};
+
+    assert!(mux_result_is_ok(result), "expected ok");
+    let data = mux_result_data(result);
+    let value = unsafe { &*data }.clone();
+    assert!(mux_rc_dec(data));
+    assert!(mux_rc_dec(result));
+    value
+}
+
+/// The `err` message, asserting it failed.
+fn err_message(result: *mut mux_runtime::Value) -> String {
+    use mux_runtime::refcount::mux_rc_dec;
+    use mux_runtime::result::{mux_result_data, mux_result_is_err};
+
+    assert!(mux_result_is_err(result), "expected err");
+    let data = mux_result_data(result);
+    let message = match unsafe { &*data } {
+        mux_runtime::Value::String(s) => s.clone(),
+        other => panic!("an error must carry a message, got {other:?}"),
+    };
+    assert!(mux_rc_dec(data));
+    assert!(mux_rc_dec(result));
+    message
+}
+
 #[test]
 fn parse_primitives() {
     assert_eq!(Json::parse("null").unwrap(), Json::Null);
@@ -113,7 +142,6 @@ fn integers_and_reals_stay_distinct() {
 #[test]
 fn accessors_return_decoded_values() {
     use mux_runtime::json::{json_to_value, mux_json_as_bool, mux_json_as_int, mux_json_as_string};
-    use mux_runtime::refcount::mux_rc_dec;
     use mux_runtime::Value;
 
     let doc = Json::parse(r#"{"name":"Ada","age":36,"active":true}"#).unwrap();
@@ -123,49 +151,53 @@ fn accessors_return_decoded_values() {
     };
 
     let name = json_to_value(map.get("name").unwrap());
-    let got = mux_json_as_string(&name);
     assert_eq!(
-        unsafe { &*got },
-        &Value::Optional(Some(Box::new(Value::String("Ada".into())))),
+        ok_payload(mux_json_as_string(&name)),
+        Value::String("Ada".into()),
         "as_string must yield Ada, not \"Ada\""
     );
-    assert!(mux_rc_dec(got));
 
     let age = json_to_value(map.get("age").unwrap());
-    let got = mux_json_as_int(&age);
-    assert_eq!(
-        unsafe { &*got },
-        &Value::Optional(Some(Box::new(Value::Int(36))))
-    );
-    assert!(mux_rc_dec(got));
+    assert_eq!(ok_payload(mux_json_as_int(&age)), Value::Int(36));
 
     let active = json_to_value(map.get("active").unwrap());
-    let got = mux_json_as_bool(&active);
-    assert_eq!(
-        unsafe { &*got },
-        &Value::Optional(Some(Box::new(Value::Bool(true))))
-    );
-    assert!(mux_rc_dec(got));
+    assert_eq!(ok_payload(mux_json_as_bool(&active)), Value::Bool(true));
 }
 
-/// Asking for the wrong kind is `none`, not a wrong answer. That is why these
-/// return an optional: a field holding a string where a number was expected is
-/// ordinary when reading a document.
+/// Asking for the wrong kind names what was actually there.
+///
+/// A `result` rather than an `optional`: "not an int" is worth saying WHY. A
+/// bare "no" leaves the reader unable to tell a string from an absent field
+/// from something else entirely, which is exactly the information someone
+/// debugging a document needs.
 #[test]
-fn accessors_reject_the_wrong_kind() {
+fn accessors_report_the_kind_they_found() {
     use mux_runtime::json::{mux_json_as_int, mux_json_as_string, mux_json_is_null};
-    use mux_runtime::refcount::mux_rc_dec;
     use mux_runtime::Value;
 
     let text = Value::String("not a number".into());
-    let got = mux_json_as_int(&text);
-    assert_eq!(unsafe { &*got }, &Value::Optional(None));
-    assert!(mux_rc_dec(got));
+    assert_eq!(
+        err_message(mux_json_as_int(&text)),
+        "expected an int, found a string"
+    );
 
     let number = Value::Int(7);
-    let got = mux_json_as_string(&number);
-    assert_eq!(unsafe { &*got }, &Value::Optional(None));
-    assert!(mux_rc_dec(got));
+    assert_eq!(
+        err_message(mux_json_as_string(&number)),
+        "expected a string, found an int"
+    );
+
+    let nothing = Value::Unit;
+    assert_eq!(
+        err_message(mux_json_as_int(&nothing)),
+        "expected an int, found null"
+    );
+
+    // A null pointer is not a kind, so it says so rather than guessing.
+    assert_eq!(
+        err_message(mux_json_as_int(std::ptr::null())),
+        "expected an int, found nothing"
+    );
 
     // A null is a kind of its own, not an absent value.
     assert!(mux_json_is_null(&Value::Unit));
@@ -179,59 +211,42 @@ fn accessors_reject_the_wrong_kind() {
 #[test]
 fn number_accessors_convert_deliberately() {
     use mux_runtime::json::{mux_json_as_float, mux_json_as_int};
-    use mux_runtime::refcount::mux_rc_dec;
     use mux_runtime::Value;
 
     let integral = Value::Float(ordered_float::OrderedFloat(42.0));
-    let got = mux_json_as_int(&integral);
-    assert_eq!(
-        unsafe { &*got },
-        &Value::Optional(Some(Box::new(Value::Int(42))))
-    );
-    assert!(mux_rc_dec(got));
+    assert_eq!(ok_payload(mux_json_as_int(&integral)), Value::Int(42));
 
     let fractional = Value::Float(ordered_float::OrderedFloat(1.5));
-    let got = mux_json_as_int(&fractional);
     assert_eq!(
-        unsafe { &*got },
-        &Value::Optional(None),
+        err_message(mux_json_as_int(&fractional)),
+        "expected an int, found a float",
         "1.5 must not truncate to 1"
     );
-    assert!(mux_rc_dec(got));
 
     // Out of i64 range. These are integral and finite, so only the range check
     // rejects them - without it `as i64` SATURATES and hands back i64::MAX, a
     // plausible number that is not the one in the document.
     for enormous in [1e30_f64, -1e30_f64, f64::MAX, f64::MIN] {
         let v = Value::Float(ordered_float::OrderedFloat(enormous));
-        let got = mux_json_as_int(&v);
-        assert_eq!(
-            unsafe { &*got },
-            &Value::Optional(None),
-            "{enormous} is outside i64 and must be none, not a saturated bound"
+        assert!(
+            !err_message(mux_json_as_int(&v)).is_empty(),
+            "{enormous} is outside i64 and must be an error, not a saturated bound"
         );
-        assert!(mux_rc_dec(got));
     }
 
     // The largest float that still converts exactly, to pin the boundary rather
     // than only the far side of it.
     let big = Value::Float(ordered_float::OrderedFloat(9007199254740992.0));
-    let got = mux_json_as_int(&big);
     assert_eq!(
-        unsafe { &*got },
-        &Value::Optional(Some(Box::new(Value::Int(9007199254740992))))
+        ok_payload(mux_json_as_int(&big)),
+        Value::Int(9007199254740992)
     );
-    assert!(mux_rc_dec(got));
 
     let whole = Value::Int(3);
-    let got = mux_json_as_float(&whole);
     assert_eq!(
-        unsafe { &*got },
-        &Value::Optional(Some(Box::new(Value::Float(ordered_float::OrderedFloat(
-            3.0
-        )))))
+        ok_payload(mux_json_as_float(&whole)),
+        Value::Float(ordered_float::OrderedFloat(3.0))
     );
-    assert!(mux_rc_dec(got));
 }
 
 /// A field lookup tells an ABSENT key from one explicitly set to `null`.
