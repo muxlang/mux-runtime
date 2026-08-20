@@ -393,8 +393,13 @@ jobs:
     # the new FFI nor the updated snapshots. A `paired-compiler:<branch>` label
     # points this job at that branch instead, so the pair is verified together.
     #
-    # The label is opt-in and every ordinary runtime PR ignores it: breaking
-    # compiler `main` is a real failure and should stay one. Reach for it only
+    # `paired-examples:<branch>` does the same for the example corpus. A change
+    # that alters what example SOURCE must say - not just what it links against -
+    # spans three repos, and pinning only the compiler leaves this job compiling
+    # old example source with a new compiler.
+    #
+    # The labels are opt-in and every ordinary runtime PR ignores them: breaking
+    # compiler `main` is a real failure and should stay one. Reach for them only
     # when the compiler PR genuinely carries the other half of this change -
     # both have to merge, so the accommodation is reviewable rather than hidden.
     #
@@ -514,11 +519,36 @@ jobs:
       # cover OUTPUT, which is where a behaviour change shows up. Both of the
       # JSON fixes in #54 would have altered example output while linking
       # perfectly.
+      - name: Resolve the mux-examples ref to run
+        id: examples_ref
+        env:
+          # Same reasoning as the compiler ref above: read the labels through
+          # env, because a label is attacker-controlled on a fork PR.
+          PR_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+        run: |
+          set -euo pipefail
+          ref=main
+          paired=$(printf '%s' "$PR_LABELS" \
+            | jq -r 'if type == "array" then .[] else empty end
+                     | select(startswith("paired-examples:"))
+                     | sub("^paired-examples:"; "")' \
+            | head -n 1)
+          if [ -n "$paired" ]; then
+            case "$paired" in
+              -* | *..* | *[!A-Za-z0-9._/-]*)
+                echo "::error::paired-examples label is not a valid branch name: $paired"
+                exit 1
+                ;;
+            esac
+            ref="$paired"
+          fi
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+          echo "Running muxlang/mux-examples@$ref against this PR's runtime."
       - name: Check out mux-examples
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: muxlang/mux-examples
-          ref: main
+          ref: ${{ steps.examples_ref.outputs.ref }}
           path: mux-examples
 
       - name: Build the compiler binary
