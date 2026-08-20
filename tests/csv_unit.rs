@@ -156,3 +156,36 @@ fn rows_as_maps_rejects_other_shapes() {
     assert_eq!(unsafe { &*got }, &Value::Optional(None));
     assert!(mux_rc_dec(got));
 }
+
+/// A repeated header keeps the FIRST column, and does not silently drop one.
+///
+/// Keying by name cannot represent two columns called the same thing. Letting
+/// a later cell overwrite an earlier one loses a whole column from every row
+/// with nothing to say so, which is the worst of the available answers.
+#[test]
+fn a_repeated_header_keeps_the_first_column() {
+    use mux_runtime::data::mux_csv_rows_as_maps;
+    use std::ffi::CString;
+
+    let text = CString::new("sku,qty,sku\nwidget,3,gadget\n").expect("no interior nul");
+    let table = ok_data(mux_csv_parse_with_headers(text.as_ptr()));
+    let got = mux_csv_rows_as_maps(table);
+
+    match unsafe { &*got } {
+        Value::Optional(Some(inner)) => match inner.as_ref() {
+            Value::List(rows) => match &rows[0] {
+                Value::Map(m) => assert_eq!(
+                    m.get(&Value::String("sku".into())),
+                    Some(&Value::String("widget".into())),
+                    "the first column must win, not the last"
+                ),
+                other => panic!("expected a map, got {other:?}"),
+            },
+            other => panic!("expected a list, got {other:?}"),
+        },
+        other => panic!("expected some(list), got {other:?}"),
+    }
+
+    assert!(mux_rc_dec(got));
+    assert!(mux_rc_dec(table));
+}

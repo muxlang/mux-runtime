@@ -122,6 +122,9 @@ pub extern "C" fn mux_csv_parse_with_headers(input: *const c_char) -> *mut Value
 /// Every cell stays a string, because CSV has no types. Deciding that a column
 /// is a number is the reader's job, not this function's.
 ///
+/// A repeated header keeps the first column: keying by name cannot represent
+/// two columns of the same name, and overwriting would lose one silently.
+///
 /// A row with fewer cells than there are headers simply omits the missing keys,
 /// which a typed reader then reports as a missing required field - the same
 /// answer it gives for an absent JSON field, rather than a second vocabulary
@@ -150,8 +153,16 @@ pub extern "C" fn mux_csv_rows_as_maps(val: *const Value) -> *mut Value {
         };
         let mut entry = crate::ordered::OrderedMap::new();
         for (header, cell) in headers.iter().zip(cells.iter()) {
-            if let Value::String(name) = header {
-                entry.insert(Value::String(name.clone()), cell.clone());
+            let Value::String(name) = header else {
+                continue;
+            };
+            let key = Value::String(name.clone());
+            // A repeated header keeps the FIRST column. Keying by name cannot
+            // represent two columns called the same thing, and letting the
+            // later cell overwrite the earlier one drops a whole column from
+            // every row with nothing to say so.
+            if entry.get(&key).is_none() {
+                entry.insert(key, cell.clone());
             }
         }
         out.push(Value::Map(entry));
