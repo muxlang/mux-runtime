@@ -112,6 +112,54 @@ pub extern "C" fn mux_csv_parse_with_headers(input: *const c_char) -> *mut Value
     crate::refcount::mux_rc_alloc(Value::Result(Ok(Box::new(csv_value))))
 }
 
+/// A parsed CSV as one map per row, keyed by header name.
+///
+/// The parsed form keeps headers and rows apart - headers are a list, rows are
+/// a list of lists - so reading a named column means finding its index first.
+/// Doing that per field, per row, in generated code would be a nested loop over
+/// data the runtime already holds; this pairs them once.
+///
+/// Every cell stays a string, because CSV has no types. Deciding that a column
+/// is a number is the reader's job, not this function's.
+///
+/// A row with fewer cells than there are headers simply omits the missing keys,
+/// which a typed reader then reports as a missing required field - the same
+/// answer it gives for an absent JSON field, rather than a second vocabulary
+/// for the same problem.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[allow(clippy::mutable_key_type)]
+#[unsafe(no_mangle)]
+pub extern "C" fn mux_csv_rows_as_maps(val: *const Value) -> *mut Value {
+    if val.is_null() {
+        return crate::optional::mux_optional_none();
+    }
+    let Value::Map(table) = (unsafe { &*val }) else {
+        return crate::optional::mux_optional_none();
+    };
+    let (Some(Value::List(headers)), Some(Value::List(rows))) = (
+        table.get(&Value::String("headers".to_string())),
+        table.get(&Value::String("rows".to_string())),
+    ) else {
+        return crate::optional::mux_optional_none();
+    };
+
+    let mut out = Vec::with_capacity(rows.len());
+    for row in rows {
+        let Value::List(cells) = row else {
+            continue;
+        };
+        let mut entry = crate::ordered::OrderedMap::new();
+        for (header, cell) in headers.iter().zip(cells.iter()) {
+            if let Value::String(name) = header {
+                entry.insert(Value::String(name.clone()), cell.clone());
+            }
+        }
+        out.push(Value::Map(entry));
+    }
+
+    crate::refcount::mux_rc_alloc(Value::Optional(Some(Box::new(Value::List(out)))))
+}
+
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
 pub extern "C" fn mux_csv_to_string(val: *const Value) -> *mut Value {

@@ -18,6 +18,20 @@ impl MuxString {
         self.0.parse().map_err(|_| "Invalid float".to_string())
     }
 
+    /// `true` or `false`, case-insensitively, and nothing else.
+    ///
+    /// Deliberately narrow. CSV has no types, so a bool column is whatever the
+    /// writer spelled it - and accepting `1`, `yes` or `y` would mean guessing
+    /// which convention a file follows, then being wrong for the file that uses
+    /// `1` to mean the number one.
+    pub fn to_bool(&self) -> Result<bool, String> {
+        match self.0.trim().to_ascii_lowercase().as_str() {
+            "true" => Ok(true),
+            "false" => Ok(false),
+            _ => Err("Invalid bool: expected true or false".to_string()),
+        }
+    }
+
     pub fn concat(&self, other: &MuxString) -> MuxString {
         MuxString(self.0.clone() + &other.0)
     }
@@ -90,6 +104,21 @@ pub unsafe extern "C" fn mux_string_from_value(v: *mut Value) -> *mut c_char {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn mux_value_get_string(v: *mut Value) -> *mut c_char {
     unsafe { mux_string_from_value(v) }
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[unsafe(no_mangle)]
+pub extern "C" fn mux_string_to_bool(s: *const c_char) -> *mut Value {
+    if s.is_null() {
+        return mux_rc_alloc(Value::Result(Err(Box::new(Value::String(
+            "null input".to_string(),
+        )))));
+    }
+    let text = unsafe { CStr::from_ptr(s) }.to_string_lossy();
+    match MuxString(text.to_string()).to_bool() {
+        Ok(b) => mux_rc_alloc(Value::Result(Ok(Box::new(Value::Bool(b))))),
+        Err(e) => mux_rc_alloc(Value::Result(Err(Box::new(Value::String(e))))),
+    }
 }
 
 #[allow(clippy::not_unsafe_ptr_arg_deref)]

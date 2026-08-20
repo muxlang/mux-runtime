@@ -8,8 +8,10 @@ use std::os::raw::c_char;
 use common::{assert_err, assert_ok, ok_int};
 use mux_runtime::boxing::*;
 use mux_runtime::refcount::mux_rc_dec;
+use mux_runtime::result::{mux_result_data, mux_result_is_ok};
 use mux_runtime::std::{mux_free_string, mux_string_value, mux_value_get_int};
 use mux_runtime::string::*;
+use mux_runtime::Value;
 
 fn cs(s: &str) -> CString {
     CString::new(s).unwrap()
@@ -319,4 +321,40 @@ fn string_to_list_yields_characters() {
         ])
     );
     assert!(mux_rc_dec(got));
+}
+
+/// `to_bool` accepts only `true` and `false`, case-insensitively.
+///
+/// CSV columns are the reason it exists, and the reason it is narrow: accepting
+/// `1` or `yes` means guessing which convention a file follows, then being
+/// wrong for the file where `1` is the number one.
+#[test]
+fn string_to_bool_is_deliberately_narrow() {
+    use mux_runtime::string::mux_string_to_bool;
+
+    let parse = |text: &str| {
+        let c = CString::new(text).expect("no interior nul");
+        let result = mux_string_to_bool(c.as_ptr());
+        let ok = mux_result_is_ok(result);
+        let data = mux_result_data(result);
+        let value = unsafe { &*data }.clone();
+        assert!(mux_rc_dec(data));
+        assert!(mux_rc_dec(result));
+        (ok, value)
+    };
+
+    for text in ["true", "TRUE", " True "] {
+        assert_eq!(parse(text), (true, Value::Bool(true)), "{text}");
+    }
+    for text in ["false", "False"] {
+        assert_eq!(parse(text), (true, Value::Bool(false)), "{text}");
+    }
+    for text in ["1", "0", "yes", "no", "y", ""] {
+        let (ok, _) = parse(text);
+        assert!(!ok, "{text} must not parse as a bool");
+    }
+
+    let result = mux_string_to_bool(std::ptr::null());
+    assert!(mux_runtime::result::mux_result_is_err(result));
+    assert!(mux_rc_dec(result));
 }

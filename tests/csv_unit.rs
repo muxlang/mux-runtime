@@ -6,8 +6,17 @@ use std::ffi::CString;
 
 use mux_runtime::data::{mux_csv_parse, mux_csv_parse_with_headers, mux_csv_to_string};
 use mux_runtime::refcount::{mux_rc_alloc, mux_rc_dec};
-use mux_runtime::result::{mux_result_is_err, mux_result_is_ok};
+use mux_runtime::result::{mux_result_data, mux_result_is_err, mux_result_is_ok};
 use mux_runtime::Value;
+
+/// The `ok` payload of a result, asserting it is one.
+fn ok_data(result: *mut Value) -> *mut Value {
+    assert!(mux_result_is_ok(result), "expected an ok result");
+    let data = mux_result_data(result);
+    assert!(!data.is_null());
+    assert!(mux_rc_dec(result));
+    data
+}
 
 #[test]
 fn parse_plain_csv() {
@@ -66,4 +75,84 @@ fn to_string_rejects_non_map() {
     assert!(mux_result_is_err(res));
     assert!(mux_rc_dec(res));
     assert!(mux_rc_dec(bad));
+}
+
+/// Rows pair with headers by position, and every cell stays a string.
+///
+/// The parsed form keeps headers and rows apart, so a typed reader would have
+/// to find each column's index per row. This does the pairing once. CSV has no
+/// types, so deciding a column is a number is the reader's job.
+#[test]
+fn rows_as_maps_pairs_headers_with_cells() {
+    use mux_runtime::data::mux_csv_rows_as_maps;
+    use mux_runtime::refcount::mux_rc_dec;
+    use mux_runtime::Value;
+    use std::ffi::CString;
+
+    let text = CString::new("sku,qty\nwidget,3\ngadget,7\n").expect("no interior nul");
+    let parsed = mux_csv_parse_with_headers(text.as_ptr());
+    let table = ok_data(parsed);
+
+    let got = mux_csv_rows_as_maps(table);
+    let rows = match unsafe { &*got } {
+        Value::Optional(Some(inner)) => match inner.as_ref() {
+            Value::List(rows) => rows.clone(),
+            other => panic!("expected a list, got {other:?}"),
+        },
+        other => panic!("expected some(list), got {other:?}"),
+    };
+    assert_eq!(rows.len(), 2);
+
+    let first = match &rows[0] {
+        Value::Map(m) => m,
+        other => panic!("expected a map, got {other:?}"),
+    };
+    assert_eq!(
+        first.get(&Value::String("sku".into())),
+        Some(&Value::String("widget".into()))
+    );
+    // A number stays text - CSV has no types.
+    assert_eq!(
+        first.get(&Value::String("qty".into())),
+        Some(&Value::String("3".into()))
+    );
+
+    assert!(mux_rc_dec(got));
+    assert!(mux_rc_dec(table));
+}
+
+/// A ragged row never reaches this function: the parser rejects a row whose
+/// length does not match the header, so pairing never sees a short one.
+///
+/// Worth pinning, because the obvious worry about zipping headers with cells is
+/// what happens when they disagree - and the answer is that they cannot.
+#[test]
+fn a_ragged_row_is_rejected_by_the_parser() {
+    use std::ffi::CString;
+
+    let text = CString::new("sku,qty\nwidget\n").expect("no interior nul");
+    let parsed = mux_csv_parse_with_headers(text.as_ptr());
+    assert!(
+        mux_result_is_err(parsed),
+        "a row shorter than the header must not parse"
+    );
+    assert!(mux_rc_dec(parsed));
+}
+
+/// Anything that is not a parsed CSV table is `none`, not a panic.
+#[test]
+fn rows_as_maps_rejects_other_shapes() {
+    use mux_runtime::data::mux_csv_rows_as_maps;
+    use mux_runtime::refcount::mux_rc_dec;
+    use mux_runtime::Value;
+
+    for input in [Value::Int(1), Value::String("csv".into())] {
+        let got = mux_csv_rows_as_maps(&input);
+        assert_eq!(unsafe { &*got }, &Value::Optional(None));
+        assert!(mux_rc_dec(got));
+    }
+
+    let got = mux_csv_rows_as_maps(std::ptr::null());
+    assert_eq!(unsafe { &*got }, &Value::Optional(None));
+    assert!(mux_rc_dec(got));
 }

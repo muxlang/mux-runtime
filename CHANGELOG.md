@@ -14,6 +14,20 @@ itself - see
 ## [Unreleased]
 
 ### Added
+- **`mux_csv_rows_as_maps(csv)`** - a parsed CSV as one map per row, keyed by
+  header name, returning `optional<list<map<string, string>>>`. The parsed form
+  keeps headers and rows apart, so reading a named column means finding its
+  index first; doing that per field per row in generated code would be a nested
+  loop over data the runtime already holds. Every cell stays a string, because
+  CSV has no types - deciding a column is a number is the reader's job. Needed
+  by typed deserialization (muxlang/mux-compiler#404).
+- **`mux_string_to_bool(text)`** - `result<bool, string>`, accepting `true` and
+  `false` case-insensitively and nothing else. Deliberately narrow: a CSV bool
+  column is whatever the writer spelled, and accepting `1` or `yes` means
+  guessing which convention a file follows, then being wrong for the file where
+  `1` is the number one.
+
+### Added
 - **`mux_json_field(value, key)`** - one field of a JSON object by name,
   returning `optional<Json>`. `none` covers both "not an object" and "no such
   key"; a field explicitly set to `null` comes back as `some(null)`, so an
