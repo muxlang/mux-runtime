@@ -421,11 +421,14 @@ pub extern "C" fn mux_json_as_map(val: *const Value) -> *mut Value {
 
 /// One field of a JSON object, by name.
 ///
-/// `none` covers both "not an object" and "no such key". Typed deserialization
-/// needs to tell an ABSENT field from one explicitly set to `null`, and this
-/// alone cannot: a present `null` comes back as `some(Value::Unit)`, which is
-/// how the two stay distinguishable to the caller. `mux_json_is_null` answers
-/// the second question once this has answered the first.
+/// `none` covers both "not an object" and "no such key". A field that IS
+/// present but holds `null` comes back as `some(Value::Unit)` instead, which is
+/// what keeps an absent field distinguishable from an explicit null - the
+/// distinction typed deserialization is built on, since a missing required
+/// field is an error while `optional<T>` accepts either spelling.
+///
+/// So this answers "is it there", and `mux_json_is_null` answers "is what is
+/// there null". Neither question alone is enough.
 ///
 /// The compiler emits one call per declared field rather than converting the
 /// whole object to a Mux map first, which would clone every value including
