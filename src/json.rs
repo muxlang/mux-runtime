@@ -439,11 +439,15 @@ pub extern "C" fn mux_json_field(val: *const Value, key: *const c_char) -> *mut 
     if key.is_null() {
         return crate::optional::mux_optional_none();
     }
-    let Ok(name) = (unsafe { CStr::from_ptr(key) }).to_str() else {
-        return crate::optional::mux_optional_none();
-    };
+    // `to_string_lossy` rather than `to_str`, matching the rest of the crate.
+    // The lossy path is unreachable - a Mux string is a `String`, so the key is
+    // already valid UTF-8 - and if it somehow were not, a replacement character
+    // simply fails to match any field, which is the same answer.
+    let name = unsafe { CStr::from_ptr(key) }
+        .to_string_lossy()
+        .into_owned();
     json_accessor(val, |v| match v {
-        Value::Map(entries) => entries.get(&Value::String(name.to_string())).cloned(),
+        Value::Map(entries) => entries.get(&Value::String(name.clone())).cloned(),
         _ => None,
     })
 }
