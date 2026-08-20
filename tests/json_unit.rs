@@ -233,3 +233,57 @@ fn number_accessors_convert_deliberately() {
     );
     assert!(mux_rc_dec(got));
 }
+
+/// A field lookup tells an ABSENT key from one explicitly set to `null`.
+///
+/// Typed deserialization depends on the difference: a missing required field is
+/// an error, while `optional<T>` accepts either - so the primitive has to keep
+/// them apart rather than collapsing both to "nothing there".
+#[test]
+fn field_lookup_separates_absent_from_null() {
+    use mux_runtime::json::{json_to_value, mux_json_field, mux_json_is_null};
+    use mux_runtime::refcount::mux_rc_dec;
+    use mux_runtime::Value;
+    use std::ffi::CString;
+
+    let doc = Json::parse(r#"{"name":"Ada","bio":null}"#).unwrap();
+    let value = json_to_value(&doc);
+
+    let key = |k: &str| CString::new(k).expect("no interior nul");
+
+    // Present and a real value.
+    let got = mux_json_field(&value, key("name").as_ptr());
+    assert_eq!(
+        unsafe { &*got },
+        &Value::Optional(Some(Box::new(Value::String("Ada".into()))))
+    );
+    assert!(mux_rc_dec(got));
+
+    // Present but null: `some`, holding the null. NOT absent.
+    let got = mux_json_field(&value, key("bio").as_ptr());
+    match unsafe { &*got } {
+        Value::Optional(Some(inner)) => {
+            assert!(
+                mux_json_is_null(inner.as_ref()),
+                "bio should hold JSON null"
+            )
+        }
+        other => panic!("an explicit null must be some(null), got {other:?}"),
+    }
+    assert!(mux_rc_dec(got));
+
+    // Absent: `none`.
+    let got = mux_json_field(&value, key("missing").as_ptr());
+    assert_eq!(unsafe { &*got }, &Value::Optional(None));
+    assert!(mux_rc_dec(got));
+
+    // Not an object at all, and a null key.
+    let scalar = Value::Int(1);
+    let got = mux_json_field(&scalar, key("any").as_ptr());
+    assert_eq!(unsafe { &*got }, &Value::Optional(None));
+    assert!(mux_rc_dec(got));
+
+    let got = mux_json_field(&value, std::ptr::null());
+    assert_eq!(unsafe { &*got }, &Value::Optional(None));
+    assert!(mux_rc_dec(got));
+}

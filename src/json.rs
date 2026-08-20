@@ -419,6 +419,39 @@ pub extern "C" fn mux_json_as_map(val: *const Value) -> *mut Value {
     })
 }
 
+/// One field of a JSON object, by name.
+///
+/// `none` covers both "not an object" and "no such key". A field that IS
+/// present but holds `null` comes back as `some(Value::Unit)` instead, which is
+/// what keeps an absent field distinguishable from an explicit null - the
+/// distinction typed deserialization is built on, since a missing required
+/// field is an error while `optional<T>` accepts either spelling.
+///
+/// So this answers "is it there", and `mux_json_is_null` answers "is what is
+/// there null". Neither question alone is enough.
+///
+/// The compiler emits one call per declared field rather than converting the
+/// whole object to a Mux map first, which would clone every value including
+/// the ones the class does not declare.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[unsafe(no_mangle)]
+pub extern "C" fn mux_json_field(val: *const Value, key: *const c_char) -> *mut Value {
+    if key.is_null() {
+        return crate::optional::mux_optional_none();
+    }
+    // `to_string_lossy` rather than `to_str`, matching the rest of the crate.
+    // The lossy path is unreachable - a Mux string is a `String`, so the key is
+    // already valid UTF-8 - and if it somehow were not, a replacement character
+    // simply fails to match any field, which is the same answer.
+    let name = unsafe { CStr::from_ptr(key) }
+        .to_string_lossy()
+        .into_owned();
+    json_accessor(val, |v| match v {
+        Value::Map(entries) => entries.get(&Value::String(name.clone())).cloned(),
+        _ => None,
+    })
+}
+
 /// JSON null. `Value::Unit` is what `json_to_value` maps it to.
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
