@@ -95,11 +95,11 @@ fn rows_as_maps_pairs_headers_with_cells() {
 
     let got = mux_csv_rows_as_maps(table);
     let rows = match unsafe { &*got } {
-        Value::Optional(Some(inner)) => match inner.as_ref() {
+        Value::Result(Ok(inner)) => match inner.as_ref() {
             Value::List(rows) => rows.clone(),
             other => panic!("expected a list, got {other:?}"),
         },
-        other => panic!("expected some(list), got {other:?}"),
+        other => panic!("expected ok(list), got {other:?}"),
     };
     assert_eq!(rows.len(), 2);
 
@@ -138,32 +138,14 @@ fn a_ragged_row_is_rejected_by_the_parser() {
     );
     assert!(mux_rc_dec(parsed));
 }
-
-/// Anything that is not a parsed CSV table is `none`, not a panic.
-#[test]
-fn rows_as_maps_rejects_other_shapes() {
-    use mux_runtime::data::mux_csv_rows_as_maps;
-    use mux_runtime::refcount::mux_rc_dec;
-    use mux_runtime::Value;
-
-    for input in [Value::Int(1), Value::String("csv".into())] {
-        let got = mux_csv_rows_as_maps(&input);
-        assert_eq!(unsafe { &*got }, &Value::Optional(None));
-        assert!(mux_rc_dec(got));
-    }
-
-    let got = mux_csv_rows_as_maps(std::ptr::null());
-    assert_eq!(unsafe { &*got }, &Value::Optional(None));
-    assert!(mux_rc_dec(got));
-}
-
-/// A repeated header keeps the FIRST column, and does not silently drop one.
+/// A repeated header is REJECTED, naming the column.
 ///
-/// Keying by name cannot represent two columns called the same thing. Letting
-/// a later cell overwrite an earlier one loses a whole column from every row
-/// with nothing to say so, which is the worst of the available answers.
+/// Keying by name cannot represent two columns called the same thing, so one
+/// would have to be dropped - and dropping a source column without saying so is
+/// the one answer a reader cannot recover from. Which one survived would also
+/// be an arbitrary rule to remember.
 #[test]
-fn a_repeated_header_keeps_the_first_column() {
+fn a_repeated_header_is_rejected() {
     use mux_runtime::data::mux_csv_rows_as_maps;
     use std::ffi::CString;
 
@@ -171,21 +153,36 @@ fn a_repeated_header_keeps_the_first_column() {
     let table = ok_data(mux_csv_parse_with_headers(text.as_ptr()));
     let got = mux_csv_rows_as_maps(table);
 
-    match unsafe { &*got } {
-        Value::Optional(Some(inner)) => match inner.as_ref() {
-            Value::List(rows) => match &rows[0] {
-                Value::Map(m) => assert_eq!(
-                    m.get(&Value::String("sku".into())),
-                    Some(&Value::String("widget".into())),
-                    "the first column must win, not the last"
-                ),
-                other => panic!("expected a map, got {other:?}"),
-            },
-            other => panic!("expected a list, got {other:?}"),
-        },
-        other => panic!("expected some(list), got {other:?}"),
+    assert!(
+        mux_result_is_err(got),
+        "a repeated header must not pair silently"
+    );
+    let detail = mux_result_data(got);
+    match unsafe { &*detail } {
+        Value::String(message) => assert!(
+            message.contains("duplicate column 'sku'"),
+            "the message must name the column, got {message}"
+        ),
+        other => panic!("expected a message, got {other:?}"),
     }
 
+    assert!(mux_rc_dec(detail));
     assert!(mux_rc_dec(got));
     assert!(mux_rc_dec(table));
+}
+
+/// Anything that is not a parsed CSV table is an error, not a panic.
+#[test]
+fn rows_as_maps_rejects_other_shapes() {
+    use mux_runtime::data::mux_csv_rows_as_maps;
+
+    for input in [Value::Int(1), Value::String("csv".into())] {
+        let got = mux_csv_rows_as_maps(&input);
+        assert!(mux_result_is_err(got));
+        assert!(mux_rc_dec(got));
+    }
+
+    let got = mux_csv_rows_as_maps(std::ptr::null());
+    assert!(mux_result_is_err(got));
+    assert!(mux_rc_dec(got));
 }

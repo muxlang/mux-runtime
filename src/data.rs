@@ -122,8 +122,11 @@ pub extern "C" fn mux_csv_parse_with_headers(input: *const c_char) -> *mut Value
 /// Every cell stays a string, because CSV has no types. Deciding that a column
 /// is a number is the reader's job, not this function's.
 ///
-/// A repeated header keeps the first column: keying by name cannot represent
-/// two columns of the same name, and overwriting would lose one silently.
+/// A repeated header is REJECTED, naming the column. Keying by name cannot
+/// represent two columns called the same thing, so one of them would have to be
+/// dropped - and dropping a whole source column without saying so is the one
+/// answer a reader cannot recover from. Which one survived would also be an
+/// arbitrary rule to remember.
 ///
 /// A row with fewer cells than there are headers simply omits the missing keys,
 /// which a typed reader then reports as a missing required field - the same
@@ -134,17 +137,31 @@ pub extern "C" fn mux_csv_parse_with_headers(input: *const c_char) -> *mut Value
 #[unsafe(no_mangle)]
 pub extern "C" fn mux_csv_rows_as_maps(val: *const Value) -> *mut Value {
     if val.is_null() {
-        return crate::optional::mux_optional_none();
+        return csv_rows_error("no CSV table to read");
     }
     let Value::Map(table) = (unsafe { &*val }) else {
-        return crate::optional::mux_optional_none();
+        return csv_rows_error("expected a parsed CSV table");
     };
     let (Some(Value::List(headers)), Some(Value::List(rows))) = (
         table.get(&Value::String("headers".to_string())),
         table.get(&Value::String("rows".to_string())),
     ) else {
-        return crate::optional::mux_optional_none();
+        return csv_rows_error("expected a parsed CSV table with headers and rows");
     };
+
+    // Reject before pairing anything, so the answer does not depend on which
+    // row the duplicate first shows up in.
+    let mut seen: Vec<&String> = Vec::with_capacity(headers.len());
+    for header in headers {
+        if let Value::String(name) = header {
+            if seen.contains(&name) {
+                return csv_rows_error(&format!(
+                    "duplicate column '{name}': rows cannot be keyed by name when a header repeats"
+                ));
+            }
+            seen.push(name);
+        }
+    }
 
     let mut out = Vec::with_capacity(rows.len());
     for row in rows {
@@ -168,7 +185,13 @@ pub extern "C" fn mux_csv_rows_as_maps(val: *const Value) -> *mut Value {
         out.push(Value::Map(entry));
     }
 
-    crate::refcount::mux_rc_alloc(Value::Optional(Some(Box::new(Value::List(out)))))
+    crate::refcount::mux_rc_alloc(Value::Result(Ok(Box::new(Value::List(out)))))
+}
+
+fn csv_rows_error(message: &str) -> *mut Value {
+    crate::refcount::mux_rc_alloc(Value::Result(Err(Box::new(Value::String(
+        message.to_string(),
+    )))))
 }
 
 /// The table as CSV text, always.
