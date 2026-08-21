@@ -6,12 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 Versions through 0.5.0 were published to crates.io. That channel is now frozen:
 `mux-compiler` consumes this repo as a git dependency pinned to a commit by its
-`Cargo.lock`, so merging to `main` is what makes a change available and there is
-no version to bump. Record changes under `Unreleased` as part of the change
-itself - see
+`Cargo.lock`, so merging to `main` is what makes a change available - see
 [ADR 0004](https://github.com/muxlang/mux-context/blob/main/docs/decisions/0004-runtime-resolved-from-source.md).
 
-## [Unreleased]
+Changes are still recorded under a numbered heading rather than a rolling
+`Unreleased` one. A heading that never closes gives no way to say which set of
+changes a given compiler pin actually contains, and it is what let three
+compiler PRs land with no release notes at all.
+
+## [0.6.0] - 2026-08-20
 
 ### Changed
 - **Typed accessors return `result` rather than `optional`**, on both `Json` and
