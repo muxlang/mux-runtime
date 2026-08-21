@@ -1,6 +1,7 @@
 name: Bug report
 description: Report a runtime crash, incorrect stdlib behavior, or FFI issue
 labels: ["needs triage"]
+type: Bug
 assignees: ["DerekCorniello"]
 body:
   - type: textarea
