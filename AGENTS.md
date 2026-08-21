@@ -122,8 +122,10 @@ No LLVM/clang needed. CI runs fmt + clippy + tests + a SonarQube scan.
 Not released on its own cadence. crates.io is frozen (versions through 0.5.0 stay
 published, no new ones), and `mux-compiler` consumes this repo as a git dependency
 pinned by its `Cargo.lock` - so merging to `main` is what makes a change
-available. The `version` field is inert while the channel is frozen; record
-changes under an `## [Unreleased]` changelog heading. Full steps:
+available. Record changes under a numbered
+changelog heading, dated, as part of the change itself - not a rolling
+`Unreleased` one, which gives no way to say which changes a given compiler pin
+contains. Full steps:
 [muxlang/mux-context release process](https://github.com/muxlang/mux-context/blob/main/docs/release-process.md#mux-runtime).
 
 ## Related repos
