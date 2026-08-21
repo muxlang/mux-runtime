@@ -88,8 +88,11 @@ reports the locked commit as semver build metadata, e.g.
 `runtime v0.5.0+g4e2dc14`. A coupled change is one PR here and one in
 `mux-compiler` - no publish step between them.
 
-The `version` field in `Cargo.toml` is inert while crates.io is frozen. Record
-changes under an `## [Unreleased]` heading in the changelog instead.
+Record changes under a numbered, dated changelog heading as part of the change
+itself. A rolling `Unreleased` heading gives no way to say which changes a given
+compiler pin contains, which is why it is no longer used. The `version` field is
+not published while crates.io is frozen, but it moves with the heading so the
+two do not drift.
 
 Full release steps:
 [muxlang/mux-context release process](https://github.com/muxlang/mux-context/blob/main/docs/release-process.md#mux-runtime).
