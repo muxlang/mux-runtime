@@ -323,26 +323,58 @@ pub extern "C" fn mux_json_to_map(val: *const Value) -> *mut Value {
 /// entry points in this module (`mux_json_parse`, `mux_json_stringify`,
 /// `mux_json_from_map`, `mux_json_to_map`), which take the same shape of
 /// argument under the same contract.
-fn json_accessor<F>(val: *const Value, f: F) -> *mut Value
+/// The kind of a JSON value, for an error that says what was actually there.
+///
+/// "expected an int" alone leaves the reader guessing whether the field was a
+/// string, absent, or something else entirely - which is the information a
+/// bare `none` used to throw away.
+fn json_kind(value: &Value) -> &'static str {
+    match value {
+        Value::Unit => "null",
+        Value::Bool(_) => "a bool",
+        Value::Int(_) => "an int",
+        Value::Float(_) => "a float",
+        Value::String(_) => "a string",
+        Value::List(_) => "an array",
+        Value::Map(_) => "an object",
+        _ => "an unsupported value",
+    }
+}
+
+/// Read a typed value out of a `Json`, reporting what was there when it is a
+/// different kind.
+///
+/// A `result` rather than an `optional`: "not an int" is worth saying WHY, and
+/// a caller that does not care can ignore the message. The wrong kind is still
+/// ordinary - it is a failure of expectation, not of the runtime - so it is a
+/// value to handle, never a panic.
+fn json_accessor<F>(val: *const Value, expected: &str, f: F) -> *mut Value
 where
     F: FnOnce(&Value) -> Option<Value>,
 {
     if val.is_null() {
-        return crate::optional::mux_optional_none();
+        return json_kind_error(expected, "nothing");
     }
-    match f(unsafe { &*val }) {
-        // Wrap directly rather than through mux_optional_some_value, which
-        // clones its argument without consuming it and would leak the
-        // intermediate allocation (see mux_json_parse).
-        Some(inner) => crate::refcount::mux_rc_alloc(Value::Optional(Some(Box::new(inner)))),
-        None => crate::optional::mux_optional_none(),
+    let value = unsafe { &*val };
+    match f(value) {
+        // Wrap directly rather than through mux_result_ok_value, which clones
+        // its argument without consuming it and would leak the intermediate
+        // allocation (see mux_json_parse).
+        Some(inner) => crate::refcount::mux_rc_alloc(Value::Result(Ok(Box::new(inner)))),
+        None => json_kind_error(expected, json_kind(value)),
     }
+}
+
+fn json_kind_error(expected: &str, found: &str) -> *mut Value {
+    crate::refcount::mux_rc_alloc(Value::Result(Err(Box::new(Value::String(format!(
+        "expected {expected}, found {found}"
+    ))))))
 }
 
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
 pub extern "C" fn mux_json_as_string(val: *const Value) -> *mut Value {
-    json_accessor(val, |v| match v {
+    json_accessor(val, "a string", |v| match v {
         Value::String(s) => Some(Value::String(s.clone())),
         _ => None,
     })
@@ -361,7 +393,7 @@ pub extern "C" fn mux_json_as_string(val: *const Value) -> *mut Value {
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
 pub extern "C" fn mux_json_as_int(val: *const Value) -> *mut Value {
-    json_accessor(val, |v| match v {
+    json_accessor(val, "an int", |v| match v {
         Value::Int(i) => Some(Value::Int(*i)),
         Value::Float(f) => {
             let f = f.into_inner();
@@ -381,7 +413,7 @@ pub extern "C" fn mux_json_as_int(val: *const Value) -> *mut Value {
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
 pub extern "C" fn mux_json_as_float(val: *const Value) -> *mut Value {
-    json_accessor(val, |v| match v {
+    json_accessor(val, "a float", |v| match v {
         Value::Float(f) => Some(Value::Float(*f)),
         Value::Int(i) => Some(Value::Float(ordered_float::OrderedFloat(*i as f64))),
         _ => None,
@@ -391,7 +423,7 @@ pub extern "C" fn mux_json_as_float(val: *const Value) -> *mut Value {
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
 pub extern "C" fn mux_json_as_bool(val: *const Value) -> *mut Value {
-    json_accessor(val, |v| match v {
+    json_accessor(val, "a bool", |v| match v {
         Value::Bool(b) => Some(Value::Bool(*b)),
         _ => None,
     })
@@ -400,7 +432,7 @@ pub extern "C" fn mux_json_as_bool(val: *const Value) -> *mut Value {
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
 pub extern "C" fn mux_json_as_list(val: *const Value) -> *mut Value {
-    json_accessor(val, |v| match v {
+    json_accessor(val, "an array", |v| match v {
         Value::List(items) => Some(Value::List(items.clone())),
         _ => None,
     })
@@ -413,10 +445,42 @@ pub extern "C" fn mux_json_as_list(val: *const Value) -> *mut Value {
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
 pub extern "C" fn mux_json_as_map(val: *const Value) -> *mut Value {
-    json_accessor(val, |v| match v {
+    json_accessor(val, "an object", |v| match v {
         Value::Map(m) => Some(Value::Map(m.clone())),
         _ => None,
     })
+}
+
+/// The document as JSON text, always.
+///
+/// `stringify` is the configurable form: it takes an indent and returns a
+/// `result`, so it cannot be `Stringable`. This is the total one every other
+/// type has, which is what `print` and string concatenation need.
+///
+/// It can be total because a `Json` that exists is already serializable. Both
+/// constructors return a `result` and reject what JSON cannot represent -
+/// `json.from_map` refuses NaN and infinity, and `json.parse` cannot produce
+/// them because the format has no syntax for them. So the failing branch here
+/// is unreachable rather than merely unlikely.
+///
+/// It is still given a total answer rather than a panic: the runtime does not
+/// abort a program over its own invariant, and a value that somehow reached
+/// this point renders as `null` - which is at least valid JSON - with a
+/// `debug_assert` so a test build fails where someone can act on it.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[unsafe(no_mangle)]
+pub extern "C" fn mux_json_to_string(val: *const Value) -> *mut Value {
+    if val.is_null() {
+        return crate::refcount::mux_rc_alloc(Value::String("null".to_string()));
+    }
+    let text = match value_to_json(unsafe { &*val }) {
+        Ok(json) => json.stringify(None),
+        Err(_) => {
+            debug_assert!(false, "a Json value that cannot be serialized to JSON");
+            "null".to_string()
+        }
+    };
+    crate::refcount::mux_rc_alloc(Value::String(text))
 }
 
 /// One field of a JSON object, by name.
@@ -446,10 +510,22 @@ pub extern "C" fn mux_json_field(val: *const Value, key: *const c_char) -> *mut 
     let name = unsafe { CStr::from_ptr(key) }
         .to_string_lossy()
         .into_owned();
-    json_accessor(val, |v| match v {
+    // Optional, unlike the typed accessors: a key that is not there is not a
+    // failure of expectation, it is the question being asked. That is what lets
+    // an `optional<T>` field accept a missing key while a required one reports
+    // it, and the two cases stay apart because a present `null` comes back as
+    // `some(null)`.
+    if val.is_null() {
+        return crate::optional::mux_optional_none();
+    }
+    let found = match unsafe { &*val } {
         Value::Map(entries) => entries.get(&Value::String(name.clone())).cloned(),
         _ => None,
-    })
+    };
+    match found {
+        Some(inner) => crate::refcount::mux_rc_alloc(Value::Optional(Some(Box::new(inner)))),
+        None => crate::optional::mux_optional_none(),
+    }
 }
 
 /// JSON null. `Value::Unit` is what `json_to_value` maps it to.

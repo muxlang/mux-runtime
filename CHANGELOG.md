@@ -13,6 +13,37 @@ itself - see
 
 ## [Unreleased]
 
+### Changed
+- **Typed accessors return `result` rather than `optional`**, on both `Json` and
+  `SqlValue`. The error names what was actually there - `expected an int, found
+  a string` - instead of a bare "no", which left a reader unable to tell a
+  string from a null from something else while debugging a document.
+
+  On the SQL side the message already existed and was being discarded: every
+  `sql_value_to_*` returns a `Result` with a reason, and the accessors called
+  `.ok()` on it. Those declarations were also out of step with the compiler,
+  which said `result` while the runtime returned `optional` - a program matching
+  `ok`/`err` worked only by coincidence of representation
+  (muxlang/mux-compiler#404).
+
+  `mux_json_field` stays `optional`: a key that is not there is the question
+  being asked, not a failure of expectation, and that is what lets an
+  `optional<T>` field accept a missing key.
+
+### Added
+- **`mux_csv_rows_as_maps(csv)`** - a parsed CSV as one map per row, keyed by
+  header name, returning `optional<list<map<string, string>>>`. The parsed form
+  keeps headers and rows apart, so reading a named column means finding its
+  index first; doing that per field per row in generated code would be a nested
+  loop over data the runtime already holds. Every cell stays a string, because
+  CSV has no types - deciding a column is a number is the reader's job. Needed
+  by typed deserialization (muxlang/mux-compiler#404).
+- **`mux_string_to_bool(text)`** - `result<bool, string>`, accepting `true` and
+  `false` case-insensitively and nothing else. Deliberately narrow: a CSV bool
+  column is whatever the writer spelled, and accepting `1` or `yes` means
+  guessing which convention a file follows, then being wrong for the file where
+  `1` is the number one.
+
 ### Added
 - **`mux_json_field(value, key)`** - one field of a JSON object by name,
   returning `optional<Json>`. `none` covers both "not an object" and "no such

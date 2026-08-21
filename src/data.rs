@@ -112,6 +112,111 @@ pub extern "C" fn mux_csv_parse_with_headers(input: *const c_char) -> *mut Value
     crate::refcount::mux_rc_alloc(Value::Result(Ok(Box::new(csv_value))))
 }
 
+/// A parsed CSV as one map per row, keyed by header name.
+///
+/// The parsed form keeps headers and rows apart - headers are a list, rows are
+/// a list of lists - so reading a named column means finding its index first.
+/// Doing that per field, per row, in generated code would be a nested loop over
+/// data the runtime already holds; this pairs them once.
+///
+/// Every cell stays a string, because CSV has no types. Deciding that a column
+/// is a number is the reader's job, not this function's.
+///
+/// A repeated header is REJECTED, naming the column. Keying by name cannot
+/// represent two columns called the same thing, so one of them would have to be
+/// dropped - and dropping a whole source column without saying so is the one
+/// answer a reader cannot recover from. Which one survived would also be an
+/// arbitrary rule to remember.
+///
+/// A row with fewer cells than there are headers simply omits the missing keys,
+/// which a typed reader then reports as a missing required field - the same
+/// answer it gives for an absent JSON field, rather than a second vocabulary
+/// for the same problem.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[allow(clippy::mutable_key_type)]
+#[unsafe(no_mangle)]
+pub extern "C" fn mux_csv_rows_as_maps(val: *const Value) -> *mut Value {
+    if val.is_null() {
+        return csv_rows_error("no CSV table to read");
+    }
+    let Value::Map(table) = (unsafe { &*val }) else {
+        return csv_rows_error("expected a parsed CSV table");
+    };
+    let (Some(Value::List(headers)), Some(Value::List(rows))) = (
+        table.get(&Value::String("headers".to_string())),
+        table.get(&Value::String("rows".to_string())),
+    ) else {
+        return csv_rows_error("expected a parsed CSV table with headers and rows");
+    };
+
+    // Reject before pairing anything, so the answer does not depend on which
+    // row the duplicate first shows up in.
+    let mut seen: Vec<&String> = Vec::with_capacity(headers.len());
+    for header in headers {
+        if let Value::String(name) = header {
+            if seen.contains(&name) {
+                return csv_rows_error(&format!(
+                    "duplicate column '{name}': rows cannot be keyed by name when a header repeats"
+                ));
+            }
+            seen.push(name);
+        }
+    }
+
+    let mut out = Vec::with_capacity(rows.len());
+    for row in rows {
+        let Value::List(cells) = row else {
+            continue;
+        };
+        let mut entry = crate::ordered::OrderedMap::new();
+        for (header, cell) in headers.iter().zip(cells.iter()) {
+            let Value::String(name) = header else {
+                continue;
+            };
+            let key = Value::String(name.clone());
+            // A repeated header keeps the FIRST column. Keying by name cannot
+            // represent two columns called the same thing, and letting the
+            // later cell overwrite the earlier one drops a whole column from
+            // every row with nothing to say so.
+            if entry.get(&key).is_none() {
+                entry.insert(key, cell.clone());
+            }
+        }
+        out.push(Value::Map(entry));
+    }
+
+    crate::refcount::mux_rc_alloc(Value::Result(Ok(Box::new(Value::List(out)))))
+}
+
+fn csv_rows_error(message: &str) -> *mut Value {
+    crate::refcount::mux_rc_alloc(Value::Result(Err(Box::new(Value::String(
+        message.to_string(),
+    )))))
+}
+
+/// The table as CSV text, always.
+///
+/// The total counterpart to `mux_csv_to_string`, which returns a `result`
+/// because it validates the shape. Same reasoning as `mux_json_to_string`: a
+/// `Csv` that exists came from the parser and is well formed, so the failing
+/// branch is unreachable - and is still given an answer rather than a panic.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[unsafe(no_mangle)]
+pub extern "C" fn mux_csv_render(val: *const Value) -> *mut Value {
+    let text = if val.is_null() {
+        String::new()
+    } else {
+        match validate_and_extract_csv(unsafe { &*val }) {
+            Ok((headers, rows)) => build_csv_string(&headers, &rows, true),
+            Err(_) => {
+                debug_assert!(false, "a Csv value that is not a well formed table");
+                String::new()
+            }
+        }
+    };
+    crate::refcount::mux_rc_alloc(Value::String(text))
+}
+
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
 pub extern "C" fn mux_csv_to_string(val: *const Value) -> *mut Value {
