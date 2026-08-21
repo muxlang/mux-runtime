@@ -387,33 +387,29 @@ jobs:
     # branch's runtime source. Catches breaking FFI/symbol changes in the
     # runtime PR that introduces them, instead of after merge/publish.
     #
-    # Checks out compiler `main` by default. A coupled change is one runtime PR
-    # and one compiler PR (muxlang/mux-context ADR 0003, 0004), so for those
-    # `main` is expected to fail until the compiler side lands - it has neither
-    # the new FFI nor the updated snapshots. A `paired-compiler:<branch>` label
-    # points this job at that branch instead, so the pair is verified together.
+    # ADVISORY, not a gate. The compiler builds the runtime commit its
+    # Cargo.lock names, so this job is a PREVIEW of a state that does not exist
+    # yet - what the compiler would do once its pin moves. On a breaking change
+    # its failure is expected information, not a defect, and blocking on it
+    # meant a red PR for a merge-order reason rather than a real one.
     #
-    # `paired-examples:<branch>` does the same for the example corpus. A change
-    # that alters what example SOURCE must say - not just what it links against -
-    # spans three repos, and pinning only the compiler leaves this job compiling
-    # old example source with a new compiler.
+    # The gate is the pin-bump PR in mux-compiler, which builds the compiler
+    # against the new runtime and runs the whole suite. That is the first build
+    # that actually contains the change, and it is already required there.
     #
-    # The labels are opt-in and every ordinary runtime PR ignores them: breaking
-    # compiler `main` is a real failure and should stay one. Reach for them only
-    # when the compiler PR genuinely carries the other half of this change -
-    # both have to merge, so the accommodation is reviewable rather than hidden.
-    #
-    # Apply the label before the run you want it to affect. `pull_request` here
-    # fires on opened/synchronize/reopened, so labelling does not start a run,
-    # and re-running an existing one replays the original event payload - which
-    # still has no label. Push a commit or reopen the PR to pick it up. The
-    # `labeled` trigger is deliberately absent: it would rerun the whole
-    # workflow on every label change of any kind.
+    # Which downstream branch to test against comes from `scripts/paired-ref.sh`:
+    # a change spanning repos is developed on a branch of the same name in each,
+    # so if one exists it is used, else `main`. That replaced a
+    # `paired-<repo>:<branch>` label, which did not travel with the commit, did
+    # not show in the diff, did not exist on a push, and only took effect if you
+    # remembered to close and reopen the PR.
     #
     # Depend on rust_checks so this only runs once the runtime is known to
     # compile cleanly in isolation, keeping failure attribution clear.
     needs: [detect-changes, rust_checks]
     if: ${{ needs.detect-changes.outputs.runtime_src == 'true' || github.event_name == 'push' }}
+    # Reports, does not gate - see the note above.
+    continue-on-error: true
     runs-on: blacksmith-2vcpu-ubuntu-2404
     # Builds mux-compiler from source against this branch, so it is the
     # longest of these and the most sensitive to a slow toolchain.
@@ -442,31 +438,10 @@ jobs:
       - name: Resolve the mux-compiler ref to build against
         id: compiler_ref
         env:
-          # Read through env rather than interpolated into the script: a label
-          # is attacker-controlled on a fork PR, and `${{ }}` inside `run:` is
-          # substituted before the shell sees it. On a push there is no pull
-          # request, so this is the string "null" and the default stands.
-          PR_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+          HEAD_BRANCH: ${{ github.head_ref }}
         run: |
           set -euo pipefail
-          ref=main
-          paired=$(printf '%s' "$PR_LABELS" \
-            | jq -r 'if type == "array" then .[] else empty end
-                     | select(startswith("paired-compiler:"))
-                     | sub("^paired-compiler:"; "")' \
-            | head -n 1)
-          if [ -n "$paired" ]; then
-            # A branch name may contain '/', so this bounds the character set
-            # rather than forbidding paths. The repository below is hardcoded,
-            # so only a branch in muxlang/mux-compiler is ever reachable.
-            case "$paired" in
-              -* | *..* | *[!A-Za-z0-9._/-]*)
-                echo "::error::paired-compiler label is not a valid branch name: $paired"
-                exit 1
-                ;;
-            esac
-            ref="$paired"
-          fi
+          ref=$(./scripts/paired-ref.sh muxlang/mux-compiler "${HEAD_BRANCH:-}")
           echo "ref=$ref" >> "$GITHUB_OUTPUT"
           echo "Building muxlang/mux-compiler@$ref against this PR's runtime."
       - name: Check out mux-compiler
@@ -522,26 +497,10 @@ jobs:
       - name: Resolve the mux-examples ref to run
         id: examples_ref
         env:
-          # Same reasoning as the compiler ref above: read the labels through
-          # env, because a label is attacker-controlled on a fork PR.
-          PR_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+          HEAD_BRANCH: ${{ github.head_ref }}
         run: |
           set -euo pipefail
-          ref=main
-          paired=$(printf '%s' "$PR_LABELS" \
-            | jq -r 'if type == "array" then .[] else empty end
-                     | select(startswith("paired-examples:"))
-                     | sub("^paired-examples:"; "")' \
-            | head -n 1)
-          if [ -n "$paired" ]; then
-            case "$paired" in
-              -* | *..* | *[!A-Za-z0-9._/-]*)
-                echo "::error::paired-examples label is not a valid branch name: $paired"
-                exit 1
-                ;;
-            esac
-            ref="$paired"
-          fi
+          ref=$(./scripts/paired-ref.sh muxlang/mux-examples "${HEAD_BRANCH:-}")
           echo "ref=$ref" >> "$GITHUB_OUTPUT"
           echo "Running muxlang/mux-examples@$ref against this PR's runtime."
       - name: Check out mux-examples
