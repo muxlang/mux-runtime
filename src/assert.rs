@@ -3,7 +3,10 @@ use std::ffi::CStr;
 use std::os::raw::c_char;
 
 fn panic_assert(msg: &str) -> ! {
-    crate::panic::panic_with_message(&format!("assertion failed: {}", msg));
+    crate::panic::panic_with_code(
+        crate::panic::RuntimeErrorCode::AssertionFailed,
+        &format!("assertion failed: {}", msg),
+    );
 }
 
 #[allow(clippy::not_unsafe_ptr_arg_deref)]

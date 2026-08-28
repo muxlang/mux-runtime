@@ -11,7 +11,10 @@ use std::ffi::CString;
 use std::process::{Command, Output};
 
 use mux_runtime::assert::mux_assert_eq;
-use mux_runtime::panic::{mux_panic_cstr, mux_panic_index_oob, mux_panic_key_not_found};
+use mux_runtime::panic::{
+    mux_panic_cstr, mux_panic_cstr_code, mux_panic_index_oob, mux_panic_key_not_found,
+    RuntimeErrorCode,
+};
 use mux_runtime::std::mux_int_value;
 
 const CHILD_ENV: &str = "MUX_PANIC_CHILD";
@@ -62,7 +65,7 @@ fn index_oob_panics() {
     assert_panicked(
         &out,
         &[
-            "panic: list index out of bounds: index 5, length 3",
+            "panic[E0600]: list index out of bounds: index 5, length 3",
             "--> main.mux:9:7",
         ],
     );
@@ -79,7 +82,7 @@ fn key_not_found_panics() {
     assert_panicked(
         &out,
         &[
-            "panic: key not found in map: key 42",
+            "panic[E0601]: key not found in map: key 42",
             "--> lookup.mux:12:12",
         ],
     );
@@ -93,7 +96,10 @@ fn cstr_with_location_panics() {
         mux_panic_cstr(msg.as_ptr(), loc.as_ptr());
     }
     let out = run_child("cstr_with_location_panics");
-    assert_panicked(&out, &["panic: division by zero", "--> math.mux:4:16"]);
+    assert_panicked(
+        &out,
+        &["panic[E0699]: division by zero", "--> math.mux:4:16"],
+    );
 }
 
 #[test]
@@ -103,7 +109,7 @@ fn cstr_without_location_omits_locator() {
         mux_panic_cstr(msg.as_ptr(), std::ptr::null());
     }
     let out = run_child("cstr_without_location_omits_locator");
-    assert_panicked(&out, &["panic: boom"]);
+    assert_panicked(&out, &["panic[E0699]: boom"]);
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(
         !stderr.contains("-->"),
@@ -120,5 +126,47 @@ fn assert_failure_panics() {
         return;
     }
     let out = run_child("assert_failure_panics");
-    assert_panicked(&out, &["panic: assertion failed: expected 2, got 1"]);
+    assert_panicked(&out, &["panic[E0603]: assertion failed: expected 2, got 1"]);
+}
+
+#[test]
+fn typed_cstr_uses_registry_code() {
+    if in_child() {
+        let msg = cstr("where constraint violated");
+        let loc = cstr("model.mux:3:9");
+        mux_panic_cstr_code(
+            RuntimeErrorCode::WhereConstraintViolation as i32,
+            msg.as_ptr(),
+            loc.as_ptr(),
+        );
+    }
+    let out = run_child("typed_cstr_uses_registry_code");
+    assert_panicked(
+        &out,
+        &[
+            "panic[E0604]: where constraint violated",
+            "--> model.mux:3:9",
+        ],
+    );
+}
+
+#[test]
+fn unknown_ffi_code_is_internal() {
+    if in_child() {
+        let msg = cstr("future failure");
+        mux_panic_cstr_code(9999, msg.as_ptr(), std::ptr::null());
+    }
+    let out = run_child("unknown_ffi_code_is_internal");
+    assert_panicked(&out, &["panic[E0699]: future failure"]);
+}
+
+#[test]
+fn registry_codes_are_unique_and_stable() {
+    let codes = RuntimeErrorCode::all();
+    let mut numeric = codes.iter().map(|code| *code as i32).collect::<Vec<_>>();
+    numeric.sort_unstable();
+    numeric.dedup();
+    assert_eq!(numeric.len(), codes.len());
+    assert_eq!(RuntimeErrorCode::IndexOutOfBounds.as_str(), "E0600");
+    assert_eq!(RuntimeErrorCode::InternalRuntime.as_str(), "E0699");
 }
