@@ -167,6 +167,18 @@ fn registry_codes_are_unique_and_stable() {
     numeric.sort_unstable();
     numeric.dedup();
     assert_eq!(numeric.len(), codes.len());
-    assert_eq!(RuntimeErrorCode::IndexOutOfBounds.as_str(), "E0600");
-    assert_eq!(RuntimeErrorCode::InternalRuntime.as_str(), "E0699");
+    let expected = [
+        (RuntimeErrorCode::IndexOutOfBounds, 600, "E0600"),
+        (RuntimeErrorCode::KeyNotFound, 601, "E0601"),
+        (RuntimeErrorCode::DivisionByZero, 602, "E0602"),
+        (RuntimeErrorCode::AssertionFailed, 603, "E0603"),
+        (RuntimeErrorCode::WhereConstraintViolation, 604, "E0604"),
+        (RuntimeErrorCode::IntegerOverflow, 605, "E0605"),
+        (RuntimeErrorCode::InternalRuntime, 699, "E0699"),
+    ];
+    for (code, numeric, text) in expected {
+        assert_eq!(code as i32, numeric);
+        assert_eq!(code.as_str(), text);
+        assert_eq!(RuntimeErrorCode::from_ffi(numeric), code);
+    }
 }

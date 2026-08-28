@@ -14,6 +14,14 @@ Changes are still recorded under a numbered heading rather than a rolling
 changes a given compiler pin actually contains, and it is what let three
 compiler PRs land with no release notes at all.
 
+## [0.6.1] - 2026-08-27
+
+### Added
+- **Stable runtime diagnostic codes.** Terminating runtime failures now use the
+  `E06xx` registry, and the typed panic ABI preserves those codes for compiler
+  generated programs. The legacy panic entry point remains available and maps
+  to `E0699`.
+
 ## [0.6.0] - 2026-08-20
 
 ### Changed
