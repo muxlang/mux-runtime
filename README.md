@@ -31,6 +31,26 @@ needs only a Rust toolchain, not the compiler's LLVM 22 + clang setup.
 - String operations (UTF-8)
 - Collections (list, map, set)
 - Type conversions and standard-library runtime support
+
+## Runtime failure codes
+
+Terminating runtime failures use stable `E06xx` codes. The registry is exposed
+as `mux_runtime::panic::RuntimeErrorCode` and is part of the C-compatible panic
+ABI:
+
+| Code | Failure |
+| --- | --- |
+| E0600 | List index out of bounds |
+| E0601 | Missing map key |
+| E0602 | Division or modulo by zero |
+| E0603 | Assertion failure |
+| E0604 | Where-constraint violation |
+| E0605 | Integer overflow |
+| E0699 | Internal runtime failure |
+
+The compiler and runtime registries are intentionally separate because they
+are independently built. Unknown codes received over the FFI are rendered as
+`E0699` for compatibility with older runtimes.
 - Optional features: `json`, `csv`, `net`, `sql`, `sync` (see `[features]` in
   `Cargo.toml`; `full` enables everything and is the default)
 
