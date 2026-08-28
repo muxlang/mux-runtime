@@ -451,17 +451,7 @@ jobs:
         run: |
           set -euo pipefail
           ref=main
-          paired=$(python3 -c '
-            import json
-            import os
-
-            labels = json.loads(os.environ.get("PR_LABELS", "[]"))
-            match = next(
-                (label for label in labels if label.startswith("paired-compiler:")),
-                "",
-            )
-            print(match.removeprefix("paired-compiler:"), end="")
-          ')
+          paired=$(python3 -c 'import json, os; labels = json.loads(os.environ.get("PR_LABELS", "[]")); match = next((label for label in labels if label.startswith("paired-compiler:")), ""); print(match.removeprefix("paired-compiler:"), end="")')
           if [ -n "$paired" ]; then
             # A branch name may contain '/', so this bounds the character set
             # rather than forbidding paths. The repository below is hardcoded,
@@ -535,17 +525,7 @@ jobs:
         run: |
           set -euo pipefail
           ref=main
-          paired=$(python3 -c '
-            import json
-            import os
-
-            labels = json.loads(os.environ.get("PR_LABELS", "[]"))
-            match = next(
-                (label for label in labels if label.startswith("paired-examples:")),
-                "",
-            )
-            print(match.removeprefix("paired-examples:"), end="")
-          ')
+          paired=$(python3 -c 'import json, os; labels = json.loads(os.environ.get("PR_LABELS", "[]")); match = next((label for label in labels if label.startswith("paired-examples:")), ""); print(match.removeprefix("paired-examples:"), end="")')
           if [ -n "$paired" ]; then
             case "$paired" in
               -* | *..* | *[!A-Za-z0-9._/-]*)
