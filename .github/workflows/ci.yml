@@ -398,7 +398,8 @@ jobs:
     # spans three repos, and pinning only the compiler leaves this job compiling
     # old example source with a new compiler.
     #
-    # The labels are opt-in and every ordinary runtime PR ignores them: breaking
+    # The label is `paired-compiler:<branch>` for a coupled compiler/runtime
+    # change. The labels are opt-in and every ordinary runtime PR ignores them: breaking
     # compiler `main` is a real failure and should stay one. Reach for them only
     # when the compiler PR genuinely carries the other half of this change -
     # both have to merge, so the accommodation is reviewable rather than hidden.
