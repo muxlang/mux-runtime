@@ -135,6 +135,25 @@ jobs:
       - name: Clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
 
+  cargo_deny:
+    name: Cargo deny
+    needs: detect-changes
+    if: ${{ needs.detect-changes.outputs.runtime_src == 'true' || github.event_name == 'push' }}
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9 # untagged master commit; the repo's only tag (v1) is OLDER than this
+        with:
+          toolchain: 1.93.1
+      - name: Install cargo-deny
+        run: cargo install cargo-deny --locked --version 0.20.2
+      - name: Check dependency policy
+        run: cargo deny check advisories licenses sources bans
+
   ab_benchmark_gate:
     # Roc-style A/B regression gate (plan.md step 5): runs the PR head's
     # `cargo bench` against a cached baseline built from the PR's base
@@ -338,7 +357,11 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9 # untagged master commit; the repo's only tag (v1) is OLDER than this
         with:
-          toolchain: 1.93.1
+          # Rust branch instrumentation is still an unstable coverage
+          # option. Keep the coverage compiler separate from the stable
+          # toolchain used by the source gates, and pin it so profile data is
+          # reproducible across runs.
+          toolchain: nightly-2026-08-01
           components: rustfmt, llvm-tools-preview
       - name: Cache Cargo registry and build artifacts
         # Clippy, Rust Checks and Valgrind previously shared one key
@@ -363,9 +386,9 @@ jobs:
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Install cargo-llvm-cov
-        run: command -v cargo-llvm-cov || cargo install cargo-llvm-cov --locked
+        run: cargo install cargo-llvm-cov --locked --version 0.8.7 --force
       - name: Tests with coverage
-        run: cargo llvm-cov --all-features --workspace --lcov --output-path lcov.info
+        run: cargo +nightly-2026-08-01 llvm-cov --all-features --workspace --branch --lcov --output-path lcov.info
       - name: Upload coverage report
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

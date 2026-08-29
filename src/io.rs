@@ -261,7 +261,7 @@ pub extern "C" fn mux_io_mkdir(path: *const c_char) -> *mut Value {
     }
 }
 
-/// List directory contents. Returns Result<list<string>, string>
+/// List directory contents. Returns `Result<list<string>, string>`.
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
 pub extern "C" fn mux_io_listdir(path: *const c_char) -> *mut Value {
@@ -316,7 +316,7 @@ pub extern "C" fn mux_io_basename(path: *const c_char) -> *mut Value {
 
     let basename = Path::new(&*path_str)
         .file_name()
-        .and_then(|n| n.to_str())
+        .and_then(std::ffi::OsStr::to_str)
         .unwrap_or("");
 
     io_ok(Value::String(basename.to_string()))
@@ -333,7 +333,7 @@ pub extern "C" fn mux_io_dirname(path: *const c_char) -> *mut Value {
 
     let dirname = Path::new(&*path_str)
         .parent()
-        .and_then(|p| p.to_str())
+        .and_then(std::path::Path::to_str)
         .unwrap_or(".");
 
     io_ok(Value::String(dirname.to_string()))

@@ -90,47 +90,43 @@ pub const E: f64 = std::f64::consts::E;
 
 macro_rules! mux_math_extern {
     // single-arg: fn(f64) -> f64
-    ($name:ident) => {
-        ::paste::paste! {
-            #[unsafe(no_mangle)]
-            pub extern "C" fn [<mux_math_ $name>](x: f64) -> f64 {
-                $name(x)
-            }
+    ($export:ident, $name:ident) => {
+        #[unsafe(no_mangle)]
+        pub extern "C" fn $export(x: f64) -> f64 {
+            $name(x)
         }
     };
     // two-arg: fn(f64, f64) -> f64
-    ($name:ident, $a:ident, $b:ident) => {
-        ::paste::paste! {
-            #[unsafe(no_mangle)]
-            pub extern "C" fn [<mux_math_ $name>]($a: f64, $b: f64) -> f64 {
-                $name($a, $b)
-            }
+    ($export:ident, $name:ident, $a:ident, $b:ident) => {
+        #[unsafe(no_mangle)]
+        pub extern "C" fn $export($a: f64, $b: f64) -> f64 {
+            $name($a, $b)
         }
     };
 }
 
-mux_math_extern!(sqrt);
-mux_math_extern!(sin);
-mux_math_extern!(cos);
-mux_math_extern!(tan);
-mux_math_extern!(asin);
-mux_math_extern!(acos);
-mux_math_extern!(atan);
-mux_math_extern!(ln);
-mux_math_extern!(log2);
-mux_math_extern!(log10);
-mux_math_extern!(exp);
-mux_math_extern!(abs);
-mux_math_extern!(floor);
-mux_math_extern!(ceil);
-mux_math_extern!(round);
+mux_math_extern!(mux_math_sqrt, sqrt);
+mux_math_extern!(mux_math_sin, sin);
+mux_math_extern!(mux_math_cos, cos);
+mux_math_extern!(mux_math_tan, tan);
+mux_math_extern!(mux_math_asin, asin);
+mux_math_extern!(mux_math_acos, acos);
+mux_math_extern!(mux_math_atan, atan);
+mux_math_extern!(mux_math_ln, ln);
+mux_math_extern!(mux_math_log2, log2);
+mux_math_extern!(mux_math_log10, log10);
+mux_math_extern!(mux_math_exp, exp);
+mux_math_extern!(mux_math_abs, abs);
+mux_math_extern!(mux_math_floor, floor);
+mux_math_extern!(mux_math_ceil, ceil);
+mux_math_extern!(mux_math_round, round);
 
-mux_math_extern!(pow, base, exp);
-mux_math_extern!(atan2, y, x);
-mux_math_extern!(log, x, base);
-mux_math_extern!(min, a, b);
-mux_math_extern!(max, a, b);
-mux_math_extern!(hypot, x, y);
+mux_math_extern!(mux_math_pow, pow, base, exp);
+mux_math_extern!(mux_math_atan2, atan2, y, x);
+mux_math_extern!(mux_math_log, log, x, base);
+mux_math_extern!(mux_math_min, min, a, b);
+mux_math_extern!(mux_math_max, max, a, b);
+mux_math_extern!(mux_math_hypot, hypot, x, y);
 
 /// Integer exponentiation using exponentiation by squaring.
 /// Handles negative exponents: 1^(-n)=1, (-1)^(-n)=1/-1, other^(-n)=0 (truncates).

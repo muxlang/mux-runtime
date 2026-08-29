@@ -175,6 +175,51 @@ fn http_client_against_local_server() {
     use std::io::{Read, Write};
     use std::net::TcpListener;
 
+    fn request_complete(data: &[u8]) -> Option<usize> {
+        let pos = data.windows(4).position(|w| w == b"\r\n\r\n")?;
+        let header = String::from_utf8_lossy(&data[..pos]).to_lowercase();
+        let content_len = header
+            .lines()
+            .find_map(|line| line.strip_prefix("content-length:"))
+            .and_then(|value| value.trim().parse::<usize>().ok())
+            .unwrap_or(0);
+        Some(pos + 4 + content_len)
+    }
+
+    fn read_request(stream: &mut std::net::TcpStream) -> std::io::Result<()> {
+        let mut data = Vec::new();
+        let mut buf = [0u8; 512];
+        loop {
+            let n = stream.read(&mut buf)?;
+            if n == 0 {
+                return Ok(());
+            }
+            data.extend_from_slice(&buf[..n]);
+            let Some(expected_len) = request_complete(&data) else {
+                continue;
+            };
+            while data.len() < expected_len {
+                let n = stream.read(&mut buf)?;
+                if n == 0 {
+                    break;
+                }
+                data.extend_from_slice(&buf[..n]);
+            }
+            return Ok(());
+        }
+    }
+
+    fn write_response(stream: &mut std::net::TcpStream) -> std::io::Result<()> {
+        let body = b"{\"ok\":true}";
+        let head = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            body.len()
+        );
+        stream.write_all(head.as_bytes())?;
+        stream.write_all(body)?;
+        stream.flush()
+    }
+
     // A tiny canned-response server on its own thread (std sockets are Send).
     // It fully drains each request (headers + Content-Length body) before
     // responding, so the client never sees a reset mid-write under load.
@@ -182,39 +227,9 @@ fn http_client_against_local_server() {
         let Ok((mut stream, _)) = listener.accept() else {
             return;
         };
-        let mut data = Vec::new();
-        let mut buf = [0u8; 512];
-        loop {
-            let Ok(n) = stream.read(&mut buf) else { return };
-            if n == 0 {
-                break;
-            }
-            data.extend_from_slice(&buf[..n]);
-            if let Some(pos) = data.windows(4).position(|w| w == b"\r\n\r\n") {
-                let header = String::from_utf8_lossy(&data[..pos]).to_lowercase();
-                let content_len = header
-                    .lines()
-                    .find_map(|l| l.strip_prefix("content-length:"))
-                    .and_then(|v| v.trim().parse::<usize>().ok())
-                    .unwrap_or(0);
-                while data.len() < pos + 4 + content_len {
-                    let Ok(n) = stream.read(&mut buf) else { break };
-                    if n == 0 {
-                        break;
-                    }
-                    data.extend_from_slice(&buf[..n]);
-                }
-                break;
-            }
+        if read_request(&mut stream).is_ok() {
+            let _ = write_response(&mut stream);
         }
-        let body = b"{\"ok\":true}";
-        let head = format!(
-            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-            body.len()
-        );
-        let _ = stream.write_all(head.as_bytes());
-        let _ = stream.write_all(body);
-        let _ = stream.flush();
     }
 
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();

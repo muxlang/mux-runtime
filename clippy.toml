@@ -1,0 +1,2 @@
+# Keep lint suggestions aligned with the toolchain used by CI and local checks.
+msrv = "1.93.1"

@@ -90,7 +90,7 @@ pub unsafe extern "C" fn mux_string_from_value(v: *mut Value) -> *mut c_char {
             Err(_) => std::ptr::null_mut(),
         }
     } else {
-        match CString::new("".to_string()) {
+        match CString::new(String::new()) {
             Ok(c) => c.into_raw(),
             Err(_) => std::ptr::null_mut(),
         }

@@ -87,9 +87,13 @@ pub extern "C" fn mux_cell_alloc(initial: *mut Value) -> *mut c_void {
 
 /// Increment a capture cell's reference count, for each additional holder: a
 /// closure capturing a variable that already has one.
+///
+/// # Safety
+/// `cell` must be null or a live cell returned by [`mux_cell_alloc`]. The
+/// caller must hold a live ownership reference while retaining it.
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_cell_retain(cell: *mut c_void) {
+pub unsafe extern "C" fn mux_cell_retain(cell: *mut c_void) {
     if cell.is_null() {
         return;
     }
@@ -100,9 +104,14 @@ pub extern "C" fn mux_cell_retain(cell: *mut c_void) {
 
 /// Decrement a capture cell's reference count, releasing the value it holds and
 /// freeing the cell when the last holder drops it. Null-safe.
+///
+/// # Safety
+/// `cell` must be null or a live cell returned by [`mux_cell_alloc`]. The
+/// caller must release exactly one ownership reference and must not call this
+/// function again after the final reference is released.
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_cell_release(cell: *mut c_void) {
+pub unsafe extern "C" fn mux_cell_release(cell: *mut c_void) {
     if cell.is_null() {
         return;
     }
@@ -118,9 +127,13 @@ pub extern "C" fn mux_cell_release(cell: *mut c_void) {
 /// Increment a closure's reference count. Used when ownership is shared (e.g. a
 /// closure returned to a caller that must outlive the producing scope, or handed
 /// to a spawned thread).
+///
+/// # Safety
+/// `closure` must be null or a live closure allocation produced by the
+/// compiler. The caller must hold a live ownership reference while retaining it.
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_closure_retain(closure: *mut c_void) {
+pub unsafe extern "C" fn mux_closure_retain(closure: *mut c_void) {
     if closure.is_null() {
         return;
     }
@@ -131,10 +144,15 @@ pub extern "C" fn mux_closure_retain(closure: *mut c_void) {
 
 /// Decrement a closure's reference count, freeing the closure, its capture
 /// array, every heap-storage cell, and one reference to every captured value
-/// when the count reaches zero. Null-safe and idempotent against a zero count.
+/// when the count reaches zero. Null-safe.
+///
+/// # Safety
+/// `closure` must be null or a live closure allocation produced by the
+/// compiler. The caller must release exactly one ownership reference and must
+/// not call this function again after the final reference is released.
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_closure_release(closure: *mut c_void) {
+pub unsafe extern "C" fn mux_closure_release(closure: *mut c_void) {
     if closure.is_null() {
         return;
     }

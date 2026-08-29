@@ -12,7 +12,9 @@ static INIT: Once = Once::new();
 static STATE: Mutex<u64> = Mutex::new(0);
 
 fn lock_state() -> MutexGuard<'static, u64> {
-    STATE.lock().unwrap_or_else(|e| e.into_inner())
+    STATE
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 fn lcg_next(state: u64) -> u64 {

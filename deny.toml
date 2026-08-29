@@ -1,0 +1,30 @@
+[advisories]
+version = 2
+unmaintained = "all"
+yanked = "deny"
+# mysql 28.0.0 constrains lru to ^0.16.3; the upstream panic-safety fix is
+# released only in lru >=0.18.2. cargo-deny 0.20's current advisory database
+# reports no actionable advisory for the resolved graph. Revisit this pin when
+# mysql publishes a compatible release; do not weaken this gate with an ignore.
+ignore = []
+
+[licenses]
+allow = [
+  "Apache-2.0",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "CDLA-Permissive-2.0",
+  "ISC",
+  "MIT",
+  "Unicode-3.0",
+  "Unicode-DFS-2016",
+  "Zlib",
+]
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
