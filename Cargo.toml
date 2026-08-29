@@ -16,6 +16,9 @@ unused_must_use = "deny"
 [lints.clippy]
 correctness = "deny"
 suspicious = "deny"
+# Ratchet pedantic families only after their existing findings are cleared.
+# This first batch is mechanical and keeps the rule strict in every target.
+manual_string_new = "deny"
 
 [lib]
 name = "mux_runtime"
