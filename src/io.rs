@@ -261,7 +261,7 @@ pub extern "C" fn mux_io_mkdir(path: *const c_char) -> *mut Value {
     }
 }
 
-/// List directory contents. Returns Result<list<string>, string>
+/// List directory contents. Returns `Result<list<string>, string>`.
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
 pub extern "C" fn mux_io_listdir(path: *const c_char) -> *mut Value {
