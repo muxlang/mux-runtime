@@ -6,7 +6,7 @@ use lazy_static::lazy_static;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ffi::c_void;
-use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::atomic::{AtomicI64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
@@ -392,10 +392,12 @@ struct ThreadEntry {
 
 struct MutexEntry {
     ptr: *mut sync_backend::MuxMutex,
+    active_holds: AtomicUsize,
 }
 
 struct RwLockEntry {
     ptr: *mut sync_backend::MuxRwLock,
+    active_holds: AtomicUsize,
 }
 
 struct CondVarEntry {
@@ -414,6 +416,15 @@ unsafe impl Sync for CondVarEntry {}
 
 impl Drop for MutexEntry {
     fn drop(&mut self) {
+        if self.active_holds.load(Ordering::Acquire) != 0 {
+            // A backend refused the owner-thread cleanup. Destroying an
+            // active native primitive is unsafe, so deliberately leak it and
+            // keep the process safe; the failed unlock is reported below.
+            eprintln!(
+                "mux-runtime: leaking a still-held native mutex after thread cleanup failure"
+            );
+            return;
+        }
         // SAFETY: the entry owns this initialized native mutex and is dropped
         // only after all operation and lock-owner pins have been released.
         unsafe { sync_backend::destroy_mutex(self.ptr) };
@@ -422,6 +433,12 @@ impl Drop for MutexEntry {
 
 impl Drop for RwLockEntry {
     fn drop(&mut self) {
+        if self.active_holds.load(Ordering::Acquire) != 0 {
+            eprintln!(
+                "mux-runtime: leaking a still-held native rwlock after thread cleanup failure"
+            );
+            return;
+        }
         // SAFETY: the entry owns this initialized native lock and is dropped
         // only after all operation and lock-owner pins have been released.
         unsafe { sync_backend::destroy_rwlock(self.ptr) };
@@ -436,12 +453,58 @@ impl Drop for CondVarEntry {
     }
 }
 
+struct HeldMutex {
+    entry: Arc<MutexEntry>,
+    active: bool,
+}
+
+impl Drop for HeldMutex {
+    fn drop(&mut self) {
+        if !self.active {
+            return;
+        }
+        // Thread-local teardown runs on the lock owner thread, so it is valid
+        // to release the native mutex before its final Arc pin is dropped.
+        let rc = unsafe { sync_backend::unlock_mutex(self.entry.ptr) };
+        if rc == 0 {
+            self.entry.active_holds.fetch_sub(1, Ordering::AcqRel);
+        } else {
+            eprintln!(
+                "mux-runtime: failed to unlock native mutex during thread cleanup (error code {})",
+                rc
+            );
+        }
+    }
+}
+
+struct HeldRwLock {
+    entry: Arc<RwLockEntry>,
+    active: bool,
+}
+
+impl Drop for HeldRwLock {
+    fn drop(&mut self) {
+        if !self.active {
+            return;
+        }
+        let rc = unsafe { sync_backend::rwlock_unlock(self.entry.ptr) };
+        if rc == 0 {
+            self.entry.active_holds.fetch_sub(1, Ordering::AcqRel);
+        } else {
+            eprintln!(
+                "mux-runtime: failed to unlock native rwlock during thread cleanup (error code {})",
+                rc
+            );
+        }
+    }
+}
+
 thread_local! {
     // Keep one pin for every successful lock acquisition. Some native
     // backends permit recursive read-lock acquisition, so a single Arc per
     // handle would release the lifetime pin too early on the first unlock.
-    static HELD_MUTEXES: RefCell<HashMap<i64, Vec<Arc<MutexEntry>>>> = RefCell::new(HashMap::new());
-    static HELD_RWLOCKS: RefCell<HashMap<i64, Vec<Arc<RwLockEntry>>>> = RefCell::new(HashMap::new());
+    static HELD_MUTEXES: RefCell<HashMap<i64, Vec<HeldMutex>>> = RefCell::new(HashMap::new());
+    static HELD_RWLOCKS: RefCell<HashMap<i64, Vec<HeldRwLock>>> = RefCell::new(HashMap::new());
 }
 
 lazy_static! {
@@ -715,7 +778,13 @@ pub extern "C" fn mux_mutex_new() -> *mut Value {
         Ok(ptr) => {
             let id = NEXT_MUTEX_ID.fetch_add(1, Ordering::Relaxed);
             let mut mutexes = MUTEXES.lock().unwrap_or_else(|e| e.into_inner());
-            mutexes.insert(id, Arc::new(MutexEntry { ptr }));
+            mutexes.insert(
+                id,
+                Arc::new(MutexEntry {
+                    ptr,
+                    active_holds: AtomicUsize::new(0),
+                }),
+            );
 
             let obj_ptr = alloc_object(*MUTEX_TYPE_ID);
             let data_ptr = unsafe { get_object_ptr(obj_ptr) };
@@ -736,7 +805,13 @@ pub extern "C" fn mux_rwlock_new() -> *mut Value {
         Ok(ptr) => {
             let id = NEXT_RWLOCK_ID.fetch_add(1, Ordering::Relaxed);
             let mut rwlocks = RWLOCKS.lock().unwrap_or_else(|e| e.into_inner());
-            rwlocks.insert(id, Arc::new(RwLockEntry { ptr }));
+            rwlocks.insert(
+                id,
+                Arc::new(RwLockEntry {
+                    ptr,
+                    active_holds: AtomicUsize::new(0),
+                }),
+            );
 
             let obj_ptr = alloc_object(*RWLOCK_TYPE_ID);
             let data_ptr = unsafe { get_object_ptr(obj_ptr) };
@@ -790,8 +865,12 @@ pub extern "C" fn mux_mutex_lock(mutex_handle: *mut Value) -> *mut Value {
     if rc != 0 {
         return err_string(format!("mux_mutex_lock failed with error code {}", rc));
     }
+    entry.active_holds.fetch_add(1, Ordering::AcqRel);
     HELD_MUTEXES.with(|held| {
-        held.borrow_mut().entry(id).or_default().push(entry);
+        held.borrow_mut().entry(id).or_default().push(HeldMutex {
+            entry,
+            active: true,
+        });
     });
     ok_unit()
 }
@@ -812,19 +891,21 @@ pub extern "C" fn mux_mutex_unlock(mutex_handle: *mut Value) -> *mut Value {
         }
         entry
     });
-    let Some(entry) = entry else {
+    let Some(mut held_entry) = entry else {
         return err_string(format!("Mutex handle {} is not locked by this thread", id));
     };
 
     // SAFETY: the pointer was read from the live-handle registry and remains
     // initialized for this backend operation.
-    let rc = unsafe { sync_backend::unlock_mutex(entry.ptr) };
+    let rc = unsafe { sync_backend::unlock_mutex(held_entry.entry.ptr) };
     if rc != 0 {
         HELD_MUTEXES.with(|held| {
-            held.borrow_mut().entry(id).or_default().push(entry);
+            held.borrow_mut().entry(id).or_default().push(held_entry);
         });
         return err_string(format!("mux_mutex_unlock failed with error code {}", rc));
     }
+    held_entry.active = false;
+    held_entry.entry.active_holds.fetch_sub(1, Ordering::AcqRel);
     ok_unit()
 }
 
@@ -849,8 +930,12 @@ pub extern "C" fn mux_rwlock_read_lock(rwlock_handle: *mut Value) -> *mut Value 
             rc
         ));
     }
+    entry.active_holds.fetch_add(1, Ordering::AcqRel);
     HELD_RWLOCKS.with(|held| {
-        held.borrow_mut().entry(id).or_default().push(entry);
+        held.borrow_mut().entry(id).or_default().push(HeldRwLock {
+            entry,
+            active: true,
+        });
     });
     ok_unit()
 }
@@ -876,8 +961,12 @@ pub extern "C" fn mux_rwlock_write_lock(rwlock_handle: *mut Value) -> *mut Value
             rc
         ));
     }
+    entry.active_holds.fetch_add(1, Ordering::AcqRel);
     HELD_RWLOCKS.with(|held| {
-        held.borrow_mut().entry(id).or_default().push(entry);
+        held.borrow_mut().entry(id).or_default().push(HeldRwLock {
+            entry,
+            active: true,
+        });
     });
     ok_unit()
 }
@@ -898,19 +987,21 @@ pub extern "C" fn mux_rwlock_unlock(rwlock_handle: *mut Value) -> *mut Value {
         }
         entry
     });
-    let Some(entry) = entry else {
+    let Some(mut held_entry) = entry else {
         return err_string(format!("RwLock handle {} is not locked by this thread", id));
     };
 
     // SAFETY: the pointer was read from the live-handle registry and remains
     // initialized for this backend operation.
-    let rc = unsafe { sync_backend::rwlock_unlock(entry.ptr) };
+    let rc = unsafe { sync_backend::rwlock_unlock(held_entry.entry.ptr) };
     if rc != 0 {
         HELD_RWLOCKS.with(|held| {
-            held.borrow_mut().entry(id).or_default().push(entry);
+            held.borrow_mut().entry(id).or_default().push(held_entry);
         });
         return err_string(format!("mux_rwlock_unlock failed with error code {}", rc));
     }
+    held_entry.active = false;
+    held_entry.entry.active_holds.fetch_sub(1, Ordering::AcqRel);
     ok_unit()
 }
 
@@ -1030,8 +1121,10 @@ mod tests {
                 .get_mut(&id)
                 .and_then(|entries| entries.pop())
         });
-        let entry = entry.expect("successful lock must retain a lifetime pin");
-        assert_eq!(unsafe { sync_backend::unlock_mutex(entry.ptr) }, 0);
+        let mut entry = entry.expect("successful lock must retain a lifetime pin");
+        assert_eq!(unsafe { sync_backend::unlock_mutex(entry.entry.ptr) }, 0);
+        entry.active = false;
+        entry.entry.active_holds.fetch_sub(1, Ordering::AcqRel);
         drop(entry);
     }
 
@@ -1051,8 +1144,10 @@ mod tests {
                 .get_mut(&id)
                 .and_then(|entries| entries.pop())
         });
-        let entry = entry.expect("successful lock must retain a lifetime pin");
-        assert_eq!(unsafe { sync_backend::rwlock_unlock(entry.ptr) }, 0);
+        let mut entry = entry.expect("successful lock must retain a lifetime pin");
+        assert_eq!(unsafe { sync_backend::rwlock_unlock(entry.entry.ptr) }, 0);
+        entry.active = false;
+        entry.entry.active_holds.fetch_sub(1, Ordering::AcqRel);
         drop(entry);
     }
 
@@ -1069,5 +1164,44 @@ mod tests {
             .contains_key(&id));
         assert_eq!(unsafe { sync_backend::condvar_signal(entry.ptr) }, 0);
         drop(entry);
+    }
+
+    #[test]
+    fn condvar_wait_and_signal_use_exported_api() {
+        let condvar = mux_condvar_new();
+        let mutex = mux_mutex_new();
+        assert!(!condvar.is_null());
+        assert!(!mutex.is_null());
+        release_result(mux_mutex_lock(mutex));
+
+        let signal_handle = condvar as usize;
+        let signaler = thread::spawn(move || {
+            thread::sleep(Duration::from_millis(5));
+            // The owning test thread keeps the Value alive until this call
+            // completes; only immutable handle metadata is read here.
+            let result = mux_condvar_signal(signal_handle as *mut Value);
+            assert!(!result.is_null());
+            assert!(mux_rc_dec(result));
+        });
+        release_result(mux_condvar_wait(condvar, mutex));
+        signaler.join().unwrap();
+        release_result(mux_mutex_unlock(mutex));
+        assert!(mux_rc_dec(condvar));
+        assert!(mux_rc_dec(mutex));
+    }
+
+    #[test]
+    fn owner_thread_cleanup_unlocks_before_entry_drop() {
+        let owner = thread::spawn(|| {
+            let mutex = mux_mutex_new();
+            assert!(!mutex.is_null());
+            let result = mux_mutex_lock(mutex);
+            assert!(!result.is_null());
+            assert!(mux_rc_dec(result));
+            // The thread-local HeldMutex must unlock this native mutex before
+            // its final Arc pin is dropped during thread teardown.
+            assert!(mux_rc_dec(mutex));
+        });
+        owner.join().unwrap();
     }
 }
