@@ -1030,6 +1030,18 @@ pub extern "C" fn mux_condvar_wait(
         Err(e) => return e,
     };
 
+    let mutex_is_held = HELD_MUTEXES.with(|held| {
+        held.borrow()
+            .get(&mutex_id)
+            .is_some_and(|entries| !entries.is_empty())
+    });
+    if !mutex_is_held {
+        return err_string(format!(
+            "CondVar wait requires Mutex handle {} to be locked by this thread",
+            mutex_id
+        ));
+    }
+
     let cond_entry = match condvar_entry(cond_id) {
         Ok(entry) => entry,
         Err(error) => return error,
@@ -1205,6 +1217,20 @@ mod tests {
     }
 
     #[test]
+    fn condvar_wait_rejects_unowned_mutex() {
+        let condvar = mux_condvar_new();
+        let mutex = mux_mutex_new();
+        assert!(!condvar.is_null());
+        assert!(!mutex.is_null());
+        let result = mux_condvar_wait(condvar, mutex);
+        assert!(!result.is_null());
+        assert!(!matches!(unsafe { &*result }, Value::Result(Ok(_))));
+        assert!(mux_rc_dec(result));
+        assert!(mux_rc_dec(condvar));
+        assert!(mux_rc_dec(mutex));
+    }
+
+    #[test]
     fn condvar_wait_survives_owner_handle_cleanup() {
         use std::sync::mpsc::channel;
 
@@ -1216,12 +1242,12 @@ mod tests {
         let signal_condvar = unsafe { clone_handle(condvar) };
         assert!(!waiter_mutex.is_null());
         assert!(!signal_condvar.is_null());
-        release_result(mux_mutex_lock(mutex));
 
         let (ready_tx, ready_rx) = channel();
         let waiter_mutex_addr = waiter_mutex as usize;
         let waiter_condvar_addr = condvar as usize;
         let waiter = thread::spawn(move || {
+            release_result(mux_mutex_lock(waiter_mutex_addr as *mut Value));
             ready_tx.send(()).unwrap();
             release_result(mux_condvar_wait(
                 waiter_condvar_addr as *mut Value,
