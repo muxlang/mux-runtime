@@ -133,14 +133,14 @@ fn shared_closure_frees_capture_only_on_last_release() {
 fn cell_release_frees_its_value_on_the_last_holder() {
     let value = mux_int_value(7);
     // A live reference the test keeps, so the cell's release is not the last.
-    mux_rc_inc(value);
+    unsafe { mux_rc_inc(value) };
     let cell = mux_cell_alloc(value);
     assert!(!cell.is_null());
 
     unsafe { mux_cell_release(cell) };
     // The test's own reference kept the value alive through that, so it is
     // still valid and this final decrement is what frees it.
-    mux_rc_dec(value);
+    unsafe { mux_rc_dec(value) };
 }
 
 #[test]

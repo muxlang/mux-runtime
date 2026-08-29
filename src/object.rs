@@ -137,7 +137,7 @@ pub fn alloc_object(type_id: TypeId) -> *mut Value {
 /// drops the ObjectData, which frees the underlying object memory.
 pub unsafe fn free_object(obj: *mut Value) {
     // Simply decrement the RC - cleanup is automatic via Drop
-    mux_rc_dec(obj);
+    unsafe { mux_rc_dec(obj) };
 }
 
 /// # Safety

@@ -29,7 +29,7 @@ fn ok_data(r: *mut Value) -> *mut Value {
     assert!(mux_result_is_ok(r), "expected Ok result");
     let data = mux_result_data(r);
     assert!(!data.is_null());
-    assert!(mux_rc_dec(r));
+    assert!(unsafe { mux_rc_dec(r) });
     data
 }
 
@@ -41,7 +41,7 @@ fn connect(uri: &str) -> *mut Value {
 fn exec(conn: *mut Value, sql: &str) {
     let s = sval(sql);
     assert_ok(mux_sql_connection_execute(conn, s));
-    assert!(mux_rc_dec(s));
+    assert!(unsafe { mux_rc_dec(s) });
 }
 
 /// Run the full driver exercise. `ph` builds the placeholder for a 1-based index
@@ -72,53 +72,53 @@ fn run_driver_suite(uri: &str, ph: impl Fn(usize) -> String) {
         Value::Bool(true),
     ]));
     assert_ok(mux_sql_connection_execute_params(conn, insert, params));
-    assert!(mux_rc_dec(insert));
-    assert!(mux_rc_dec(params));
+    assert!(unsafe { mux_rc_dec(insert) });
+    assert!(unsafe { mux_rc_dec(params) });
 
     // query exercises row/value conversion for INT/TEXT/FLOAT/BOOL columns
     let select = sval("SELECT id, name, score, flag FROM mux_cov_t");
     let rs = ok_data(mux_sql_connection_query(conn, select));
-    assert!(mux_rc_dec(select));
+    assert!(unsafe { mux_rc_dec(select) });
     let cols = mux_sql_resultset_columns(rs);
     assert!(!cols.is_null());
-    assert!(mux_rc_dec(cols));
+    assert!(unsafe { mux_rc_dec(cols) });
     let rows = mux_sql_resultset_rows(rs);
     assert!(!rows.is_null());
-    assert!(mux_rc_dec(rows));
-    assert!(mux_rc_dec(rs));
+    assert!(unsafe { mux_rc_dec(rows) });
+    assert!(unsafe { mux_rc_dec(rs) });
 
     // parameterized query
     let qsql = format!("SELECT name FROM mux_cov_t WHERE id = {}", ph(1));
     let q = sval(&qsql);
     let qparams = mux_rc_alloc(Value::List(vec![Value::Int(1)]));
     let rs2 = ok_data(mux_sql_connection_query_params(conn, q, qparams));
-    assert!(mux_rc_dec(q));
-    assert!(mux_rc_dec(qparams));
-    assert!(mux_rc_dec(rs2));
+    assert!(unsafe { mux_rc_dec(q) });
+    assert!(unsafe { mux_rc_dec(qparams) });
+    assert!(unsafe { mux_rc_dec(rs2) });
 
     // transactions: commit then rollback
     let tx = ok_data(mux_sql_connection_begin_transaction(conn));
     let ti = sval("INSERT INTO mux_cov_t (id, name, score, flag) VALUES (2, 'b', 2.5, false)");
     assert_ok(mux_sql_transaction_execute(tx, ti));
-    assert!(mux_rc_dec(ti));
+    assert!(unsafe { mux_rc_dec(ti) });
     assert_ok(mux_sql_transaction_commit(tx));
-    assert!(mux_rc_dec(tx));
+    assert!(unsafe { mux_rc_dec(tx) });
 
     let tx2 = ok_data(mux_sql_connection_begin_transaction(conn));
     let ti2 = sval("INSERT INTO mux_cov_t (id, name, score, flag) VALUES (3, 'c', 3.5, true)");
     assert_ok(mux_sql_transaction_execute(tx2, ti2));
-    assert!(mux_rc_dec(ti2));
+    assert!(unsafe { mux_rc_dec(ti2) });
     assert_ok(mux_sql_transaction_rollback(tx2));
-    assert!(mux_rc_dec(tx2));
+    assert!(unsafe { mux_rc_dec(tx2) });
 
     // invalid SQL surfaces as an error through the driver
     let bad = sval("THIS IS NOT VALID SQL");
     assert_err(mux_sql_connection_execute(conn, bad));
-    assert!(mux_rc_dec(bad));
+    assert!(unsafe { mux_rc_dec(bad) });
 
     exec(conn, "DROP TABLE IF EXISTS mux_cov_t");
     mux_sql_connection_close(conn);
-    assert!(mux_rc_dec(conn));
+    assert!(unsafe { mux_rc_dec(conn) });
 }
 
 #[test]
@@ -161,15 +161,15 @@ fn postgres_column_types() {
 
     let select = sval("SELECT a, b, c, d, e FROM mux_types");
     let rs = ok_data(mux_sql_connection_query(conn, select));
-    assert!(mux_rc_dec(select));
+    assert!(unsafe { mux_rc_dec(select) });
     let rows = mux_sql_resultset_rows(rs);
     assert!(!rows.is_null());
-    assert!(mux_rc_dec(rows));
-    assert!(mux_rc_dec(rs));
+    assert!(unsafe { mux_rc_dec(rows) });
+    assert!(unsafe { mux_rc_dec(rs) });
 
     exec(conn, "DROP TABLE IF EXISTS mux_types");
     mux_sql_connection_close(conn);
-    assert!(mux_rc_dec(conn));
+    assert!(unsafe { mux_rc_dec(conn) });
 }
 
 /// A connection to an unreachable server is an error (covers the connect-failure

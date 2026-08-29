@@ -63,7 +63,7 @@ fn value_from_string_and_prints() {
     mux_print(v);
     mux_print_cstr(s.as_ptr());
     mux_flush_stdout();
-    assert!(mux_rc_dec(v));
+    assert!(unsafe { mux_rc_dec(v) });
 
     assert!(mux_value_from_string(std::ptr::null()).is_null());
     mux_print_cstr(std::ptr::null());

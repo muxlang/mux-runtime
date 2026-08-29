@@ -26,9 +26,9 @@ fn eq_ne_asserts_pass() {
     let c = mux_int_value(6);
     mux_assert_eq(a, b);
     mux_assert_ne(a, c);
-    assert!(mux_rc_dec(a));
-    assert!(mux_rc_dec(b));
-    assert!(mux_rc_dec(c));
+    assert!(unsafe { mux_rc_dec(a) });
+    assert!(unsafe { mux_rc_dec(b) });
+    assert!(unsafe { mux_rc_dec(c) });
 }
 
 #[test]
@@ -37,8 +37,8 @@ fn optional_asserts_pass() {
     let none = mux_optional_none();
     mux_assert_some(some);
     mux_assert_none(none);
-    assert!(mux_rc_dec(some));
-    assert!(mux_rc_dec(none));
+    assert!(unsafe { mux_rc_dec(some) });
+    assert!(unsafe { mux_rc_dec(none) });
 }
 
 #[test]
@@ -48,6 +48,6 @@ fn result_asserts_pass() {
     assert_eq!(mux_value_result_discriminant(err), 1);
     mux_assert_ok(ok);
     mux_assert_err(err);
-    assert!(mux_rc_dec(ok));
-    assert!(mux_rc_dec(err));
+    assert!(unsafe { mux_rc_dec(ok) });
+    assert!(unsafe { mux_rc_dec(err) });
 }

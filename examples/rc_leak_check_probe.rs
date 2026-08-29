@@ -42,6 +42,6 @@ fn main() {
         // `clean`: release the block so the counter returns to zero and the
         // atexit check passes (exit 0). `leak`: leave it live so the handler
         // reports it and exits 101.
-        let _freed = mux_rc_dec(value);
+        let _freed = unsafe { mux_rc_dec(value) };
     }
 }

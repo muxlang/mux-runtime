@@ -20,14 +20,14 @@ use mux_runtime::Value;
 fn with_scalar(value: Value, f: impl FnOnce(*mut Value)) {
     let ptr = mux_rc_alloc(value);
     f(ptr);
-    mux_rc_dec(ptr);
+    unsafe { mux_rc_dec(ptr) };
 }
 
 /// Push integers 0..n into a fresh (uniquely-owned) list value and return it.
 fn build_list(n: i64) -> *mut Value {
     let list_val = mux_rc_alloc(Value::List(Vec::new()));
     assert_eq!(
-        mux_rc_count(list_val),
+        unsafe { mux_rc_count(list_val) },
         1,
         "fresh value must be uniquely owned"
     );
@@ -55,7 +55,7 @@ fn list_push_back_builds_in_order_when_uniquely_owned() {
     assert_eq!(contents.len(), 1000);
     assert_eq!(contents[0], Value::Int(0));
     assert_eq!(contents[999], Value::Int(999));
-    mux_rc_dec(list_val);
+    unsafe { mux_rc_dec(list_val) };
 }
 
 #[test]
@@ -76,7 +76,7 @@ fn list_push_front_prepends() {
             Value::Int(0),
         ]
     );
-    mux_rc_dec(list_val);
+    unsafe { mux_rc_dec(list_val) };
 }
 
 #[test]
@@ -101,7 +101,7 @@ fn list_set_value_overwrites_and_extends() {
             Value::Int(7),
         ]
     );
-    mux_rc_dec(list_val);
+    unsafe { mux_rc_dec(list_val) };
 }
 
 #[test]
@@ -112,15 +112,15 @@ fn list_pop_back_and_front_return_ends() {
         unsafe { &*back },
         &Value::Optional(Some(Box::new(Value::Int(2))))
     );
-    mux_rc_dec(back);
+    unsafe { mux_rc_dec(back) };
     let front = mux_list_pop_value(list_val);
     assert_eq!(
         unsafe { &*front },
         &Value::Optional(Some(Box::new(Value::Int(0))))
     );
-    mux_rc_dec(front);
+    unsafe { mux_rc_dec(front) };
     assert_eq!(list_contents(list_val), vec![Value::Int(1)]);
-    mux_rc_dec(list_val);
+    unsafe { mux_rc_dec(list_val) };
 }
 
 #[test]
@@ -128,8 +128,8 @@ fn list_pop_on_empty_returns_none() {
     let list_val = mux_rc_alloc(Value::List(Vec::new()));
     let popped = mux_list_pop_back_value(list_val);
     assert_eq!(unsafe { &*popped }, &Value::Optional(None));
-    mux_rc_dec(popped);
-    mux_rc_dec(list_val);
+    unsafe { mux_rc_dec(popped) };
+    unsafe { mux_rc_dec(list_val) };
 }
 
 #[test]
@@ -137,9 +137,9 @@ fn list_mutation_on_shared_value_is_in_place() {
     // Mutating a value with refcount > 1 is in-place (visible through the shared
     // pointer, per the ABI) and still yields correct contents.
     let shared = mux_rc_alloc(Value::List(vec![Value::Int(1), Value::Int(2)]));
-    mux_rc_inc(shared);
+    unsafe { mux_rc_inc(shared) };
     assert_eq!(
-        mux_rc_count(shared),
+        unsafe { mux_rc_count(shared) },
         2,
         "value must be shared for this case"
     );
@@ -149,8 +149,8 @@ fn list_mutation_on_shared_value_is_in_place() {
         vec![Value::Int(1), Value::Int(2), Value::Int(3)]
     );
     // Drop the two references we hold.
-    mux_rc_dec(shared);
-    mux_rc_dec(shared);
+    unsafe { mux_rc_dec(shared) };
+    unsafe { mux_rc_dec(shared) };
 }
 
 // --- Map ---------------------------------------------------------------------
@@ -175,18 +175,18 @@ fn map_put_and_remove_uniquely_owned() {
         unsafe { &*removed },
         &Value::Optional(Some(Box::new(Value::Int(4990))))
     );
-    mux_rc_dec(removed);
+    unsafe { mux_rc_dec(removed) };
     let Value::Map(m) = (unsafe { &*map_val }) else {
         panic!("expected map");
     };
     assert_eq!(m.len(), 499);
-    mux_rc_dec(map_val);
+    unsafe { mux_rc_dec(map_val) };
 }
 
 #[test]
 fn map_put_on_shared_value_is_in_place() {
     let shared = mux_rc_alloc(Value::Map(mux_runtime::ordered::OrderedMap::new()));
-    mux_rc_inc(shared);
+    unsafe { mux_rc_inc(shared) };
     with_scalar(Value::Int(1), |k| {
         with_scalar(Value::Int(2), |v| mux_map_put_value(shared, k, v));
     });
@@ -194,8 +194,8 @@ fn map_put_on_shared_value_is_in_place() {
         panic!("expected map");
     };
     assert_eq!(m.get(&Value::Int(1)), Some(&Value::Int(2)));
-    mux_rc_dec(shared);
-    mux_rc_dec(shared);
+    unsafe { mux_rc_dec(shared) };
+    unsafe { mux_rc_dec(shared) };
 }
 
 // --- Set ---------------------------------------------------------------------
@@ -215,20 +215,20 @@ fn set_add_and_remove_uniquely_owned() {
     assert!(removed);
     let missing = with_scalar_ret_bool(Value::Int(9999), |v| mux_set_remove_value(set_val, v));
     assert!(!missing);
-    mux_rc_dec(set_val);
+    unsafe { mux_rc_dec(set_val) };
 }
 
 #[test]
 fn set_add_on_shared_value_is_in_place() {
     let shared = mux_rc_alloc(Value::Set(mux_runtime::ordered::OrderedSet::new()));
-    mux_rc_inc(shared);
+    unsafe { mux_rc_inc(shared) };
     with_scalar(Value::Int(7), |v| mux_set_add_value(shared, v));
     let Value::Set(s) = (unsafe { &*shared }) else {
         panic!("expected set");
     };
     assert!(s.contains(&Value::Int(7)));
-    mux_rc_dec(shared);
-    mux_rc_dec(shared);
+    unsafe { mux_rc_dec(shared) };
+    unsafe { mux_rc_dec(shared) };
 }
 
 // --- helpers that return a value from the scalar-scoped closure ---------------
@@ -236,7 +236,7 @@ fn set_add_on_shared_value_is_in_place() {
 fn with_scalar_ret<R>(value: Value, f: impl FnOnce(*mut Value) -> R) -> R {
     let ptr = mux_rc_alloc(value);
     let r = f(ptr);
-    mux_rc_dec(ptr);
+    unsafe { mux_rc_dec(ptr) };
     r
 }
 

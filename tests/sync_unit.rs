@@ -44,7 +44,7 @@ fn mutex_lock_unlock() {
     assert!(!m.is_null());
     assert_ok(mux_mutex_lock(m));
     assert_ok(mux_mutex_unlock(m));
-    assert!(mux_rc_dec(m));
+    assert!(unsafe { mux_rc_dec(m) });
 }
 
 #[test]
@@ -55,7 +55,7 @@ fn rwlock_read_and_write() {
     assert_ok(mux_rwlock_unlock(rw));
     assert_ok(mux_rwlock_write_lock(rw));
     assert_ok(mux_rwlock_unlock(rw));
-    assert!(mux_rc_dec(rw));
+    assert!(unsafe { mux_rc_dec(rw) });
 }
 
 #[test]
@@ -64,7 +64,7 @@ fn condvar_signal_broadcast() {
     assert!(!cv.is_null());
     assert_ok(mux_condvar_signal(cv));
     assert_ok(mux_condvar_broadcast(cv));
-    assert!(mux_rc_dec(cv));
+    assert!(unsafe { mux_rc_dec(cv) });
 }
 
 #[test]
@@ -82,8 +82,8 @@ fn spawn_and_join() {
     assert_ok(mux_thread_join(thread_obj));
 
     unsafe { mux_closure_release(closure) };
-    assert!(mux_rc_dec(thread_obj));
-    assert!(mux_rc_dec(spawn_res));
+    assert!(unsafe { mux_rc_dec(thread_obj) });
+    assert!(unsafe { mux_rc_dec(spawn_res) });
 }
 
 #[test]
@@ -97,8 +97,8 @@ fn spawn_and_detach() {
     let thread_obj = mux_result_data(spawn_res);
     assert_ok(mux_thread_detach(thread_obj));
     unsafe { mux_closure_release(closure) };
-    assert!(mux_rc_dec(thread_obj));
-    assert!(mux_rc_dec(spawn_res));
+    assert!(unsafe { mux_rc_dec(thread_obj) });
+    assert!(unsafe { mux_rc_dec(spawn_res) });
 }
 
 #[test]
@@ -113,10 +113,10 @@ fn null_handles_error() {
     // Each call returns an owned error result that must be released.
     let lock_err = mux_mutex_lock(std::ptr::null_mut());
     assert!(!mux_result_is_ok(lock_err));
-    assert!(mux_rc_dec(lock_err));
+    assert!(unsafe { mux_rc_dec(lock_err) });
     let join_err = mux_thread_join(std::ptr::null_mut());
     assert!(!mux_result_is_ok(join_err));
-    assert!(mux_rc_dec(join_err));
+    assert!(unsafe { mux_rc_dec(join_err) });
 }
 
 #[test]
@@ -128,6 +128,6 @@ fn mismatched_handle_types_are_rejected() {
 
     let result = mux_mutex_lock(wrong_type);
     assert!(!mux_result_is_ok(result));
-    assert!(mux_rc_dec(result));
-    assert!(mux_rc_dec(wrong_type));
+    assert!(unsafe { mux_rc_dec(result) });
+    assert!(unsafe { mux_rc_dec(wrong_type) });
 }

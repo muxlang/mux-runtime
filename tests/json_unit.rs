@@ -8,8 +8,8 @@ fn ok_payload(result: *mut mux_runtime::Value) -> mux_runtime::Value {
     assert!(mux_result_is_ok(result), "expected ok");
     let data = mux_result_data(result);
     let value = unsafe { &*data }.clone();
-    assert!(mux_rc_dec(data));
-    assert!(mux_rc_dec(result));
+    assert!(unsafe { mux_rc_dec(data) });
+    assert!(unsafe { mux_rc_dec(result) });
     value
 }
 
@@ -24,8 +24,8 @@ fn err_message(result: *mut mux_runtime::Value) -> String {
         mux_runtime::Value::String(s) => s.clone(),
         other => panic!("an error must carry a message, got {other:?}"),
     };
-    assert!(mux_rc_dec(data));
-    assert!(mux_rc_dec(result));
+    assert!(unsafe { mux_rc_dec(data) });
+    assert!(unsafe { mux_rc_dec(result) });
     message
 }
 
@@ -272,7 +272,7 @@ fn field_lookup_separates_absent_from_null() {
         unsafe { &*got },
         &Value::Optional(Some(Box::new(Value::String("Ada".into()))))
     );
-    assert!(mux_rc_dec(got));
+    assert!(unsafe { mux_rc_dec(got) });
 
     // Present but null: `some`, holding the null. NOT absent.
     let got = mux_json_field(&value, key("bio").as_ptr());
@@ -285,20 +285,20 @@ fn field_lookup_separates_absent_from_null() {
         }
         other => panic!("an explicit null must be some(null), got {other:?}"),
     }
-    assert!(mux_rc_dec(got));
+    assert!(unsafe { mux_rc_dec(got) });
 
     // Absent: `none`.
     let got = mux_json_field(&value, key("missing").as_ptr());
     assert_eq!(unsafe { &*got }, &Value::Optional(None));
-    assert!(mux_rc_dec(got));
+    assert!(unsafe { mux_rc_dec(got) });
 
     // Not an object at all, and a null key.
     let scalar = Value::Int(1);
     let got = mux_json_field(&scalar, key("any").as_ptr());
     assert_eq!(unsafe { &*got }, &Value::Optional(None));
-    assert!(mux_rc_dec(got));
+    assert!(unsafe { mux_rc_dec(got) });
 
     let got = mux_json_field(&value, std::ptr::null());
     assert_eq!(unsafe { &*got }, &Value::Optional(None));
-    assert!(mux_rc_dec(got));
+    assert!(unsafe { mux_rc_dec(got) });
 }
