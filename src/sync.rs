@@ -670,7 +670,7 @@ pub extern "C" fn mux_sync_spawn(closure: *mut c_void) -> *mut Value {
         struct ReleaseOnDrop(usize);
         impl Drop for ReleaseOnDrop {
             fn drop(&mut self) {
-                crate::closure::mux_closure_release(self.0 as *mut c_void);
+                unsafe { crate::closure::mux_closure_release(self.0 as *mut c_void) };
             }
         }
         let handle = thread::Builder::new().spawn(move || {
@@ -690,7 +690,7 @@ pub extern "C" fn mux_sync_spawn(closure: *mut c_void) -> *mut Value {
             Err(e) => {
                 // The thread never started, so it will never run the guard that
                 // releases the retain above; release it here before returning.
-                crate::closure::mux_closure_release(closure_addr as *mut c_void);
+                unsafe { crate::closure::mux_closure_release(closure_addr as *mut c_void) };
                 return err_string(format!("Failed to spawn thread: {}", e));
             }
         };

@@ -81,7 +81,7 @@ fn spawn_and_join() {
     assert!(!thread_obj.is_null());
     assert_ok(mux_thread_join(thread_obj));
 
-    mux_closure_release(closure);
+    unsafe { mux_closure_release(closure) };
     assert!(mux_rc_dec(thread_obj));
     assert!(mux_rc_dec(spawn_res));
 }
@@ -96,7 +96,7 @@ fn spawn_and_detach() {
     assert!(mux_result_is_ok(spawn_res));
     let thread_obj = mux_result_data(spawn_res);
     assert_ok(mux_thread_detach(thread_obj));
-    mux_closure_release(closure);
+    unsafe { mux_closure_release(closure) };
     assert!(mux_rc_dec(thread_obj));
     assert!(mux_rc_dec(spawn_res));
 }

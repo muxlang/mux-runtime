@@ -58,25 +58,25 @@ unsafe fn make_closure(func: extern "C" fn(), captures: &[*mut Value]) -> *mut c
 #[test]
 fn retain_and_release_are_null_safe() {
     mux_closure_retain(std::ptr::null_mut());
-    mux_closure_release(std::ptr::null_mut());
+    unsafe { mux_closure_release(std::ptr::null_mut()) };
 }
 
 #[test]
 fn capture_free_release_frees_closure() {
     // No captures: release should just free the closure allocation.
     let closure = unsafe { make_closure(noop, &[]) };
-    mux_closure_release(closure);
+    unsafe { mux_closure_release(closure) };
 }
 
 #[test]
 fn retain_delays_free_until_last_release() {
     let closure = unsafe { make_closure(noop, &[]) };
     mux_closure_retain(closure); // refcount 1 -> 2
-    mux_closure_release(closure); // 2 -> 1, must NOT free
-                                  // If retain had not incremented, the line above would have freed the
-                                  // allocation and this second release would be a use-after-free / double
-                                  // free. Reaching here cleanly proves the refcount was 2.
-    mux_closure_release(closure); // 1 -> 0, frees
+    unsafe { mux_closure_release(closure) }; // 2 -> 1, must NOT free
+                                             // If retain had not incremented, the line above would have freed the
+                                             // allocation and this second release would be a use-after-free / double
+                                             // free. Reaching here cleanly proves the refcount was 2.
+    unsafe { mux_closure_release(closure) }; // 1 -> 0, frees
 }
 
 #[test]
@@ -137,7 +137,7 @@ fn cell_release_frees_its_value_on_the_last_holder() {
     let cell = mux_cell_alloc(value);
     assert!(!cell.is_null());
 
-    mux_cell_release(cell);
+    unsafe { mux_cell_release(cell) };
     // The test's own reference kept the value alive through that, so it is
     // still valid and this final decrement is what frees it.
     mux_rc_dec(value);
