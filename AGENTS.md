@@ -23,9 +23,11 @@ changing an interface shared with the compiler.
 Run `cargo fmt --all -- --check`,
 `cargo clippy --all-targets --all-features -- -D warnings`, and
 `cargo test --all-features` before committing. Run strict rustdoc and the
-security/coverage checks described in `CONTRIBUTING.md` for cross-cutting work.
+security/coverage jobs in [`.github/workflows/ci.yml`](.github/workflows/ci.yml)
+for cross-cutting work.
 
 ## Documentation
 
-See [`README.md`](README.md), [`CONTRIBUTING.md`](CONTRIBUTING.md), and the
-linked design documents in `mux-context` for public API and ownership details.
+See [`README.md`](README.md), [the CI workflow](.github/workflows/ci.yml), and
+the linked design documents in `mux-context` for public API and ownership
+details.
