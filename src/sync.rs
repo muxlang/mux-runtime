@@ -406,7 +406,9 @@ struct CondVarEntry {
 
 // Native synchronization objects are allocated once and are destroyed only
 // after the registry and every active operation/lock owner release their Arc.
-// The raw pointers remain stable for the lifetime of each entry.
+// The raw pointer is immutable, its allocation is owned solely by this Arc,
+// and every backend call is made only while an Arc pin is held. The backend
+// itself supplies the synchronization semantics for concurrent callers.
 unsafe impl Send for MutexEntry {}
 unsafe impl Sync for MutexEntry {}
 unsafe impl Send for RwLockEntry {}
