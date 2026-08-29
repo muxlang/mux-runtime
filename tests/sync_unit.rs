@@ -5,9 +5,10 @@
 //! until signalled from another thread).
 #![cfg(feature = "sync")]
 
-use std::ffi::c_void;
+use std::ffi::{c_void, CString};
 
 use mux_runtime::closure::mux_closure_release;
+use mux_runtime::object::{mux_alloc_object, mux_register_object_type};
 use mux_runtime::refcount::mux_rc_dec;
 use mux_runtime::result::{mux_result_data, mux_result_is_ok};
 use mux_runtime::sync::*;
@@ -116,4 +117,17 @@ fn null_handles_error() {
     let join_err = mux_thread_join(std::ptr::null_mut());
     assert!(!mux_result_is_ok(join_err));
     assert!(mux_rc_dec(join_err));
+}
+
+#[test]
+fn mismatched_handle_types_are_rejected() {
+    let name = CString::new("NotAMutex").unwrap();
+    let type_id = mux_register_object_type(name.as_ptr(), std::mem::size_of::<i64>());
+    let wrong_type = mux_alloc_object(type_id);
+    assert!(!wrong_type.is_null());
+
+    let result = mux_mutex_lock(wrong_type);
+    assert!(!mux_result_is_ok(result));
+    assert!(mux_rc_dec(result));
+    assert!(mux_rc_dec(wrong_type));
 }

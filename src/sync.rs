@@ -1,4 +1,4 @@
-use crate::object::{alloc_object, get_object_ptr, register_object_type};
+use crate::object::{alloc_object, get_object_ptr, get_object_type_id, register_object_type};
 use crate::refcount::{mux_rc_alloc, mux_rc_dec};
 use crate::TypeId;
 use crate::Value;
@@ -494,9 +494,17 @@ extern "C" fn destroy_thread_object(ptr: *mut c_void) {
 }
 
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
-fn extract_handle_id(handle: *mut Value, _type_name: &str) -> Result<i64, *mut Value> {
+fn extract_handle_id(
+    handle: *mut Value,
+    expected_type_id: TypeId,
+    type_name: &str,
+) -> Result<i64, *mut Value> {
     if handle.is_null() {
         return Err(err_string("handle is null"));
+    }
+    let actual_type_id = unsafe { get_object_type_id(handle) };
+    if actual_type_id != expected_type_id {
+        return Err(err_string(format!("expected {} handle", type_name)));
     }
     let ptr = unsafe { get_object_ptr(handle) };
     if ptr.is_null() {
@@ -584,7 +592,7 @@ pub extern "C" fn mux_sync_spawn(closure: *mut c_void) -> *mut Value {
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
 pub extern "C" fn mux_thread_join(thread_handle: *mut Value) -> *mut Value {
-    let id = match extract_handle_id(thread_handle, "Thread") {
+    let id = match extract_handle_id(thread_handle, *THREAD_TYPE_ID, "Thread") {
         Ok(id) => id,
         Err(e) => return e,
     };
@@ -610,7 +618,7 @@ pub extern "C" fn mux_thread_join(thread_handle: *mut Value) -> *mut Value {
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
 pub extern "C" fn mux_thread_detach(thread_handle: *mut Value) -> *mut Value {
-    let id = match extract_handle_id(thread_handle, "Thread") {
+    let id = match extract_handle_id(thread_handle, *THREAD_TYPE_ID, "Thread") {
         Ok(id) => id,
         Err(e) => return e,
     };
@@ -703,7 +711,7 @@ pub extern "C" fn mux_condvar_new() -> *mut Value {
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
 pub extern "C" fn mux_mutex_lock(mutex_handle: *mut Value) -> *mut Value {
-    let id = match extract_handle_id(mutex_handle, "Mutex") {
+    let id = match extract_handle_id(mutex_handle, *MUTEX_TYPE_ID, "Mutex") {
         Ok(id) => id,
         Err(e) => return e,
     };
@@ -727,7 +735,7 @@ pub extern "C" fn mux_mutex_lock(mutex_handle: *mut Value) -> *mut Value {
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
 pub extern "C" fn mux_mutex_unlock(mutex_handle: *mut Value) -> *mut Value {
-    let id = match extract_handle_id(mutex_handle, "Mutex") {
+    let id = match extract_handle_id(mutex_handle, *MUTEX_TYPE_ID, "Mutex") {
         Ok(id) => id,
         Err(e) => return e,
     };
@@ -751,7 +759,7 @@ pub extern "C" fn mux_mutex_unlock(mutex_handle: *mut Value) -> *mut Value {
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
 pub extern "C" fn mux_rwlock_read_lock(rwlock_handle: *mut Value) -> *mut Value {
-    let id = match extract_handle_id(rwlock_handle, "RwLock") {
+    let id = match extract_handle_id(rwlock_handle, *RWLOCK_TYPE_ID, "RwLock") {
         Ok(id) => id,
         Err(e) => return e,
     };
@@ -778,7 +786,7 @@ pub extern "C" fn mux_rwlock_read_lock(rwlock_handle: *mut Value) -> *mut Value 
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
 pub extern "C" fn mux_rwlock_write_lock(rwlock_handle: *mut Value) -> *mut Value {
-    let id = match extract_handle_id(rwlock_handle, "RwLock") {
+    let id = match extract_handle_id(rwlock_handle, *RWLOCK_TYPE_ID, "RwLock") {
         Ok(id) => id,
         Err(e) => return e,
     };
@@ -805,7 +813,7 @@ pub extern "C" fn mux_rwlock_write_lock(rwlock_handle: *mut Value) -> *mut Value
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
 pub extern "C" fn mux_rwlock_unlock(rwlock_handle: *mut Value) -> *mut Value {
-    let id = match extract_handle_id(rwlock_handle, "RwLock") {
+    let id = match extract_handle_id(rwlock_handle, *RWLOCK_TYPE_ID, "RwLock") {
         Ok(id) => id,
         Err(e) => return e,
     };
@@ -832,11 +840,11 @@ pub extern "C" fn mux_condvar_wait(
     condvar_handle: *mut Value,
     mutex_handle: *mut Value,
 ) -> *mut Value {
-    let cond_id = match extract_handle_id(condvar_handle, "CondVar") {
+    let cond_id = match extract_handle_id(condvar_handle, *CONDVAR_TYPE_ID, "CondVar") {
         Ok(id) => id,
         Err(e) => return e,
     };
-    let mutex_id = match extract_handle_id(mutex_handle, "Mutex") {
+    let mutex_id = match extract_handle_id(mutex_handle, *MUTEX_TYPE_ID, "Mutex") {
         Ok(id) => id,
         Err(e) => return e,
     };
@@ -868,7 +876,7 @@ pub extern "C" fn mux_condvar_wait(
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
 pub extern "C" fn mux_condvar_signal(condvar_handle: *mut Value) -> *mut Value {
-    let id = match extract_handle_id(condvar_handle, "CondVar") {
+    let id = match extract_handle_id(condvar_handle, *CONDVAR_TYPE_ID, "CondVar") {
         Ok(id) => id,
         Err(e) => return e,
     };
@@ -892,7 +900,7 @@ pub extern "C" fn mux_condvar_signal(condvar_handle: *mut Value) -> *mut Value {
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
 pub extern "C" fn mux_condvar_broadcast(condvar_handle: *mut Value) -> *mut Value {
-    let id = match extract_handle_id(condvar_handle, "CondVar") {
+    let id = match extract_handle_id(condvar_handle, *CONDVAR_TYPE_ID, "CondVar") {
         Ok(id) => id,
         Err(e) => return e,
     };
