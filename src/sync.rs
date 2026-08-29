@@ -176,11 +176,11 @@ mod sync_backend {
     };
 
     lazy_static! {
-        static ref RWLOCK_HOLD_MODES: Mutex<HashMap<(u32, usize), bool>> =
+        static ref RWLOCK_HOLD_MODES: Mutex<HashMap<(u32, usize), Vec<bool>>> =
             Mutex::new(HashMap::new());
     }
 
-    fn rwlock_modes_lock() -> MutexGuard<'static, HashMap<(u32, usize), bool>> {
+    fn rwlock_modes_lock() -> MutexGuard<'static, HashMap<(u32, usize), Vec<bool>>> {
         match RWLOCK_HOLD_MODES.lock() {
             Ok(guard) => guard,
             Err(poisoned) => poisoned.into_inner(),
@@ -259,11 +259,11 @@ mod sync_backend {
     pub unsafe fn rwlock_read_lock(ptr: *mut MuxRwLock) -> i32 {
         let thread_id = unsafe { GetCurrentThreadId() };
         let key = (thread_id, ptr as usize);
+        unsafe { AcquireSRWLockShared(ptr) };
         {
             let mut hold_modes = rwlock_modes_lock();
-            hold_modes.insert(key, false);
+            hold_modes.entry(key).or_default().push(false);
         }
-        unsafe { AcquireSRWLockShared(ptr) };
         0
     }
 
@@ -275,11 +275,11 @@ mod sync_backend {
     pub unsafe fn rwlock_write_lock(ptr: *mut MuxRwLock) -> i32 {
         let thread_id = unsafe { GetCurrentThreadId() };
         let key = (thread_id, ptr as usize);
+        unsafe { AcquireSRWLockExclusive(ptr) };
         {
             let mut hold_modes = rwlock_modes_lock();
-            hold_modes.insert(key, true);
+            hold_modes.entry(key).or_default().push(true);
         }
-        unsafe { AcquireSRWLockExclusive(ptr) };
         0
     }
 
@@ -293,7 +293,15 @@ mod sync_backend {
         let key = (thread_id, ptr as usize);
         let mode = {
             let mut hold_modes = rwlock_modes_lock();
-            hold_modes.remove(&key)
+            if let Some(modes) = hold_modes.get_mut(&key) {
+                let mode = modes.pop();
+                if modes.is_empty() {
+                    hold_modes.remove(&key);
+                }
+                mode
+            } else {
+                None
+            }
         };
 
         match mode {
@@ -656,7 +664,7 @@ pub extern "C" fn mux_sync_spawn(closure: *mut c_void) -> *mut Value {
         // which outlives this call. Retain the closure so the caller's scope
         // cleanup does not free it out from under the thread; the thread releases
         // it (freeing captures when it is the last owner) once the body returns.
-        crate::closure::mux_closure_retain(closure);
+        unsafe { crate::closure::mux_closure_retain(closure) };
         let closure_addr = closure as usize;
 
         // Read ClosureRepr fields before spawning so the thread does not hold a
@@ -1096,11 +1104,15 @@ pub extern "C" fn mux_sync_sleep(ms: i64) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::refcount::mux_rc_dec;
+    use crate::refcount::{mux_rc_alloc, mux_rc_dec};
 
     fn release_result(result: *mut Value) {
         assert!(!result.is_null());
         assert!(mux_rc_dec(result));
+    }
+
+    unsafe fn clone_handle(handle: *mut Value) -> *mut Value {
+        mux_rc_alloc((*handle).clone())
     }
 
     #[test]
@@ -1193,6 +1205,49 @@ mod tests {
     }
 
     #[test]
+    fn condvar_wait_survives_owner_handle_cleanup() {
+        use std::sync::mpsc::channel;
+
+        let condvar = mux_condvar_new();
+        let mutex = mux_mutex_new();
+        assert!(!condvar.is_null());
+        assert!(!mutex.is_null());
+        let waiter_mutex = unsafe { clone_handle(mutex) };
+        let signal_condvar = unsafe { clone_handle(condvar) };
+        assert!(!waiter_mutex.is_null());
+        assert!(!signal_condvar.is_null());
+        release_result(mux_mutex_lock(mutex));
+
+        let (ready_tx, ready_rx) = channel();
+        let waiter_mutex_addr = waiter_mutex as usize;
+        let waiter_condvar_addr = condvar as usize;
+        let waiter = thread::spawn(move || {
+            ready_tx.send(()).unwrap();
+            release_result(mux_condvar_wait(
+                waiter_condvar_addr as *mut Value,
+                waiter_mutex_addr as *mut Value,
+            ));
+            release_result(mux_mutex_unlock(waiter_mutex_addr as *mut Value));
+            assert!(mux_rc_dec(waiter_mutex_addr as *mut Value));
+        });
+        ready_rx.recv().unwrap();
+        thread::sleep(Duration::from_millis(5));
+
+        // The waiter has already entered the exported wait path. Dropping the
+        // owner's handles must not invalidate the native objects needed by the
+        // in-flight wait; the signaler keeps only its own condvar handle.
+        assert!(mux_rc_dec(condvar));
+        assert!(mux_rc_dec(mutex));
+        let signal_condvar_addr = signal_condvar as usize;
+        let signaler = thread::spawn(move || {
+            release_result(mux_condvar_signal(signal_condvar_addr as *mut Value));
+            assert!(mux_rc_dec(signal_condvar_addr as *mut Value));
+        });
+        waiter.join().unwrap();
+        signaler.join().unwrap();
+    }
+
+    #[test]
     fn owner_thread_cleanup_unlocks_before_entry_drop() {
         let owner = thread::spawn(|| {
             let mutex = mux_mutex_new();
@@ -1205,5 +1260,25 @@ mod tests {
             assert!(mux_rc_dec(mutex));
         });
         owner.join().unwrap();
+    }
+
+    #[test]
+    fn owner_thread_cleanup_makes_mutex_reacquirable() {
+        let mutex = mux_mutex_new();
+        assert!(!mutex.is_null());
+        let handle_addr = mutex as usize;
+        let owner = thread::spawn(move || {
+            // The main test thread keeps the handle alive; this thread only
+            // reads its immutable type/id metadata through the exported API.
+            let result = mux_mutex_lock(handle_addr as *mut Value);
+            assert!(!result.is_null());
+            assert!(mux_rc_dec(result));
+            // Deliberately omit unlock: thread-local cleanup must release it.
+        });
+        owner.join().unwrap();
+
+        release_result(mux_mutex_lock(mutex));
+        release_result(mux_mutex_unlock(mutex));
+        assert!(mux_rc_dec(mutex));
     }
 }

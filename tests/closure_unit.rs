@@ -57,7 +57,7 @@ unsafe fn make_closure(func: extern "C" fn(), captures: &[*mut Value]) -> *mut c
 
 #[test]
 fn retain_and_release_are_null_safe() {
-    mux_closure_retain(std::ptr::null_mut());
+    unsafe { mux_closure_retain(std::ptr::null_mut()) };
     unsafe { mux_closure_release(std::ptr::null_mut()) };
 }
 
@@ -71,7 +71,7 @@ fn capture_free_release_frees_closure() {
 #[test]
 fn retain_delays_free_until_last_release() {
     let closure = unsafe { make_closure(noop, &[]) };
-    mux_closure_retain(closure); // refcount 1 -> 2
+    unsafe { mux_closure_retain(closure) }; // refcount 1 -> 2
     unsafe { mux_closure_release(closure) }; // 2 -> 1, must NOT free
                                              // If retain had not incremented, the line above would have freed the
                                              // allocation and this second release would be a use-after-free / double
