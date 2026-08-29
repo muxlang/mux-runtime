@@ -14,6 +14,16 @@ Changes are still recorded under a numbered heading rather than a rolling
 changes a given compiler pin actually contains, and it is what let three
 compiler PRs land with no release notes at all.
 
+## [0.6.2] - 2026-08-29
+
+### Changed
+- **The supported Rust toolchain is now declared in the repository.** Local
+  builds and CI use Rust 1.93.1, and Cargo records that minimum version for
+  dependency resolution and lint checks.
+- **Math FFI wrappers no longer use the unmaintained `paste` crate.** The
+  exported symbol names stay unchanged while the wrapper macro receives each
+  name explicitly.
+
 ## [0.6.1] - 2026-08-27
 
 ### Added

@@ -2,12 +2,20 @@
 name = "mux-runtime"
 version = "0.6.1"
 edition = "2021"
+rust-version = "1.93.1"
 description = "Runtime library for the Mux programming language"
 authors = ["Derek Corniello"]
 repository = "https://github.com/muxlang/mux-runtime"
 license = "MIT"
 keywords = ["mux", "runtime", "language"]
 categories = ["development-tools", "compilers"]
+
+[lints.rust]
+unused_must_use = "deny"
+
+[lints.clippy]
+correctness = "deny"
+suspicious = "deny"
 
 [lib]
 name = "mux_runtime"
@@ -38,7 +46,6 @@ ordered-float = "4.0"
 hashbrown = "0.15"
 lazy_static = "1.4"
 libc = "0.2"
-paste = "1.0"
 chrono = "0.4"
 serde_json = { version = "1.0", optional = true }
 indexmap = { version = "2", optional = true }
