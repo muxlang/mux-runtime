@@ -3,10 +3,11 @@ use crate::refcount::{mux_rc_alloc, mux_rc_dec};
 use crate::TypeId;
 use crate::Value;
 use lazy_static::lazy_static;
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicI64, Ordering};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
@@ -389,15 +390,69 @@ struct ThreadEntry {
     handle: Option<thread::JoinHandle<()>>,
 }
 
+struct MutexEntry {
+    ptr: *mut sync_backend::MuxMutex,
+}
+
+struct RwLockEntry {
+    ptr: *mut sync_backend::MuxRwLock,
+}
+
+struct CondVarEntry {
+    ptr: *mut sync_backend::MuxCondVar,
+}
+
+// Native synchronization objects are allocated once and are destroyed only
+// after the registry and every active operation/lock owner release their Arc.
+// The raw pointers remain stable for the lifetime of each entry.
+unsafe impl Send for MutexEntry {}
+unsafe impl Sync for MutexEntry {}
+unsafe impl Send for RwLockEntry {}
+unsafe impl Sync for RwLockEntry {}
+unsafe impl Send for CondVarEntry {}
+unsafe impl Sync for CondVarEntry {}
+
+impl Drop for MutexEntry {
+    fn drop(&mut self) {
+        // SAFETY: the entry owns this initialized native mutex and is dropped
+        // only after all operation and lock-owner pins have been released.
+        unsafe { sync_backend::destroy_mutex(self.ptr) };
+    }
+}
+
+impl Drop for RwLockEntry {
+    fn drop(&mut self) {
+        // SAFETY: the entry owns this initialized native lock and is dropped
+        // only after all operation and lock-owner pins have been released.
+        unsafe { sync_backend::destroy_rwlock(self.ptr) };
+    }
+}
+
+impl Drop for CondVarEntry {
+    fn drop(&mut self) {
+        // SAFETY: the entry owns this initialized condition variable and is
+        // dropped only after all operation and waiter pins have been released.
+        unsafe { sync_backend::destroy_condvar(self.ptr) };
+    }
+}
+
+thread_local! {
+    // Keep one pin for every successful lock acquisition. Some native
+    // backends permit recursive read-lock acquisition, so a single Arc per
+    // handle would release the lifetime pin too early on the first unlock.
+    static HELD_MUTEXES: RefCell<HashMap<i64, Vec<Arc<MutexEntry>>>> = RefCell::new(HashMap::new());
+    static HELD_RWLOCKS: RefCell<HashMap<i64, Vec<Arc<RwLockEntry>>>> = RefCell::new(HashMap::new());
+}
+
 lazy_static! {
     static ref NEXT_THREAD_ID: AtomicI64 = AtomicI64::new(1);
     static ref THREADS: Mutex<HashMap<i64, ThreadEntry>> = Mutex::new(HashMap::new());
     static ref NEXT_MUTEX_ID: AtomicI64 = AtomicI64::new(1);
-    static ref MUTEXES: Mutex<HashMap<i64, usize>> = Mutex::new(HashMap::new());
+    static ref MUTEXES: Mutex<HashMap<i64, Arc<MutexEntry>>> = Mutex::new(HashMap::new());
     static ref NEXT_RWLOCK_ID: AtomicI64 = AtomicI64::new(1);
-    static ref RWLOCKS: Mutex<HashMap<i64, usize>> = Mutex::new(HashMap::new());
+    static ref RWLOCKS: Mutex<HashMap<i64, Arc<RwLockEntry>>> = Mutex::new(HashMap::new());
     static ref NEXT_CONDVAR_ID: AtomicI64 = AtomicI64::new(1);
-    static ref CONDVARS: Mutex<HashMap<i64, usize>> = Mutex::new(HashMap::new());
+    static ref CONDVARS: Mutex<HashMap<i64, Arc<CondVarEntry>>> = Mutex::new(HashMap::new());
     static ref MUTEX_TYPE_ID: TypeId = register_object_type(
         "Mutex",
         8,
@@ -433,17 +488,11 @@ extern "C" fn destroy_mutex_object(ptr: *mut c_void) {
         return;
     }
     let id = unsafe { *(ptr as *mut i64) };
-    let mutex_ptr = {
+    let entry = {
         let mut mutexes = MUTEXES.lock().unwrap_or_else(|e| e.into_inner());
-        mutexes
-            .remove(&id)
-            .map(|p| p as *mut sync_backend::MuxMutex)
+        mutexes.remove(&id)
     };
-    if let Some(mutex_ptr) = mutex_ptr {
-        // SAFETY: the pointer came from the registry and this callback removes
-        // its sole registry entry before destroying the initialized mutex.
-        unsafe { sync_backend::destroy_mutex(mutex_ptr) };
-    }
+    drop(entry);
 }
 
 extern "C" fn destroy_rwlock_object(ptr: *mut c_void) {
@@ -451,17 +500,11 @@ extern "C" fn destroy_rwlock_object(ptr: *mut c_void) {
         return;
     }
     let id = unsafe { *(ptr as *mut i64) };
-    let rwlock_ptr = {
+    let entry = {
         let mut rwlocks = RWLOCKS.lock().unwrap_or_else(|e| e.into_inner());
-        rwlocks
-            .remove(&id)
-            .map(|p| p as *mut sync_backend::MuxRwLock)
+        rwlocks.remove(&id)
     };
-    if let Some(rwlock_ptr) = rwlock_ptr {
-        // SAFETY: the pointer came from the registry and this callback removes
-        // its sole registry entry before destroying the initialized lock.
-        unsafe { sync_backend::destroy_rwlock(rwlock_ptr) };
-    }
+    drop(entry);
 }
 
 extern "C" fn destroy_condvar_object(ptr: *mut c_void) {
@@ -469,17 +512,11 @@ extern "C" fn destroy_condvar_object(ptr: *mut c_void) {
         return;
     }
     let id = unsafe { *(ptr as *mut i64) };
-    let condvar_ptr = {
+    let entry = {
         let mut condvars = CONDVARS.lock().unwrap_or_else(|e| e.into_inner());
-        condvars
-            .remove(&id)
-            .map(|p| p as *mut sync_backend::MuxCondVar)
+        condvars.remove(&id)
     };
-    if let Some(condvar_ptr) = condvar_ptr {
-        // SAFETY: the pointer came from the registry and this callback removes
-        // its sole registry entry before destroying the initialized condvar.
-        unsafe { sync_backend::destroy_condvar(condvar_ptr) };
-    }
+    drop(entry);
 }
 
 extern "C" fn destroy_thread_object(ptr: *mut c_void) {
@@ -511,6 +548,33 @@ fn extract_handle_id(
         return Err(err_string("handle data is null"));
     }
     Ok(unsafe { *(ptr as *const i64) })
+}
+
+fn mutex_entry(id: i64) -> Result<Arc<MutexEntry>, *mut Value> {
+    MUTEXES
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(&id)
+        .cloned()
+        .ok_or_else(|| err_string(format!("Mutex handle {} not found", id)))
+}
+
+fn rwlock_entry(id: i64) -> Result<Arc<RwLockEntry>, *mut Value> {
+    RWLOCKS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(&id)
+        .cloned()
+        .ok_or_else(|| err_string(format!("RwLock handle {} not found", id)))
+}
+
+fn condvar_entry(id: i64) -> Result<Arc<CondVarEntry>, *mut Value> {
+    CONDVARS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(&id)
+        .cloned()
+        .ok_or_else(|| err_string(format!("CondVar handle {} not found", id)))
 }
 
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
@@ -651,7 +715,7 @@ pub extern "C" fn mux_mutex_new() -> *mut Value {
         Ok(ptr) => {
             let id = NEXT_MUTEX_ID.fetch_add(1, Ordering::Relaxed);
             let mut mutexes = MUTEXES.lock().unwrap_or_else(|e| e.into_inner());
-            mutexes.insert(id, ptr as usize);
+            mutexes.insert(id, Arc::new(MutexEntry { ptr }));
 
             let obj_ptr = alloc_object(*MUTEX_TYPE_ID);
             let data_ptr = unsafe { get_object_ptr(obj_ptr) };
@@ -672,7 +736,7 @@ pub extern "C" fn mux_rwlock_new() -> *mut Value {
         Ok(ptr) => {
             let id = NEXT_RWLOCK_ID.fetch_add(1, Ordering::Relaxed);
             let mut rwlocks = RWLOCKS.lock().unwrap_or_else(|e| e.into_inner());
-            rwlocks.insert(id, ptr as usize);
+            rwlocks.insert(id, Arc::new(RwLockEntry { ptr }));
 
             let obj_ptr = alloc_object(*RWLOCK_TYPE_ID);
             let data_ptr = unsafe { get_object_ptr(obj_ptr) };
@@ -693,7 +757,7 @@ pub extern "C" fn mux_condvar_new() -> *mut Value {
         Ok(ptr) => {
             let id = NEXT_CONDVAR_ID.fetch_add(1, Ordering::Relaxed);
             let mut condvars = CONDVARS.lock().unwrap_or_else(|e| e.into_inner());
-            condvars.insert(id, ptr as usize);
+            condvars.insert(id, Arc::new(CondVarEntry { ptr }));
 
             let obj_ptr = alloc_object(*CONDVAR_TYPE_ID);
             let data_ptr = unsafe { get_object_ptr(obj_ptr) };
@@ -715,20 +779,20 @@ pub extern "C" fn mux_mutex_lock(mutex_handle: *mut Value) -> *mut Value {
         Ok(id) => id,
         Err(e) => return e,
     };
-    let mutex_ptr = {
-        let mutexes = MUTEXES.lock().unwrap_or_else(|e| e.into_inner());
-        match mutexes.get(&id) {
-            Some(ptr) => *ptr as *mut sync_backend::MuxMutex,
-            None => return err_string(format!("Mutex handle {} not found", id)),
-        }
+    let entry = match mutex_entry(id) {
+        Ok(entry) => entry,
+        Err(error) => return error,
     };
 
     // SAFETY: the pointer was read from the live-handle registry and remains
     // initialized for this backend operation.
-    let rc = unsafe { sync_backend::lock_mutex(mutex_ptr) };
+    let rc = unsafe { sync_backend::lock_mutex(entry.ptr) };
     if rc != 0 {
         return err_string(format!("mux_mutex_lock failed with error code {}", rc));
     }
+    HELD_MUTEXES.with(|held| {
+        held.borrow_mut().entry(id).or_default().push(entry);
+    });
     ok_unit()
 }
 
@@ -739,18 +803,26 @@ pub extern "C" fn mux_mutex_unlock(mutex_handle: *mut Value) -> *mut Value {
         Ok(id) => id,
         Err(e) => return e,
     };
-    let mutex_ptr = {
-        let mutexes = MUTEXES.lock().unwrap_or_else(|e| e.into_inner());
-        match mutexes.get(&id) {
-            Some(ptr) => *ptr as *mut sync_backend::MuxMutex,
-            None => return err_string(format!("Mutex handle {} not found", id)),
+    let entry = HELD_MUTEXES.with(|held| {
+        let mut held = held.borrow_mut();
+        let entries = held.get_mut(&id)?;
+        let entry = entries.pop();
+        if entries.is_empty() {
+            held.remove(&id);
         }
+        entry
+    });
+    let Some(entry) = entry else {
+        return err_string(format!("Mutex handle {} is not locked by this thread", id));
     };
 
     // SAFETY: the pointer was read from the live-handle registry and remains
     // initialized for this backend operation.
-    let rc = unsafe { sync_backend::unlock_mutex(mutex_ptr) };
+    let rc = unsafe { sync_backend::unlock_mutex(entry.ptr) };
     if rc != 0 {
+        HELD_MUTEXES.with(|held| {
+            held.borrow_mut().entry(id).or_default().push(entry);
+        });
         return err_string(format!("mux_mutex_unlock failed with error code {}", rc));
     }
     ok_unit()
@@ -763,23 +835,23 @@ pub extern "C" fn mux_rwlock_read_lock(rwlock_handle: *mut Value) -> *mut Value 
         Ok(id) => id,
         Err(e) => return e,
     };
-    let rwlock_ptr = {
-        let rwlocks = RWLOCKS.lock().unwrap_or_else(|e| e.into_inner());
-        match rwlocks.get(&id) {
-            Some(ptr) => *ptr as *mut sync_backend::MuxRwLock,
-            None => return err_string(format!("RwLock handle {} not found", id)),
-        }
+    let entry = match rwlock_entry(id) {
+        Ok(entry) => entry,
+        Err(error) => return error,
     };
 
     // SAFETY: the pointer was read from the live-handle registry and remains
     // initialized for this backend operation.
-    let rc = unsafe { sync_backend::rwlock_read_lock(rwlock_ptr) };
+    let rc = unsafe { sync_backend::rwlock_read_lock(entry.ptr) };
     if rc != 0 {
         return err_string(format!(
             "mux_rwlock_read_lock failed with error code {}",
             rc
         ));
     }
+    HELD_RWLOCKS.with(|held| {
+        held.borrow_mut().entry(id).or_default().push(entry);
+    });
     ok_unit()
 }
 
@@ -790,23 +862,23 @@ pub extern "C" fn mux_rwlock_write_lock(rwlock_handle: *mut Value) -> *mut Value
         Ok(id) => id,
         Err(e) => return e,
     };
-    let rwlock_ptr = {
-        let rwlocks = RWLOCKS.lock().unwrap_or_else(|e| e.into_inner());
-        match rwlocks.get(&id) {
-            Some(ptr) => *ptr as *mut sync_backend::MuxRwLock,
-            None => return err_string(format!("RwLock handle {} not found", id)),
-        }
+    let entry = match rwlock_entry(id) {
+        Ok(entry) => entry,
+        Err(error) => return error,
     };
 
     // SAFETY: the pointer was read from the live-handle registry and remains
     // initialized for this backend operation.
-    let rc = unsafe { sync_backend::rwlock_write_lock(rwlock_ptr) };
+    let rc = unsafe { sync_backend::rwlock_write_lock(entry.ptr) };
     if rc != 0 {
         return err_string(format!(
             "mux_rwlock_write_lock failed with error code {}",
             rc
         ));
     }
+    HELD_RWLOCKS.with(|held| {
+        held.borrow_mut().entry(id).or_default().push(entry);
+    });
     ok_unit()
 }
 
@@ -817,18 +889,26 @@ pub extern "C" fn mux_rwlock_unlock(rwlock_handle: *mut Value) -> *mut Value {
         Ok(id) => id,
         Err(e) => return e,
     };
-    let rwlock_ptr = {
-        let rwlocks = RWLOCKS.lock().unwrap_or_else(|e| e.into_inner());
-        match rwlocks.get(&id) {
-            Some(ptr) => *ptr as *mut sync_backend::MuxRwLock,
-            None => return err_string(format!("RwLock handle {} not found", id)),
+    let entry = HELD_RWLOCKS.with(|held| {
+        let mut held = held.borrow_mut();
+        let entries = held.get_mut(&id)?;
+        let entry = entries.pop();
+        if entries.is_empty() {
+            held.remove(&id);
         }
+        entry
+    });
+    let Some(entry) = entry else {
+        return err_string(format!("RwLock handle {} is not locked by this thread", id));
     };
 
     // SAFETY: the pointer was read from the live-handle registry and remains
     // initialized for this backend operation.
-    let rc = unsafe { sync_backend::rwlock_unlock(rwlock_ptr) };
+    let rc = unsafe { sync_backend::rwlock_unlock(entry.ptr) };
     if rc != 0 {
+        HELD_RWLOCKS.with(|held| {
+            held.borrow_mut().entry(id).or_default().push(entry);
+        });
         return err_string(format!("mux_rwlock_unlock failed with error code {}", rc));
     }
     ok_unit()
@@ -849,24 +929,18 @@ pub extern "C" fn mux_condvar_wait(
         Err(e) => return e,
     };
 
-    let cond_ptr = {
-        let condvars = CONDVARS.lock().unwrap_or_else(|e| e.into_inner());
-        match condvars.get(&cond_id) {
-            Some(ptr) => *ptr as *mut sync_backend::MuxCondVar,
-            None => return err_string(format!("CondVar handle {} not found", cond_id)),
-        }
+    let cond_entry = match condvar_entry(cond_id) {
+        Ok(entry) => entry,
+        Err(error) => return error,
     };
-    let mutex_ptr = {
-        let mutexes = MUTEXES.lock().unwrap_or_else(|e| e.into_inner());
-        match mutexes.get(&mutex_id) {
-            Some(ptr) => *ptr as *mut sync_backend::MuxMutex,
-            None => return err_string(format!("Mutex handle {} not found", mutex_id)),
-        }
+    let mutex_entry = match mutex_entry(mutex_id) {
+        Ok(entry) => entry,
+        Err(error) => return error,
     };
 
     // SAFETY: both pointers were read from their live-handle registries and
     // remain initialized; the Mux contract requires the mutex to be held.
-    let rc = unsafe { sync_backend::condvar_wait(cond_ptr, mutex_ptr) };
+    let rc = unsafe { sync_backend::condvar_wait(cond_entry.ptr, mutex_entry.ptr) };
     if rc != 0 {
         return err_string(format!("mux_condvar_wait failed with error code {}", rc));
     }
@@ -880,17 +954,14 @@ pub extern "C" fn mux_condvar_signal(condvar_handle: *mut Value) -> *mut Value {
         Ok(id) => id,
         Err(e) => return e,
     };
-    let cond_ptr = {
-        let condvars = CONDVARS.lock().unwrap_or_else(|e| e.into_inner());
-        match condvars.get(&id) {
-            Some(ptr) => *ptr as *mut sync_backend::MuxCondVar,
-            None => return err_string(format!("CondVar handle {} not found", id)),
-        }
+    let entry = match condvar_entry(id) {
+        Ok(entry) => entry,
+        Err(error) => return error,
     };
 
     // SAFETY: the pointer was read from the live-handle registry and remains
     // initialized for this backend operation.
-    let rc = unsafe { sync_backend::condvar_signal(cond_ptr) };
+    let rc = unsafe { sync_backend::condvar_signal(entry.ptr) };
     if rc != 0 {
         return err_string(format!("mux_condvar_signal failed with error code {}", rc));
     }
@@ -904,17 +975,14 @@ pub extern "C" fn mux_condvar_broadcast(condvar_handle: *mut Value) -> *mut Valu
         Ok(id) => id,
         Err(e) => return e,
     };
-    let cond_ptr = {
-        let condvars = CONDVARS.lock().unwrap_or_else(|e| e.into_inner());
-        match condvars.get(&id) {
-            Some(ptr) => *ptr as *mut sync_backend::MuxCondVar,
-            None => return err_string(format!("CondVar handle {} not found", id)),
-        }
+    let entry = match condvar_entry(id) {
+        Ok(entry) => entry,
+        Err(error) => return error,
     };
 
     // SAFETY: the pointer was read from the live-handle registry and remains
     // initialized for this backend operation.
-    let rc = unsafe { sync_backend::condvar_broadcast(cond_ptr) };
+    let rc = unsafe { sync_backend::condvar_broadcast(entry.ptr) };
     if rc != 0 {
         return err_string(format!(
             "mux_condvar_broadcast failed with error code {}",
@@ -930,4 +998,76 @@ pub extern "C" fn mux_sync_sleep(ms: i64) {
         return;
     }
     thread::sleep(Duration::from_millis(ms as u64));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::refcount::mux_rc_dec;
+
+    fn release_result(result: *mut Value) {
+        assert!(!result.is_null());
+        assert!(mux_rc_dec(result));
+    }
+
+    #[test]
+    fn mutex_destroy_keeps_native_lock_alive_until_unlock() {
+        let handle = mux_mutex_new();
+        assert!(!handle.is_null());
+        let id = extract_handle_id(handle, *MUTEX_TYPE_ID, "Mutex").unwrap();
+        release_result(mux_mutex_lock(handle));
+
+        // Dropping the last language handle removes the registry entry while
+        // the native mutex is still locked. The per-thread pin must keep the
+        // native object alive so the owner can finish unlocking it.
+        assert!(mux_rc_dec(handle));
+        assert!(!MUTEXES
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .contains_key(&id));
+        let entry = HELD_MUTEXES.with(|held| {
+            held.borrow_mut()
+                .get_mut(&id)
+                .and_then(|entries| entries.pop())
+        });
+        let entry = entry.expect("successful lock must retain a lifetime pin");
+        assert_eq!(unsafe { sync_backend::unlock_mutex(entry.ptr) }, 0);
+        drop(entry);
+    }
+
+    #[test]
+    fn rwlock_destroy_keeps_native_lock_alive_until_unlock() {
+        let handle = mux_rwlock_new();
+        assert!(!handle.is_null());
+        let id = extract_handle_id(handle, *RWLOCK_TYPE_ID, "RwLock").unwrap();
+        release_result(mux_rwlock_read_lock(handle));
+        assert!(mux_rc_dec(handle));
+        assert!(!RWLOCKS
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .contains_key(&id));
+        let entry = HELD_RWLOCKS.with(|held| {
+            held.borrow_mut()
+                .get_mut(&id)
+                .and_then(|entries| entries.pop())
+        });
+        let entry = entry.expect("successful lock must retain a lifetime pin");
+        assert_eq!(unsafe { sync_backend::rwlock_unlock(entry.ptr) }, 0);
+        drop(entry);
+    }
+
+    #[test]
+    fn condvar_operation_pins_entry_after_handle_drop() {
+        let handle = mux_condvar_new();
+        assert!(!handle.is_null());
+        let id = extract_handle_id(handle, *CONDVAR_TYPE_ID, "CondVar").unwrap();
+        let entry = condvar_entry(id).unwrap();
+        assert!(mux_rc_dec(handle));
+        assert!(!CONDVARS
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .contains_key(&id));
+        assert_eq!(unsafe { sync_backend::condvar_signal(entry.ptr) }, 0);
+        drop(entry);
+    }
 }
