@@ -135,6 +135,25 @@ jobs:
       - name: Clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
 
+  cargo_deny:
+    name: Cargo deny
+    needs: detect-changes
+    if: ${{ needs.detect-changes.outputs.runtime_src == 'true' || github.event_name == 'push' }}
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9 # untagged master commit; the repo's only tag (v1) is OLDER than this
+        with:
+          toolchain: 1.93.1
+      - name: Install cargo-deny
+        run: cargo install cargo-deny --locked --version 0.18.3
+      - name: Check dependency policy
+        run: cargo deny check advisories licenses sources bans
+
   ab_benchmark_gate:
     # Roc-style A/B regression gate (plan.md step 5): runs the PR head's
     # `cargo bench` against a cached baseline built from the PR's base
