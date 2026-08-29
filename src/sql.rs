@@ -1170,10 +1170,22 @@ pub extern "C" fn mux_sql_transaction_commit(transaction: *mut Value) -> *mut Va
             .connection
             .take()
             .ok_or_else(|| "transaction connection missing".to_string())?;
-        commit_connection(&mut connection)?;
-        return_connection(tx.connection_handle, connection);
-        tx.active = false;
-        Ok(())
+        match commit_connection(&mut connection) {
+            Ok(()) => {
+                return_connection(tx.connection_handle, connection);
+                tx.active = false;
+                Ok(())
+            }
+            Err(err) => {
+                // Keep ownership in the transaction when the backend rejects
+                // COMMIT. The connection may still be usable (and a caller
+                // may retry or explicitly roll it back); dropping it here
+                // leaves an active transaction handle permanently broken and
+                // can leak the connection from its registry.
+                tx.connection = Some(connection);
+                Err(err)
+            }
+        }
     });
     if result.is_ok() {
         remove_transaction(handle);
@@ -1196,10 +1208,19 @@ pub extern "C" fn mux_sql_transaction_rollback(transaction: *mut Value) -> *mut 
             .connection
             .take()
             .ok_or_else(|| "transaction connection missing".to_string())?;
-        rollback_connection(&mut connection)?;
-        return_connection(tx.connection_handle, connection);
-        tx.active = false;
-        Ok(())
+        match rollback_connection(&mut connection) {
+            Ok(()) => {
+                return_connection(tx.connection_handle, connection);
+                tx.active = false;
+                Ok(())
+            }
+            Err(err) => {
+                // As with COMMIT, retain the backend connection so callers can
+                // retry the rollback or drop the transaction for cleanup.
+                tx.connection = Some(connection);
+                Err(err)
+            }
+        }
     });
     if result.is_ok() {
         remove_transaction(handle);

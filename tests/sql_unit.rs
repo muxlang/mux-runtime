@@ -98,6 +98,51 @@ fn transaction_commit_and_rollback() {
 }
 
 #[test]
+fn failed_commit_keeps_transaction_connection() {
+    let conn = connect_memory();
+    let tx = ok_data(mux_sql_connection_begin_transaction(conn));
+
+    // End the backend transaction behind the wrapper's back. The wrapper's
+    // subsequent COMMIT must fail, but it must retain the connection in the
+    // transaction so another operation does not see "connection missing".
+    let external_commit = sval("COMMIT");
+    assert_ok(mux_sql_transaction_execute(tx, external_commit));
+    assert!(mux_rc_dec(external_commit));
+
+    assert_err(mux_sql_transaction_commit(tx));
+    let query = sval("SELECT 1");
+    let rs = ok_data(mux_sql_transaction_query(tx, query));
+    assert!(mux_rc_dec(query));
+    assert!(mux_rc_dec(rs));
+
+    mux_sql_connection_close(conn);
+    assert!(mux_rc_dec(tx));
+    assert!(mux_rc_dec(conn));
+}
+
+#[test]
+fn failed_rollback_keeps_transaction_connection() {
+    let conn = connect_memory();
+    let tx = ok_data(mux_sql_connection_begin_transaction(conn));
+
+    // End the backend transaction behind the wrapper's back so ROLLBACK
+    // returns an error while the wrapper still owns its connection.
+    let external_rollback = sval("ROLLBACK");
+    assert_ok(mux_sql_transaction_execute(tx, external_rollback));
+    assert!(mux_rc_dec(external_rollback));
+
+    assert_err(mux_sql_transaction_rollback(tx));
+    let query = sval("SELECT 1");
+    let rs = ok_data(mux_sql_transaction_query(tx, query));
+    assert!(mux_rc_dec(query));
+    assert!(mux_rc_dec(rs));
+
+    mux_sql_connection_close(conn);
+    assert!(mux_rc_dec(tx));
+    assert!(mux_rc_dec(conn));
+}
+
+#[test]
 fn sql_value_constructors_and_accessors() {
     let i = mux_sql_value_int(42);
     assert_ok(mux_sql_value_as_int(i));
