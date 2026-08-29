@@ -1,17 +1,17 @@
 [advisories]
 version = 2
-unmaintained = "warn"
+unmaintained = "all"
 yanked = "deny"
 ignore = []
 
 [licenses]
-copyleft = "deny"
 allow = [
   "Apache-2.0",
   "BSD-2-Clause",
   "BSD-3-Clause",
   "ISC",
   "MIT",
+  "Unicode-3.0",
   "Unicode-DFS-2016",
   "Zlib",
 ]
