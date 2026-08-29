@@ -24,7 +24,7 @@ fn int_extern_remainder() {
 
     let v = mux_int_value(9);
     assert_eq!(unsafe { mux_int_from_value(v) }, 9);
-    assert!(mux_rc_dec(v));
+    assert!(unsafe { mux_rc_dec(v) });
 
     assert_ok(mux_int_div(10, 2));
     assert_err(mux_int_div(1, 0));
@@ -46,9 +46,9 @@ fn float_extern_remainder() {
     let back = unsafe { mux_float_to_int(as_float) };
     assert_eq!(mux_value_get_int(back), 4);
     assert_eq!(unsafe { mux_float_from_value(as_float) }, 4.0);
-    assert!(mux_rc_dec(back));
-    assert!(mux_rc_dec(as_float));
-    assert!(mux_rc_dec(i));
+    assert!(unsafe { mux_rc_dec(back) });
+    assert!(unsafe { mux_rc_dec(as_float) });
+    assert!(unsafe { mux_rc_dec(i) });
 }
 
 #[test]
@@ -61,7 +61,7 @@ fn optional_extern_remainder() {
         mux_optional_some_char('a' as i64),
     ] {
         assert!(mux_optional_is_some(ctor));
-        assert!(mux_rc_dec(ctor));
+        assert!(unsafe { mux_rc_dec(ctor) });
     }
 
     let inner = mux_int_value(3);
@@ -69,19 +69,19 @@ fn optional_extern_remainder() {
     assert!(mux_optional_is_some(some));
     let data = mux_optional_data(some);
     assert!(!data.is_null());
-    assert!(mux_rc_dec(data));
+    assert!(unsafe { mux_rc_dec(data) });
     // identity pass-through
     assert_eq!(mux_optional_into_value(some), some);
     assert_eq!(read_cstr(mux_optional_to_string(some)), "Some(3)");
-    assert!(mux_rc_dec(some));
-    assert!(mux_rc_dec(inner));
+    assert!(unsafe { mux_rc_dec(some) });
+    assert!(unsafe { mux_rc_dec(inner) });
 
     // some_value(null) yields None; get_value(None) yields null
     let none = mux_optional_some_value(std::ptr::null_mut());
     assert!(mux_optional_is_none(none));
     assert!(mux_optional_get_value(none).is_null());
     assert_eq!(read_cstr(mux_optional_to_string(none)), "None");
-    assert!(mux_rc_dec(none));
+    assert!(unsafe { mux_rc_dec(none) });
 }
 
 #[test]
@@ -94,26 +94,26 @@ fn result_extern_remainder() {
         mux_result_ok_char('z' as i64),
     ] {
         assert!(mux_result_is_ok(ctor));
-        assert!(mux_rc_dec(ctor));
+        assert!(unsafe { mux_rc_dec(ctor) });
     }
 
     let inner = mux_int_value(5);
     let ok = mux_result_ok_value(inner);
     assert!(mux_result_is_ok(ok));
-    assert!(mux_rc_dec(ok));
+    assert!(unsafe { mux_rc_dec(ok) });
 
     let err = mux_result_err_value(inner);
     assert!(mux_result_is_err(err));
     let data = mux_result_data(err); // Err branch
     assert!(!data.is_null());
-    assert!(mux_rc_dec(data));
-    assert!(mux_rc_dec(err));
-    assert!(mux_rc_dec(inner));
+    assert!(unsafe { mux_rc_dec(data) });
+    assert!(unsafe { mux_rc_dec(err) });
+    assert!(unsafe { mux_rc_dec(inner) });
 
     let msg = CString::new("boom").unwrap();
     let err2 = unsafe { mux_result_err_str(msg.as_ptr()) };
     assert!(mux_result_is_err(err2));
-    assert!(mux_rc_dec(err2));
+    assert!(unsafe { mux_rc_dec(err2) });
 
     // null inputs
     assert!(mux_result_ok_value(std::ptr::null_mut()).is_null());

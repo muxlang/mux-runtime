@@ -37,14 +37,14 @@ fn optional_extern_roundtrip() {
     unsafe {
         assert!(matches!(&*inner, Value::Int(5)));
     }
-    assert!(mux_rc_dec(inner));
+    assert!(unsafe { mux_rc_dec(inner) });
 
     let none = optional::mux_optional_none();
     assert!(optional::mux_optional_is_none(none));
     assert_eq!(optional::mux_value_optional_discriminant(none), 1);
 
-    assert!(mux_rc_dec(some));
-    assert!(mux_rc_dec(none));
+    assert!(unsafe { mux_rc_dec(some) });
+    assert!(unsafe { mux_rc_dec(none) });
 }
 
 // --- C-ABI result ------------------------------------------------------------
@@ -61,6 +61,6 @@ fn result_extern_roundtrip() {
     unsafe {
         assert!(matches!(&*data, Value::Int(7)));
     }
-    assert!(mux_rc_dec(data));
-    assert!(mux_rc_dec(ok));
+    assert!(unsafe { mux_rc_dec(data) });
+    assert!(unsafe { mux_rc_dec(ok) });
 }

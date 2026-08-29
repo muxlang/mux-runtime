@@ -22,12 +22,12 @@ fn int_and_bool_value_roundtrip() {
     let i = mux_int_value(42);
     assert_eq!(mux_value_get_int(i), 42);
     assert_eq!(mux_value_get_type_tag(i), 1);
-    assert!(mux_rc_dec(i));
+    assert!(unsafe { mux_rc_dec(i) });
 
     let b = mux_bool_value(1);
     assert_eq!(mux_value_get_bool(b), 1);
     assert_eq!(mux_value_get_type_tag(b), 0);
-    assert!(mux_rc_dec(b));
+    assert!(unsafe { mux_rc_dec(b) });
 }
 
 #[test]
@@ -36,9 +36,9 @@ fn value_add_numbers_and_strings() {
     let b = mux_int_value(3);
     let sum = mux_value_add(a, b);
     assert_eq!(mux_value_get_int(sum), 5);
-    assert!(mux_rc_dec(sum));
-    assert!(mux_rc_dec(a));
-    assert!(mux_rc_dec(b));
+    assert!(unsafe { mux_rc_dec(sum) });
+    assert!(unsafe { mux_rc_dec(a) });
+    assert!(unsafe { mux_rc_dec(b) });
 
     let foo = CString::new("foo").unwrap();
     let bar = CString::new("bar").unwrap();
@@ -46,9 +46,9 @@ fn value_add_numbers_and_strings() {
     let sb = mux_string_value(bar.as_ptr());
     let cat = mux_value_add(sa, sb);
     assert_eq!(read_and_free_cstr(mux_value_to_string(cat)), "foobar");
-    assert!(mux_rc_dec(cat));
-    assert!(mux_rc_dec(sa));
-    assert!(mux_rc_dec(sb));
+    assert!(unsafe { mux_rc_dec(cat) });
+    assert!(unsafe { mux_rc_dec(sa) });
+    assert!(unsafe { mux_rc_dec(sb) });
 }
 
 #[test]
@@ -59,9 +59,9 @@ fn value_equality() {
     assert_eq!(mux_value_equal(a, b), 1);
     assert_eq!(mux_value_equal(a, c), 0);
     assert_eq!(mux_value_not_equal(a, c), 1);
-    assert!(mux_rc_dec(a));
-    assert!(mux_rc_dec(b));
-    assert!(mux_rc_dec(c));
+    assert!(unsafe { mux_rc_dec(a) });
+    assert!(unsafe { mux_rc_dec(b) });
+    assert!(unsafe { mux_rc_dec(c) });
 }
 
 #[test]
@@ -72,9 +72,9 @@ fn range_into_list_value() {
 
     let first = mux_value_list_get_value(list_val, 0);
     assert_eq!(mux_value_get_int(first), 1);
-    assert!(mux_rc_dec(first));
+    assert!(unsafe { mux_rc_dec(first) });
 
-    assert!(mux_rc_dec(list_val));
+    assert!(unsafe { mux_rc_dec(list_val) });
 }
 
 #[test]
@@ -90,12 +90,12 @@ fn value_get_list_from_value() {
     let raw = mux_value_get_list(list_val); // *mut List clone
     assert!(!raw.is_null());
     mux_free_list(raw);
-    assert!(mux_rc_dec(list_val));
+    assert!(unsafe { mux_rc_dec(list_val) });
 }
 
 #[test]
 fn value_to_string_scalar() {
     let i = mux_int_value(99);
     assert_eq!(read_and_free_cstr(mux_value_to_string(i)), "99");
-    assert!(mux_rc_dec(i));
+    assert!(unsafe { mux_rc_dec(i) });
 }

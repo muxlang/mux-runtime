@@ -11,13 +11,13 @@ use mux_runtime::Value;
 /// Assert a `Result` value is Ok and free it.
 pub fn assert_ok(r: *mut Value) {
     assert!(mux_result_is_ok(r), "expected Ok result");
-    assert!(mux_rc_dec(r));
+    assert!(unsafe { mux_rc_dec(r) });
 }
 
 /// Assert a `Result` value is Err and free it.
 pub fn assert_err(r: *mut Value) {
     assert!(mux_result_is_err(r), "expected Err result");
-    assert!(mux_rc_dec(r));
+    assert!(unsafe { mux_rc_dec(r) });
 }
 
 /// Extract the inner `i64` from a `Result(Ok(Int))`, freeing everything.
@@ -30,8 +30,8 @@ pub fn ok_int(r: *mut Value) -> i64 {
             other => panic!("expected Int, got {other:?}"),
         }
     };
-    assert!(mux_rc_dec(data));
-    assert!(mux_rc_dec(r));
+    assert!(unsafe { mux_rc_dec(data) });
+    assert!(unsafe { mux_rc_dec(r) });
     out
 }
 
@@ -45,8 +45,8 @@ pub fn ok_bool(r: *mut Value) -> bool {
             other => panic!("expected Bool, got {other:?}"),
         }
     };
-    assert!(mux_rc_dec(data));
-    assert!(mux_rc_dec(r));
+    assert!(unsafe { mux_rc_dec(data) });
+    assert!(unsafe { mux_rc_dec(r) });
     out
 }
 
@@ -60,8 +60,8 @@ pub fn ok_string(r: *mut Value) -> String {
             other => panic!("expected String, got {other:?}"),
         }
     };
-    assert!(mux_rc_dec(data));
-    assert!(mux_rc_dec(r));
+    assert!(unsafe { mux_rc_dec(data) });
+    assert!(unsafe { mux_rc_dec(r) });
     out
 }
 
@@ -75,7 +75,7 @@ pub fn ok_list_len(r: *mut Value) -> usize {
             other => panic!("expected List, got {other:?}"),
         }
     };
-    assert!(mux_rc_dec(data));
-    assert!(mux_rc_dec(r));
+    assert!(unsafe { mux_rc_dec(data) });
+    assert!(unsafe { mux_rc_dec(r) });
     out
 }

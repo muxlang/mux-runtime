@@ -77,12 +77,12 @@ fn json_stringify_extern() {
     // with indent via Optional(Some(Int))
     let indent = mux_rc_alloc(Value::Optional(Some(Box::new(Value::Int(2)))));
     assert_ok(mux_json_stringify(v, indent));
-    assert!(mux_rc_dec(indent));
+    assert!(unsafe { mux_rc_dec(indent) });
 
     // null value -> error
     assert_err(mux_json_stringify(std::ptr::null(), std::ptr::null_mut()));
 
-    assert!(mux_rc_dec(v));
+    assert!(unsafe { mux_rc_dec(v) });
 }
 
 #[test]
@@ -93,11 +93,11 @@ fn json_from_and_to_map_extern() {
 
     assert_ok(mux_json_from_map(map_val));
     assert_ok(mux_json_to_map(map_val));
-    assert!(mux_rc_dec(map_val));
+    assert!(unsafe { mux_rc_dec(map_val) });
 
     // non-map inputs are errors
     let int_val = mux_rc_alloc(Value::Int(1));
     assert_err(mux_json_from_map(int_val));
     assert_err(mux_json_to_map(int_val));
-    assert!(mux_rc_dec(int_val));
+    assert!(unsafe { mux_rc_dec(int_val) });
 }

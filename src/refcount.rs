@@ -313,11 +313,14 @@ unsafe fn get_alloc_base(val: *mut Value) -> *mut u8 {
 /// (e.g., assigning to a new variable, passing as argument, etc.)
 ///
 /// # Safety
-/// - `val` must be a valid pointer returned by `mux_rc_alloc` or null.
-/// - The Value must not have been freed.
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
+/// - `val` must be null or a live pointer returned by `mux_rc_alloc`.
+/// - The allocation must not have been freed, and the caller must own a
+///   reference to it for the duration of this call.
+/// - If other threads access the same allocation, each increment must be
+///   paired with an independently owned reference; this function does not
+///   make an unowned pointer safe to use concurrently.
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_rc_inc(val: *mut Value) {
+pub unsafe extern "C" fn mux_rc_inc(val: *mut Value) {
     if val.is_null() {
         return;
     }
@@ -335,11 +338,18 @@ pub extern "C" fn mux_rc_inc(val: *mut Value) {
 /// Otherwise returns false.
 ///
 /// # Safety
-/// - `val` must be a valid pointer returned by `mux_rc_alloc` or null.
+/// - `val` must be null or a live pointer returned by `mux_rc_alloc`.
+/// - The caller must own a reference to the allocation. That reference is
+///   consumed by this call, so it must not be used again afterward.
+/// - If other threads access the same allocation, each decrement must consume
+///   a distinct owned reference. The final decrement destroys the Value and
+///   must not race with any access through another pointer that is not backed
+///   by its own reference.
 /// - After this returns true, `val` is invalid and must not be used.
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
+///
+/// A null pointer is accepted and has no effect.
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_rc_dec(val: *mut Value) -> bool {
+pub unsafe extern "C" fn mux_rc_dec(val: *mut Value) -> bool {
     if val.is_null() {
         return false;
     }
@@ -370,10 +380,12 @@ pub extern "C" fn mux_rc_dec(val: *mut Value) -> bool {
 /// Get the current reference count of a Value (for debugging).
 ///
 /// # Safety
-/// - `val` must be a valid pointer returned by `mux_rc_alloc` or null.
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
+/// - `val` must be null or a live pointer returned by `mux_rc_alloc`.
+/// - The caller must keep an owned reference alive for the duration of this
+///   call. The returned count is only a diagnostic snapshot and must not be
+///   used to decide whether another thread may release the allocation.
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_rc_count(val: *const Value) -> usize {
+pub unsafe extern "C" fn mux_rc_count(val: *const Value) -> usize {
     if val.is_null() {
         return 0;
     }
@@ -390,15 +402,19 @@ pub extern "C" fn mux_rc_count(val: *const Value) -> usize {
 /// the ref count and returns the same pointer.
 ///
 /// # Safety
-/// - `val` must be a valid pointer returned by `mux_rc_alloc` or null.
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
+/// - `val` must be null or a live pointer returned by `mux_rc_alloc`.
+/// - The caller must own a reference to the allocation for the duration of
+///   this call. The returned pointer aliases the same allocation and carries
+///   one additional owned reference.
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_rc_clone(val: *mut Value) -> *mut Value {
+pub unsafe extern "C" fn mux_rc_clone(val: *mut Value) -> *mut Value {
     if val.is_null() {
         return val;
     }
 
-    mux_rc_inc(val);
+    // SAFETY: `mux_rc_clone` requires a live owned reference, which is exactly
+    // the precondition required by `mux_rc_inc`; the clone adds one reference.
+    unsafe { mux_rc_inc(val) };
     val
 }
 
@@ -412,7 +428,7 @@ mod tests {
     fn test_alloc_and_free() {
         let val = mux_rc_alloc(Value::Int(42));
         assert!(!val.is_null());
-        assert_eq!(mux_rc_count(val), 1);
+        assert_eq!(unsafe { mux_rc_count(val) }, 1);
 
         // Verify the value
         unsafe {
@@ -420,49 +436,49 @@ mod tests {
         }
 
         // Free it
-        assert!(mux_rc_dec(val)); // Returns true when freed
+        assert!(unsafe { mux_rc_dec(val) }); // Returns true when freed
     }
 
     #[test]
     fn test_inc_dec_cycle() {
         let val = mux_rc_alloc(Value::Int(100));
-        assert_eq!(mux_rc_count(val), 1);
+        assert_eq!(unsafe { mux_rc_count(val) }, 1);
 
-        mux_rc_inc(val);
-        assert_eq!(mux_rc_count(val), 2);
+        unsafe { mux_rc_inc(val) };
+        assert_eq!(unsafe { mux_rc_count(val) }, 2);
 
-        mux_rc_inc(val);
-        assert_eq!(mux_rc_count(val), 3);
+        unsafe { mux_rc_inc(val) };
+        assert_eq!(unsafe { mux_rc_count(val) }, 3);
 
-        assert!(!mux_rc_dec(val)); // Count is now 2
-        assert_eq!(mux_rc_count(val), 2);
+        assert!(!unsafe { mux_rc_dec(val) }); // Count is now 2
+        assert_eq!(unsafe { mux_rc_count(val) }, 2);
 
-        assert!(!mux_rc_dec(val)); // Count is now 1
-        assert_eq!(mux_rc_count(val), 1);
+        assert!(!unsafe { mux_rc_dec(val) }); // Count is now 1
+        assert_eq!(unsafe { mux_rc_count(val) }, 1);
 
-        assert!(mux_rc_dec(val)); // Count is now 0, freed
+        assert!(unsafe { mux_rc_dec(val) }); // Count is now 0, freed
     }
 
     #[test]
     fn test_clone() {
         let val = mux_rc_alloc(Value::Bool(true));
-        assert_eq!(mux_rc_count(val), 1);
+        assert_eq!(unsafe { mux_rc_count(val) }, 1);
 
-        let cloned = mux_rc_clone(val);
+        let cloned = unsafe { mux_rc_clone(val) };
         assert_eq!(cloned, val); // Same pointer
-        assert_eq!(mux_rc_count(val), 2);
+        assert_eq!(unsafe { mux_rc_count(val) }, 2);
 
-        assert!(!mux_rc_dec(cloned));
-        assert!(mux_rc_dec(val));
+        assert!(!unsafe { mux_rc_dec(cloned) });
+        assert!(unsafe { mux_rc_dec(val) });
     }
 
     #[test]
     fn test_null_safety() {
         // These should not crash
-        mux_rc_inc(std::ptr::null_mut());
-        assert!(!mux_rc_dec(std::ptr::null_mut()));
-        assert_eq!(mux_rc_count(std::ptr::null()), 0);
-        assert!(mux_rc_clone(std::ptr::null_mut()).is_null());
+        unsafe { mux_rc_inc(std::ptr::null_mut()) };
+        assert!(!unsafe { mux_rc_dec(std::ptr::null_mut()) });
+        assert_eq!(unsafe { mux_rc_count(std::ptr::null()) }, 0);
+        assert!(unsafe { mux_rc_clone(std::ptr::null_mut()) }.is_null());
     }
 
     #[test]
@@ -481,7 +497,7 @@ mod tests {
             }
         }
 
-        assert!(mux_rc_dec(val)); // Should clean up the String
+        assert!(unsafe { mux_rc_dec(val) }); // Should clean up the String
     }
 
     #[test]
@@ -501,7 +517,7 @@ mod tests {
             }
         }
 
-        assert!(mux_rc_dec(val)); // Should clean up the Vec and its contents
+        assert!(unsafe { mux_rc_dec(val) }); // Should clean up the Vec and its contents
     }
 
     #[test]
@@ -515,9 +531,9 @@ mod tests {
         );
 
         let val = mux_rc_alloc(Value::Map(map));
-        assert_eq!(mux_rc_count(val), 1);
+        assert_eq!(unsafe { mux_rc_count(val) }, 1);
 
-        assert!(mux_rc_dec(val)); // Should clean up everything recursively
+        assert!(unsafe { mux_rc_dec(val) }); // Should clean up everything recursively
     }
 
     #[test]
@@ -525,12 +541,12 @@ mod tests {
         let v = mux_rc_alloc(Value::Int(42));
         let cloned = unsafe { mux_value_deep_clone(v) };
         assert!(!cloned.is_null());
-        assert_eq!(mux_rc_count(cloned), 1);
+        assert_eq!(unsafe { mux_rc_count(cloned) }, 1);
         unsafe {
             assert!(matches!(&*cloned, Value::Int(42)));
         }
-        assert!(mux_rc_dec(cloned));
-        assert!(mux_rc_dec(v));
+        assert!(unsafe { mux_rc_dec(cloned) });
+        assert!(unsafe { mux_rc_dec(v) });
     }
 
     #[test]
@@ -541,12 +557,12 @@ mod tests {
         ]));
         let cloned = unsafe { mux_value_deep_clone(original) };
         assert!(!cloned.is_null());
-        assert_eq!(mux_rc_count(cloned), 1);
-        assert_eq!(mux_rc_count(original), 1);
+        assert_eq!(unsafe { mux_rc_count(cloned) }, 1);
+        assert_eq!(unsafe { mux_rc_count(original) }, 1);
 
         // Both halves must free cleanly without double-frees.
-        assert!(mux_rc_dec(cloned));
-        assert!(mux_rc_dec(original));
+        assert!(unsafe { mux_rc_dec(cloned) });
+        assert!(unsafe { mux_rc_dec(original) });
     }
 
     #[test]
@@ -574,8 +590,8 @@ mod tests {
                 panic!("Expected outer list");
             }
         }
-        assert!(mux_rc_dec(cloned));
-        assert!(mux_rc_dec(outer));
+        assert!(unsafe { mux_rc_dec(cloned) });
+        assert!(unsafe { mux_rc_dec(outer) });
     }
 
     #[test]
@@ -609,8 +625,8 @@ mod tests {
         }
 
         // Both boxes must free cleanly.
-        assert!(mux_rc_dec(cloned));
-        assert!(mux_rc_dec(original));
+        assert!(unsafe { mux_rc_dec(cloned) });
+        assert!(unsafe { mux_rc_dec(original) });
     }
 
     extern "C" fn probe_copy(src: *mut c_void, dst: *mut c_void) {
