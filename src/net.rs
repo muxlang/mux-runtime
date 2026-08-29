@@ -297,7 +297,7 @@ fn create_socket_value(handle: i64, type_id: TypeId) -> Value {
         unsafe { *(data_ptr as *mut i64) = handle };
     }
     let value = unsafe { (*obj_ptr).clone() };
-    mux_rc_dec(obj_ptr);
+    unsafe { mux_rc_dec(obj_ptr) };
     value
 }
 

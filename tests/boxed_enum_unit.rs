@@ -64,7 +64,7 @@ fn box_enum_managed_roundtrips_and_tags_as_opaque() {
     let view = unsafe { std::slice::from_raw_parts(payload, bytes.len()) };
     assert_eq!(view, &bytes);
 
-    assert!(mux_rc_dec(val));
+    assert!(unsafe { mux_rc_dec(val) });
 }
 
 // Per-test counters keep the parallel test runner from racing shared state.
@@ -153,8 +153,8 @@ fn deep_clone_runs_the_clone_glue() {
         "deep clone runs the glue again"
     );
 
-    assert!(mux_rc_dec(cloned));
-    assert!(mux_rc_dec(val));
+    assert!(unsafe { mux_rc_dec(cloned) });
+    assert!(unsafe { mux_rc_dec(val) });
 }
 
 #[test]
@@ -167,6 +167,6 @@ fn value_compare_ffi_orders_and_handles_null() {
     assert_eq!(mux_value_compare(std::ptr::null(), std::ptr::null()), 0);
     assert!(mux_value_compare(std::ptr::null(), one) < 0);
     assert!(mux_value_compare(one, std::ptr::null()) > 0);
-    assert!(mux_rc_dec(one));
-    assert!(mux_rc_dec(two));
+    assert!(unsafe { mux_rc_dec(one) });
+    assert!(unsafe { mux_rc_dec(two) });
 }

@@ -173,7 +173,7 @@ impl ObjectRef {
     fn call_with_boxed<R>(&self, callback: extern "C" fn(*mut Value) -> R) -> R {
         let boxed = self.boxed_for_callback();
         let result = callback(boxed);
-        refcount::mux_rc_dec(boxed);
+        unsafe { refcount::mux_rc_dec(boxed) };
         result
     }
 
@@ -186,8 +186,8 @@ impl ObjectRef {
     ) -> R {
         let (a, b) = (self.boxed_for_callback(), other.boxed_for_callback());
         let result = callback(a, b);
-        refcount::mux_rc_dec(b);
-        refcount::mux_rc_dec(a);
+        unsafe { refcount::mux_rc_dec(b) };
+        unsafe { refcount::mux_rc_dec(a) };
         result
     }
 }

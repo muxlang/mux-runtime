@@ -22,7 +22,7 @@ fn ok_data(r: *mut Value) -> *mut Value {
     assert!(mux_result_is_ok(r), "expected Ok result");
     let data = mux_result_data(r);
     assert!(!data.is_null());
-    assert!(mux_rc_dec(r));
+    assert!(unsafe { mux_rc_dec(r) });
     data
 }
 
@@ -37,7 +37,7 @@ fn connect_execute_query_lifecycle() {
 
     let create = sval("CREATE TABLE t (id INTEGER, name TEXT)");
     assert_ok(mux_sql_connection_execute(conn, create));
-    assert!(mux_rc_dec(create));
+    assert!(unsafe { mux_rc_dec(create) });
 
     // parameterized insert
     let insert = sval("INSERT INTO t (id, name) VALUES (?, ?)");
@@ -46,28 +46,28 @@ fn connect_execute_query_lifecycle() {
         Value::String("alice".into()),
     ]));
     assert_ok(mux_sql_connection_execute_params(conn, insert, params));
-    assert!(mux_rc_dec(insert));
-    assert!(mux_rc_dec(params));
+    assert!(unsafe { mux_rc_dec(insert) });
+    assert!(unsafe { mux_rc_dec(params) });
 
     // query and inspect the resultset
     let select = sval("SELECT id, name FROM t");
     let rs = ok_data(mux_sql_connection_query(conn, select));
-    assert!(mux_rc_dec(select));
+    assert!(unsafe { mux_rc_dec(select) });
 
     // Resultset accessors return bare List/Optional values (not Result).
     let cols = mux_sql_resultset_columns(rs);
     assert!(!cols.is_null());
-    assert!(mux_rc_dec(cols));
+    assert!(unsafe { mux_rc_dec(cols) });
     let rows = mux_sql_resultset_rows(rs);
     assert!(!rows.is_null());
-    assert!(mux_rc_dec(rows));
+    assert!(unsafe { mux_rc_dec(rows) });
     let next = mux_sql_resultset_next(rs);
     assert!(!next.is_null());
-    assert!(mux_rc_dec(next));
-    assert!(mux_rc_dec(rs));
+    assert!(unsafe { mux_rc_dec(next) });
+    assert!(unsafe { mux_rc_dec(rs) });
 
     mux_sql_connection_close(conn);
-    assert!(mux_rc_dec(conn));
+    assert!(unsafe { mux_rc_dec(conn) });
 }
 
 #[test]
@@ -75,26 +75,26 @@ fn transaction_commit_and_rollback() {
     let conn = connect_memory();
     let create = sval("CREATE TABLE t (n INTEGER)");
     assert_ok(mux_sql_connection_execute(conn, create));
-    assert!(mux_rc_dec(create));
+    assert!(unsafe { mux_rc_dec(create) });
 
     // commit path
     let tx = ok_data(mux_sql_connection_begin_transaction(conn));
     let ins = sval("INSERT INTO t (n) VALUES (1)");
     assert_ok(mux_sql_transaction_execute(tx, ins));
-    assert!(mux_rc_dec(ins));
+    assert!(unsafe { mux_rc_dec(ins) });
     assert_ok(mux_sql_transaction_commit(tx));
-    assert!(mux_rc_dec(tx));
+    assert!(unsafe { mux_rc_dec(tx) });
 
     // rollback path
     let tx2 = ok_data(mux_sql_connection_begin_transaction(conn));
     let ins2 = sval("INSERT INTO t (n) VALUES (2)");
     assert_ok(mux_sql_transaction_execute(tx2, ins2));
-    assert!(mux_rc_dec(ins2));
+    assert!(unsafe { mux_rc_dec(ins2) });
     assert_ok(mux_sql_transaction_rollback(tx2));
-    assert!(mux_rc_dec(tx2));
+    assert!(unsafe { mux_rc_dec(tx2) });
 
     mux_sql_connection_close(conn);
-    assert!(mux_rc_dec(conn));
+    assert!(unsafe { mux_rc_dec(conn) });
 }
 
 #[test]
@@ -107,17 +107,17 @@ fn failed_commit_keeps_transaction_connection() {
     // transaction so another operation does not see "connection missing".
     let external_commit = sval("COMMIT");
     assert_ok(mux_sql_transaction_execute(tx, external_commit));
-    assert!(mux_rc_dec(external_commit));
+    assert!(unsafe { mux_rc_dec(external_commit) });
 
     assert_err(mux_sql_transaction_commit(tx));
     let query = sval("SELECT 1");
     let rs = ok_data(mux_sql_transaction_query(tx, query));
-    assert!(mux_rc_dec(query));
-    assert!(mux_rc_dec(rs));
+    assert!(unsafe { mux_rc_dec(query) });
+    assert!(unsafe { mux_rc_dec(rs) });
 
     mux_sql_connection_close(conn);
-    assert!(mux_rc_dec(tx));
-    assert!(mux_rc_dec(conn));
+    assert!(unsafe { mux_rc_dec(tx) });
+    assert!(unsafe { mux_rc_dec(conn) });
 }
 
 #[test]
@@ -129,44 +129,44 @@ fn failed_rollback_keeps_transaction_connection() {
     // returns an error while the wrapper still owns its connection.
     let external_rollback = sval("ROLLBACK");
     assert_ok(mux_sql_transaction_execute(tx, external_rollback));
-    assert!(mux_rc_dec(external_rollback));
+    assert!(unsafe { mux_rc_dec(external_rollback) });
 
     assert_err(mux_sql_transaction_rollback(tx));
     let query = sval("SELECT 1");
     let rs = ok_data(mux_sql_transaction_query(tx, query));
-    assert!(mux_rc_dec(query));
-    assert!(mux_rc_dec(rs));
+    assert!(unsafe { mux_rc_dec(query) });
+    assert!(unsafe { mux_rc_dec(rs) });
 
     mux_sql_connection_close(conn);
-    assert!(mux_rc_dec(tx));
-    assert!(mux_rc_dec(conn));
+    assert!(unsafe { mux_rc_dec(tx) });
+    assert!(unsafe { mux_rc_dec(conn) });
 }
 
 #[test]
 fn sql_value_constructors_and_accessors() {
     let i = mux_sql_value_int(42);
     assert_ok(mux_sql_value_as_int(i));
-    assert!(mux_rc_dec(i));
+    assert!(unsafe { mux_rc_dec(i) });
 
     let f = mux_sql_value_float(1.5);
     assert_ok(mux_sql_value_as_float(f));
-    assert!(mux_rc_dec(f));
+    assert!(unsafe { mux_rc_dec(f) });
 
     let b = mux_sql_value_bool(true);
     assert_ok(mux_sql_value_as_bool(b));
-    assert!(mux_rc_dec(b));
+    assert!(unsafe { mux_rc_dec(b) });
 
     let s = unsafe { mux_sql_value_string(CString::new("hi").unwrap().as_ptr()) };
     assert_ok(mux_sql_value_as_string(s));
-    assert!(mux_rc_dec(s));
+    assert!(unsafe { mux_rc_dec(s) });
 
     let null = mux_sql_value_null();
     assert!(mux_sql_value_is_null(null));
-    assert!(mux_rc_dec(null));
+    assert!(unsafe { mux_rc_dec(null) });
 
     let not_null = mux_sql_value_int(7);
     assert!(!mux_sql_value_is_null(not_null));
-    assert!(mux_rc_dec(not_null));
+    assert!(unsafe { mux_rc_dec(not_null) });
 }
 
 #[test]
@@ -174,33 +174,33 @@ fn query_params_and_errors() {
     let conn = connect_memory();
     let create = sval("CREATE TABLE t (id INTEGER, name TEXT)");
     assert_ok(mux_sql_connection_execute(conn, create));
-    assert!(mux_rc_dec(create));
+    assert!(unsafe { mux_rc_dec(create) });
 
     let insert = sval("INSERT INTO t (id, name) VALUES (1, 'a'), (2, 'b')");
     assert_ok(mux_sql_connection_execute(conn, insert));
-    assert!(mux_rc_dec(insert));
+    assert!(unsafe { mux_rc_dec(insert) });
 
     // parameterized query
     let sel = sval("SELECT id, name FROM t WHERE id = ?");
     let params = mux_rc_alloc(Value::List(vec![Value::Int(1)]));
     let rs = ok_data(mux_sql_connection_query_params(conn, sel, params));
-    assert!(mux_rc_dec(sel));
-    assert!(mux_rc_dec(params));
+    assert!(unsafe { mux_rc_dec(sel) });
+    assert!(unsafe { mux_rc_dec(params) });
     let rows = mux_sql_resultset_rows(rs);
     assert!(!rows.is_null());
-    assert!(mux_rc_dec(rows));
-    assert!(mux_rc_dec(rs));
+    assert!(unsafe { mux_rc_dec(rows) });
+    assert!(unsafe { mux_rc_dec(rs) });
 
     // invalid SQL surfaces as an error
     let bad_sql = sval("THIS IS NOT SQL");
     assert_err(mux_sql_connection_execute(conn, bad_sql));
-    assert!(mux_rc_dec(bad_sql));
+    assert!(unsafe { mux_rc_dec(bad_sql) });
     let bad_q = sval("SELECT * FROM table_that_does_not_exist");
     assert_err(mux_sql_connection_query(conn, bad_q));
-    assert!(mux_rc_dec(bad_q));
+    assert!(unsafe { mux_rc_dec(bad_q) });
 
     mux_sql_connection_close(conn);
-    assert!(mux_rc_dec(conn));
+    assert!(unsafe { mux_rc_dec(conn) });
 }
 
 #[test]
@@ -214,13 +214,13 @@ fn sql_value_bytes_and_type_errors() {
     let bytes = mux_sql_value_bytes(list);
     assert!(!bytes.is_null());
     assert_ok(mux_sql_value_as_bytes(bytes));
-    assert!(mux_rc_dec(bytes));
-    assert!(mux_rc_dec(list));
+    assert!(unsafe { mux_rc_dec(bytes) });
+    assert!(unsafe { mux_rc_dec(list) });
 
     // accessor type mismatch is an error
     let s = unsafe { mux_sql_value_string(CString::new("nope").unwrap().as_ptr()) };
     assert_err(mux_sql_value_as_int(s));
-    assert!(mux_rc_dec(s));
+    assert!(unsafe { mux_rc_dec(s) });
 }
 
 #[test]

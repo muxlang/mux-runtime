@@ -721,7 +721,7 @@ pub extern "C" fn mux_sync_spawn(closure: *mut c_void) -> *mut Value {
             unsafe { *(data_ptr as *mut i64) = id };
         }
         let value = unsafe { (*obj_ptr).clone() };
-        mux_rc_dec(obj_ptr);
+        unsafe { mux_rc_dec(obj_ptr) };
         mux_rc_alloc(Value::Result(Ok(Box::new(value))))
     }
 }
@@ -802,7 +802,7 @@ pub extern "C" fn mux_mutex_new() -> *mut Value {
                 unsafe { *(data_ptr as *mut i64) = id };
             }
             let value = unsafe { (*obj_ptr).clone() };
-            mux_rc_dec(obj_ptr);
+            unsafe { mux_rc_dec(obj_ptr) };
             mux_rc_alloc(value)
         }
         Err(e) => err_string(format!("Failed to initialize Mutex: {}", e)),
@@ -829,7 +829,7 @@ pub extern "C" fn mux_rwlock_new() -> *mut Value {
                 unsafe { *(data_ptr as *mut i64) = id };
             }
             let value = unsafe { (*obj_ptr).clone() };
-            mux_rc_dec(obj_ptr);
+            unsafe { mux_rc_dec(obj_ptr) };
             mux_rc_alloc(value)
         }
         Err(e) => err_string(format!("Failed to initialize RwLock: {}", e)),
@@ -850,7 +850,7 @@ pub extern "C" fn mux_condvar_new() -> *mut Value {
                 unsafe { *(data_ptr as *mut i64) = id };
             }
             let value = unsafe { (*obj_ptr).clone() };
-            mux_rc_dec(obj_ptr);
+            unsafe { mux_rc_dec(obj_ptr) };
             mux_rc_alloc(value)
         }
         Err(e) => err_string(format!("Failed to initialize CondVar: {}", e)),
@@ -1120,7 +1120,7 @@ mod tests {
 
     fn release_result(result: *mut Value) {
         assert!(!result.is_null());
-        assert!(mux_rc_dec(result));
+        assert!(unsafe { mux_rc_dec(result) });
     }
 
     unsafe fn clone_handle(handle: *mut Value) -> *mut Value {
@@ -1137,7 +1137,7 @@ mod tests {
         // Dropping the last language handle removes the registry entry while
         // the native mutex is still locked. The per-thread pin must keep the
         // native object alive so the owner can finish unlocking it.
-        assert!(mux_rc_dec(handle));
+        assert!(unsafe { mux_rc_dec(handle) });
         assert!(!MUTEXES
             .lock()
             .unwrap_or_else(|error| error.into_inner())
@@ -1160,7 +1160,7 @@ mod tests {
         assert!(!handle.is_null());
         let id = extract_handle_id(handle, *RWLOCK_TYPE_ID, "RwLock").unwrap();
         release_result(mux_rwlock_read_lock(handle));
-        assert!(mux_rc_dec(handle));
+        assert!(unsafe { mux_rc_dec(handle) });
         assert!(!RWLOCKS
             .lock()
             .unwrap_or_else(|error| error.into_inner())
@@ -1183,7 +1183,7 @@ mod tests {
         assert!(!handle.is_null());
         let id = extract_handle_id(handle, *CONDVAR_TYPE_ID, "CondVar").unwrap();
         let entry = condvar_entry(id).unwrap();
-        assert!(mux_rc_dec(handle));
+        assert!(unsafe { mux_rc_dec(handle) });
         assert!(!CONDVARS
             .lock()
             .unwrap_or_else(|error| error.into_inner())
@@ -1207,13 +1207,13 @@ mod tests {
             // completes; only immutable handle metadata is read here.
             let result = mux_condvar_signal(signal_handle as *mut Value);
             assert!(!result.is_null());
-            assert!(mux_rc_dec(result));
+            assert!(unsafe { mux_rc_dec(result) });
         });
         release_result(mux_condvar_wait(condvar, mutex));
         signaler.join().unwrap();
         release_result(mux_mutex_unlock(mutex));
-        assert!(mux_rc_dec(condvar));
-        assert!(mux_rc_dec(mutex));
+        assert!(unsafe { mux_rc_dec(condvar) });
+        assert!(unsafe { mux_rc_dec(mutex) });
     }
 
     #[test]
@@ -1225,9 +1225,9 @@ mod tests {
         let result = mux_condvar_wait(condvar, mutex);
         assert!(!result.is_null());
         assert!(!matches!(unsafe { &*result }, Value::Result(Ok(_))));
-        assert!(mux_rc_dec(result));
-        assert!(mux_rc_dec(condvar));
-        assert!(mux_rc_dec(mutex));
+        assert!(unsafe { mux_rc_dec(result) });
+        assert!(unsafe { mux_rc_dec(condvar) });
+        assert!(unsafe { mux_rc_dec(mutex) });
     }
 
     #[test]
@@ -1254,7 +1254,7 @@ mod tests {
                 waiter_mutex_addr as *mut Value,
             ));
             release_result(mux_mutex_unlock(waiter_mutex_addr as *mut Value));
-            assert!(mux_rc_dec(waiter_mutex_addr as *mut Value));
+            assert!(unsafe { mux_rc_dec(waiter_mutex_addr as *mut Value) });
         });
         ready_rx.recv().unwrap();
         thread::sleep(Duration::from_millis(5));
@@ -1262,12 +1262,12 @@ mod tests {
         // The waiter has already entered the exported wait path. Dropping the
         // owner's handles must not invalidate the native objects needed by the
         // in-flight wait; the signaler keeps only its own condvar handle.
-        assert!(mux_rc_dec(condvar));
-        assert!(mux_rc_dec(mutex));
+        assert!(unsafe { mux_rc_dec(condvar) });
+        assert!(unsafe { mux_rc_dec(mutex) });
         let signal_condvar_addr = signal_condvar as usize;
         let signaler = thread::spawn(move || {
             release_result(mux_condvar_signal(signal_condvar_addr as *mut Value));
-            assert!(mux_rc_dec(signal_condvar_addr as *mut Value));
+            assert!(unsafe { mux_rc_dec(signal_condvar_addr as *mut Value) });
         });
         waiter.join().unwrap();
         signaler.join().unwrap();
@@ -1280,10 +1280,10 @@ mod tests {
             assert!(!mutex.is_null());
             let result = mux_mutex_lock(mutex);
             assert!(!result.is_null());
-            assert!(mux_rc_dec(result));
+            assert!(unsafe { mux_rc_dec(result) });
             // The thread-local HeldMutex must unlock this native mutex before
             // its final Arc pin is dropped during thread teardown.
-            assert!(mux_rc_dec(mutex));
+            assert!(unsafe { mux_rc_dec(mutex) });
         });
         owner.join().unwrap();
     }
@@ -1298,13 +1298,13 @@ mod tests {
             // reads its immutable type/id metadata through the exported API.
             let result = mux_mutex_lock(handle_addr as *mut Value);
             assert!(!result.is_null());
-            assert!(mux_rc_dec(result));
+            assert!(unsafe { mux_rc_dec(result) });
             // Deliberately omit unlock: thread-local cleanup must release it.
         });
         owner.join().unwrap();
 
         release_result(mux_mutex_lock(mutex));
         release_result(mux_mutex_unlock(mutex));
-        assert!(mux_rc_dec(mutex));
+        assert!(unsafe { mux_rc_dec(mutex) });
     }
 }

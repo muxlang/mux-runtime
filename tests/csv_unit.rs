@@ -14,7 +14,7 @@ fn ok_data(result: *mut Value) -> *mut Value {
     assert!(mux_result_is_ok(result), "expected an ok result");
     let data = mux_result_data(result);
     assert!(!data.is_null());
-    assert!(mux_rc_dec(result));
+    assert!(unsafe { mux_rc_dec(result) });
     data
 }
 
@@ -23,7 +23,7 @@ fn parse_plain_csv() {
     let input = CString::new("a,b\n1,2\n").unwrap();
     let res = mux_csv_parse(input.as_ptr());
     assert!(mux_result_is_ok(res));
-    assert!(mux_rc_dec(res));
+    assert!(unsafe { mux_rc_dec(res) });
 }
 
 #[test]
@@ -31,14 +31,14 @@ fn parse_with_headers() {
     let input = CString::new("name,age\nAlice,30\nBob,25\n").unwrap();
     let res = mux_csv_parse_with_headers(input.as_ptr());
     assert!(mux_result_is_ok(res));
-    assert!(mux_rc_dec(res));
+    assert!(unsafe { mux_rc_dec(res) });
 }
 
 #[test]
 fn parse_null_is_error() {
     let res = mux_csv_parse(std::ptr::null());
     assert!(mux_result_is_err(res));
-    assert!(mux_rc_dec(res));
+    assert!(unsafe { mux_rc_dec(res) });
 }
 
 #[test]
@@ -64,8 +64,8 @@ fn to_string_roundtrip() {
     let res = mux_csv_to_string(csv_val);
     assert!(mux_result_is_ok(res));
 
-    assert!(mux_rc_dec(res));
-    assert!(mux_rc_dec(csv_val));
+    assert!(unsafe { mux_rc_dec(res) });
+    assert!(unsafe { mux_rc_dec(csv_val) });
 }
 
 #[test]
@@ -73,8 +73,8 @@ fn to_string_rejects_non_map() {
     let bad = mux_rc_alloc(Value::Int(1));
     let res = mux_csv_to_string(bad);
     assert!(mux_result_is_err(res));
-    assert!(mux_rc_dec(res));
-    assert!(mux_rc_dec(bad));
+    assert!(unsafe { mux_rc_dec(res) });
+    assert!(unsafe { mux_rc_dec(bad) });
 }
 
 /// Rows pair with headers by position, and every cell stays a string.
@@ -117,8 +117,8 @@ fn rows_as_maps_pairs_headers_with_cells() {
         Some(&Value::String("3".into()))
     );
 
-    assert!(mux_rc_dec(got));
-    assert!(mux_rc_dec(table));
+    assert!(unsafe { mux_rc_dec(got) });
+    assert!(unsafe { mux_rc_dec(table) });
 }
 
 /// A ragged row never reaches this function: the parser rejects a row whose
@@ -136,7 +136,7 @@ fn a_ragged_row_is_rejected_by_the_parser() {
         mux_result_is_err(parsed),
         "a row shorter than the header must not parse"
     );
-    assert!(mux_rc_dec(parsed));
+    assert!(unsafe { mux_rc_dec(parsed) });
 }
 /// A repeated header is REJECTED, naming the column.
 ///
@@ -166,9 +166,9 @@ fn a_repeated_header_is_rejected() {
         other => panic!("expected a message, got {other:?}"),
     }
 
-    assert!(mux_rc_dec(detail));
-    assert!(mux_rc_dec(got));
-    assert!(mux_rc_dec(table));
+    assert!(unsafe { mux_rc_dec(detail) });
+    assert!(unsafe { mux_rc_dec(got) });
+    assert!(unsafe { mux_rc_dec(table) });
 }
 
 /// Anything that is not a parsed CSV table is an error, not a panic.
@@ -179,10 +179,10 @@ fn rows_as_maps_rejects_other_shapes() {
     for input in [Value::Int(1), Value::String("csv".into())] {
         let got = mux_csv_rows_as_maps(&input);
         assert!(mux_result_is_err(got));
-        assert!(mux_rc_dec(got));
+        assert!(unsafe { mux_rc_dec(got) });
     }
 
     let got = mux_csv_rows_as_maps(std::ptr::null());
     assert!(mux_result_is_err(got));
-    assert!(mux_rc_dec(got));
+    assert!(unsafe { mux_rc_dec(got) });
 }

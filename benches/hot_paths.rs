@@ -71,7 +71,7 @@ fn build_list(n: i64) -> *mut List {
     for i in 0..n {
         let e = mux_box_int(i);
         mux_list_push(list, e);
-        mux_rc_dec(e);
+        unsafe { mux_rc_dec(e) };
     }
     list
 }
@@ -82,8 +82,8 @@ fn build_map(n: i64) -> *mut Map {
         let k = mux_box_int(i);
         let v = mux_box_int(i * 2);
         mux_map_put(map, k, v);
-        mux_rc_dec(k);
-        mux_rc_dec(v);
+        unsafe { mux_rc_dec(k) };
+        unsafe { mux_rc_dec(v) };
     }
     map
 }
@@ -93,7 +93,7 @@ fn build_set(n: i64) -> *mut Set {
     for i in 0..n {
         let e = mux_box_int(i);
         mux_set_add(set, e);
-        mux_rc_dec(e);
+        unsafe { mux_rc_dec(e) };
     }
     set
 }
@@ -103,7 +103,7 @@ fn bench_refcount(c: &mut Criterion) {
     group.bench_function("alloc_free", |b| {
         b.iter(|| {
             let v = mux_box_int(black_box(7));
-            mux_rc_dec(v);
+            unsafe { mux_rc_dec(v) };
         });
     });
 
@@ -112,17 +112,17 @@ fn bench_refcount(c: &mut Criterion) {
     let held = mux_box_int(7);
     group.bench_function("inc_dec", |b| {
         b.iter(|| {
-            mux_rc_inc(black_box(held));
-            mux_rc_dec(black_box(held));
+            unsafe { mux_rc_inc(black_box(held)) };
+            unsafe { mux_rc_dec(black_box(held)) };
         });
     });
     group.bench_function("clone", |b| {
         b.iter(|| {
-            let cloned = mux_rc_clone(black_box(held));
-            mux_rc_dec(cloned);
+            let cloned = unsafe { mux_rc_clone(black_box(held)) };
+            unsafe { mux_rc_dec(cloned) };
         });
     });
-    mux_rc_dec(held);
+    unsafe { mux_rc_dec(held) };
     group.finish();
 }
 
@@ -154,9 +154,9 @@ fn bench_list(c: &mut Criterion) {
             for i in 0..N {
                 let e = mux_box_int(i);
                 mux_list_push(list, e);
-                mux_rc_dec(e);
+                unsafe { mux_rc_dec(e) };
             }
-            mux_rc_dec(mux_list_value(list));
+            unsafe { mux_rc_dec(mux_list_value(list)) };
         });
     });
 
@@ -166,7 +166,7 @@ fn bench_list(c: &mut Criterion) {
     group.bench_function("get", |b| {
         b.iter(|| {
             let v = mux_list_get(list, black_box(N / 2));
-            mux_rc_dec(v);
+            unsafe { mux_rc_dec(v) };
         });
     });
     group.bench_function("contains", |b| {
@@ -186,7 +186,7 @@ fn bench_list(c: &mut Criterion) {
     });
     group.finish();
 
-    mux_rc_dec(needle);
+    unsafe { mux_rc_dec(needle) };
     mux_free_list(list);
     mux_free_list(list2);
 }
@@ -200,10 +200,10 @@ fn bench_map(c: &mut Criterion) {
                 let k = mux_box_int(i);
                 let v = mux_box_int(i * 2);
                 mux_map_put(map, k, v);
-                mux_rc_dec(k);
-                mux_rc_dec(v);
+                unsafe { mux_rc_dec(k) };
+                unsafe { mux_rc_dec(v) };
             }
-            mux_rc_dec(mux_map_value(map));
+            unsafe { mux_rc_dec(mux_map_value(map)) };
         });
     });
 
@@ -212,7 +212,7 @@ fn bench_map(c: &mut Criterion) {
     group.bench_function("get", |b| {
         b.iter(|| {
             let v = mux_map_get(map, key);
-            mux_rc_dec(v);
+            unsafe { mux_rc_dec(v) };
         });
     });
     group.bench_function("contains", |b| {
@@ -220,7 +220,7 @@ fn bench_map(c: &mut Criterion) {
     });
     group.finish();
 
-    mux_rc_dec(key);
+    unsafe { mux_rc_dec(key) };
     mux_free_map(map);
 }
 
@@ -232,9 +232,9 @@ fn bench_set(c: &mut Criterion) {
             for i in 0..N {
                 let e = mux_box_int(i);
                 mux_set_add(set, e);
-                mux_rc_dec(e);
+                unsafe { mux_rc_dec(e) };
             }
-            mux_rc_dec(mux_set_value(set));
+            unsafe { mux_rc_dec(mux_set_value(set)) };
         });
     });
 
@@ -252,7 +252,7 @@ fn bench_set(c: &mut Criterion) {
     });
     group.finish();
 
-    mux_rc_dec(member);
+    unsafe { mux_rc_dec(member) };
     mux_free_set(set);
     mux_free_set(set2);
 }
@@ -266,7 +266,7 @@ fn bench_string(c: &mut Criterion) {
     group.bench_function("alloc_free", |b| {
         b.iter(|| {
             let v = mux_new_string_from_cstr(black_box(text.as_ptr()));
-            mux_rc_dec(v);
+            unsafe { mux_rc_dec(v) };
         });
     });
     group.bench_function("concat", |b| {
@@ -294,13 +294,13 @@ fn bench_wrappers(c: &mut Criterion) {
     group.bench_function("optional_some", |b| {
         b.iter(|| {
             let o = mux_optional_some_int(black_box(7));
-            mux_rc_dec(o);
+            unsafe { mux_rc_dec(o) };
         });
     });
     group.bench_function("result_ok", |b| {
         b.iter(|| {
             let r = mux_result_ok_int(black_box(7));
-            mux_rc_dec(r);
+            unsafe { mux_rc_dec(r) };
         });
     });
     group.bench_function("tuple_new", |b| {
@@ -308,9 +308,9 @@ fn bench_wrappers(c: &mut Criterion) {
             let l = mux_box_int(black_box(1));
             let r = mux_box_int(black_box(2));
             let t = mux_new_tuple(l, r);
-            mux_rc_dec(l);
-            mux_rc_dec(r);
-            mux_rc_dec(mux_tuple_value(t));
+            unsafe { mux_rc_dec(l) };
+            unsafe { mux_rc_dec(r) };
+            unsafe { mux_rc_dec(mux_tuple_value(t)) };
         });
     });
 
@@ -324,8 +324,8 @@ fn bench_wrappers(c: &mut Criterion) {
     });
     group.finish();
 
-    mux_rc_dec(some);
-    mux_rc_dec(ok);
+    unsafe { mux_rc_dec(some) };
+    unsafe { mux_rc_dec(ok) };
 }
 
 fn bench_json(c: &mut Criterion) {
@@ -344,14 +344,14 @@ fn bench_json(c: &mut Criterion) {
         b.iter(|| {
             let v = mux_json_parse(black_box(small.as_ptr()));
             assert!(mux_result_is_ok(v), "benchmark JSON payload should parse");
-            mux_rc_dec(v);
+            unsafe { mux_rc_dec(v) };
         });
     });
     group.bench_function("parse_medium", |b| {
         b.iter(|| {
             let v = mux_json_parse(black_box(medium.as_ptr()));
             assert!(mux_result_is_ok(v), "benchmark JSON payload should parse");
-            mux_rc_dec(v);
+            unsafe { mux_rc_dec(v) };
         });
     });
 
@@ -361,12 +361,12 @@ fn bench_json(c: &mut Criterion) {
     group.bench_function("stringify", |b| {
         b.iter(|| {
             let s = mux_json_stringify(doc, ptr::null_mut());
-            mux_rc_dec(s);
+            unsafe { mux_rc_dec(s) };
         });
     });
     group.finish();
 
-    mux_rc_dec(doc);
+    unsafe { mux_rc_dec(doc) };
 }
 
 fn configured() -> Criterion {

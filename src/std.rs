@@ -298,7 +298,7 @@ pub extern "C" fn mux_env_get(key: *const c_char) -> *mut Value {
                 // mux_optional_some_value clones vptr's inner value without
                 // consuming vptr, so release the intermediate to avoid a leak.
                 let some = crate::optional::mux_optional_some_value(vptr);
-                crate::refcount::mux_rc_dec(vptr);
+                unsafe { crate::refcount::mux_rc_dec(vptr) };
                 some
             } else {
                 crate::optional::mux_optional_none()

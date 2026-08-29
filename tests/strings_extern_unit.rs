@@ -100,8 +100,8 @@ fn string_containment() {
     assert!(mux_string_contains(hay, needle));
     assert!(mux_string_contains_char(hay, 'o' as i64));
     assert!(!mux_string_contains_char(hay, 'z' as i64));
-    assert!(mux_rc_dec(hay));
-    assert!(mux_rc_dec(needle));
+    assert!(unsafe { mux_rc_dec(hay) });
+    assert!(unsafe { mux_rc_dec(needle) });
 }
 
 #[test]
@@ -118,7 +118,7 @@ fn string_from_value_roundtrip() {
     let v = mux_new_string_from_cstr(cs("data").as_ptr());
     assert!(!v.is_null());
     assert_eq!(read_cstr(unsafe { mux_string_from_value(v) }), "data");
-    assert!(mux_rc_dec(v));
+    assert!(unsafe { mux_rc_dec(v) });
 }
 
 #[test]
@@ -128,7 +128,7 @@ fn string_from_owned_cstr_frees_input() {
     let v = mux_new_string_from_owned_cstr(cs("owned").into_raw());
     assert!(!v.is_null());
     assert_eq!(read_cstr(unsafe { mux_string_from_value(v) }), "owned");
-    assert!(mux_rc_dec(v));
+    assert!(unsafe { mux_rc_dec(v) });
 }
 
 #[test]
@@ -143,30 +143,30 @@ fn bool_extern() {
     assert_eq!(unsafe { mux_bool_from_value(bv) }, 1);
     let as_int = unsafe { mux_bool_to_int(bv) };
     assert_eq!(mux_value_get_int(as_int), 1);
-    assert!(mux_rc_dec(as_int));
+    assert!(unsafe { mux_rc_dec(as_int) });
     let as_float = unsafe { mux_bool_to_float(bv) };
     assert!(!as_float.is_null());
-    assert!(mux_rc_dec(as_float));
-    assert!(mux_rc_dec(bv));
+    assert!(unsafe { mux_rc_dec(as_float) });
+    assert!(unsafe { mux_rc_dec(bv) });
 }
 
 #[test]
 fn boxing_roundtrips() {
     let i = mux_box_int(5);
     assert_eq!(mux_value_get_int(i), 5);
-    assert!(mux_rc_dec(i));
+    assert!(unsafe { mux_rc_dec(i) });
 
     let f = mux_box_float(1.5);
     assert!(!f.is_null());
-    assert!(mux_rc_dec(f));
+    assert!(unsafe { mux_rc_dec(f) });
 
     let b = mux_box_bool(1);
     assert!(!b.is_null());
-    assert!(mux_rc_dec(b));
+    assert!(unsafe { mux_rc_dec(b) });
 
     let s = mux_box_str(cs("hi").as_ptr());
     assert!(!s.is_null());
-    assert!(mux_rc_dec(s));
+    assert!(unsafe { mux_rc_dec(s) });
 }
 
 /// Splitting, which is the operation whose absence meant a program could read
@@ -184,7 +184,7 @@ fn string_split() {
             Value::String("c".into()),
         ])
     );
-    assert!(mux_rc_dec(got));
+    assert!(unsafe { mux_rc_dec(got) });
 
     // A separator that is not present yields the whole string, not nothing.
     let got = mux_string_split(cs("abc").as_ptr(), cs(",").as_ptr());
@@ -192,7 +192,7 @@ fn string_split() {
         unsafe { &*got },
         &Value::List(vec![Value::String("abc".into())])
     );
-    assert!(mux_rc_dec(got));
+    assert!(unsafe { mux_rc_dec(got) });
 
     // An empty separator splits into characters, which is what makes this the
     // inverse of joining a character list.
@@ -201,7 +201,7 @@ fn string_split() {
         unsafe { &*got },
         &Value::List(vec![Value::String("h".into()), Value::String("i".into())])
     );
-    assert!(mux_rc_dec(got));
+    assert!(unsafe { mux_rc_dec(got) });
 }
 
 /// Positions are CHARACTERS, not bytes. Every assertion here passes either way
@@ -217,7 +217,7 @@ fn string_positions_are_characters() {
         unsafe { &*got },
         &Value::Optional(Some(Box::new(Value::Int('o' as i64))))
     );
-    assert!(mux_rc_dec(got));
+    assert!(unsafe { mux_rc_dec(got) });
 
     // Negative indices count from the end, as they do for lists.
     let got = mux_string_char_at(accented.as_ptr(), -1);
@@ -225,12 +225,12 @@ fn string_positions_are_characters() {
         unsafe { &*got },
         &Value::Optional(Some(Box::new(Value::Int('o' as i64))))
     );
-    assert!(mux_rc_dec(got));
+    assert!(unsafe { mux_rc_dec(got) });
 
     // Out of range is none rather than a panic.
     let got = mux_string_char_at(accented.as_ptr(), 99);
     assert_eq!(unsafe { &*got }, &Value::Optional(None));
-    assert!(mux_rc_dec(got));
+    assert!(unsafe { mux_rc_dec(got) });
 
     // index_of reports a character offset; a byte offset would say 2 here.
     assert_eq!(
@@ -320,7 +320,7 @@ fn string_to_list_yields_characters() {
             Value::Int('i' as i64),
         ])
     );
-    assert!(mux_rc_dec(got));
+    assert!(unsafe { mux_rc_dec(got) });
 }
 
 /// `to_bool` accepts only `true` and `false`, case-insensitively.
@@ -338,8 +338,8 @@ fn string_to_bool_is_deliberately_narrow() {
         let ok = mux_result_is_ok(result);
         let data = mux_result_data(result);
         let value = unsafe { &*data }.clone();
-        assert!(mux_rc_dec(data));
-        assert!(mux_rc_dec(result));
+        assert!(unsafe { mux_rc_dec(data) });
+        assert!(unsafe { mux_rc_dec(result) });
         (ok, value)
     };
 
@@ -356,5 +356,5 @@ fn string_to_bool_is_deliberately_narrow() {
 
     let result = mux_string_to_bool(std::ptr::null());
     assert!(mux_runtime::result::mux_result_is_err(result));
-    assert!(mux_rc_dec(result));
+    assert!(unsafe { mux_rc_dec(result) });
 }

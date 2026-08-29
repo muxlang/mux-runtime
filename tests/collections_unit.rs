@@ -85,7 +85,7 @@ fn list_slice_bounds() {
             &expected,
             "slice [{start}:{end}] did not match"
         );
-        assert!(mux_rc_dec(got));
+        assert!(unsafe { mux_rc_dec(got) });
     };
 
     check(1, 3, vec![2, 3]);
@@ -104,5 +104,5 @@ fn list_slice_bounds() {
     let not_a_list = Value::Int(7);
     let got = mux_list_slice_value(&not_a_list, 0, 1);
     assert_eq!(unsafe { &*got }, &Value::List(vec![]));
-    assert!(mux_rc_dec(got));
+    assert!(unsafe { mux_rc_dec(got) });
 }

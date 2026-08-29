@@ -49,10 +49,10 @@ fn list_box_layer() {
 
     let got = mux_list_get_value(list, 0);
     assert!(!got.is_null());
-    assert!(mux_rc_dec(got));
+    assert!(unsafe { mux_rc_dec(got) });
 
     let opt = mux_list_get(list, 0); // Optional(Some)
-    assert!(mux_rc_dec(opt));
+    assert!(unsafe { mux_rc_dec(opt) });
 
     let c = int(99);
     mux_list_set(list, 0, c);
@@ -60,7 +60,7 @@ fn list_box_layer() {
     assert_eq!(unsafe { mux_list_length(list) }, 3);
 
     let popped = mux_list_pop_back(list); // Optional
-    assert!(mux_rc_dec(popped));
+    assert!(unsafe { mux_rc_dec(popped) });
 
     assert_eq!(read_cstr(mux_list_to_string(list)), "[99, 99]");
 
@@ -72,9 +72,9 @@ fn list_box_layer() {
 
     mux_free_list(list);
     mux_free_list(other);
-    assert!(mux_rc_dec(a));
-    assert!(mux_rc_dec(b));
-    assert!(mux_rc_dec(c));
+    assert!(unsafe { mux_rc_dec(a) });
+    assert!(unsafe { mux_rc_dec(b) });
+    assert!(unsafe { mux_rc_dec(c) });
 }
 
 // --- List (Value layer) ------------------------------------------------------
@@ -90,11 +90,11 @@ fn list_value_layer() {
     mux_list_set_value(lv, -1, v);
     mux_list_set_value(lv, 5, v);
     let popped = mux_list_pop_back_value(lv);
-    assert!(mux_rc_dec(popped));
+    assert!(unsafe { mux_rc_dec(popped) });
     let front = mux_list_pop_value(lv); // pop from front
-    assert!(mux_rc_dec(front));
-    assert!(mux_rc_dec(lv));
-    assert!(mux_rc_dec(v));
+    assert!(unsafe { mux_rc_dec(front) });
+    assert!(unsafe { mux_rc_dec(lv) });
+    assert!(unsafe { mux_rc_dec(v) });
 }
 
 #[test]
@@ -106,22 +106,22 @@ fn list_box_pop_front_and_empty() {
     mux_list_push_back(list, b);
 
     let front = mux_list_pop(list); // Optional(Some) from front
-    assert!(mux_rc_dec(front));
+    assert!(unsafe { mux_rc_dec(front) });
 
     // get out of range yields Optional(None)
     let oob = mux_list_get(list, 50);
-    assert!(mux_rc_dec(oob));
+    assert!(unsafe { mux_rc_dec(oob) });
 
     // drain then pop empty -> Optional(None)
     let drained = mux_list_pop(list); // Optional(Some) - owned, must be released
-    assert!(mux_rc_dec(drained));
+    assert!(unsafe { mux_rc_dec(drained) });
     let empty = mux_list_pop(list);
-    assert!(mux_rc_dec(empty));
+    assert!(unsafe { mux_rc_dec(empty) });
     assert!(unsafe { mux_list_is_empty(list) });
 
     mux_free_list(list);
-    assert!(mux_rc_dec(a));
-    assert!(mux_rc_dec(b));
+    assert!(unsafe { mux_rc_dec(a) });
+    assert!(unsafe { mux_rc_dec(b) });
 }
 
 // --- Map ---------------------------------------------------------------------
@@ -138,19 +138,19 @@ fn map_box_layer() {
     assert!(!unsafe { mux_map_is_empty(map) });
 
     let got = mux_map_get(map, k); // Optional(Some)
-    assert!(mux_rc_dec(got));
+    assert!(unsafe { mux_rc_dec(got) });
 
     let keys = mux_map_keys(map);
     let values = mux_map_values(map);
     let pairs = mux_map_pairs(map);
-    assert!(mux_rc_dec(keys));
-    assert!(mux_rc_dec(values));
-    assert!(mux_rc_dec(pairs));
+    assert!(unsafe { mux_rc_dec(keys) });
+    assert!(unsafe { mux_rc_dec(values) });
+    assert!(unsafe { mux_rc_dec(pairs) });
 
     assert!(!read_cstr(mux_map_to_string(map)).is_empty());
 
     let removed = mux_map_remove(map, k); // Optional(Some)
-    assert!(mux_rc_dec(removed));
+    assert!(unsafe { mux_rc_dec(removed) });
     assert!(unsafe { mux_map_is_empty(map) });
 
     let other = mux_new_map();
@@ -160,8 +160,8 @@ fn map_box_layer() {
 
     mux_free_map(map);
     mux_free_map(other);
-    assert!(mux_rc_dec(k));
-    assert!(mux_rc_dec(v));
+    assert!(unsafe { mux_rc_dec(k) });
+    assert!(unsafe { mux_rc_dec(v) });
 }
 
 #[test]
@@ -171,10 +171,10 @@ fn map_value_layer() {
     let v = int(1);
     mux_map_put_value(mv, k, v);
     let removed = mux_map_remove_value(mv, k);
-    assert!(mux_rc_dec(removed));
-    assert!(mux_rc_dec(mv));
-    assert!(mux_rc_dec(k));
-    assert!(mux_rc_dec(v));
+    assert!(unsafe { mux_rc_dec(removed) });
+    assert!(unsafe { mux_rc_dec(mv) });
+    assert!(unsafe { mux_rc_dec(k) });
+    assert!(unsafe { mux_rc_dec(v) });
 }
 
 // --- Set ---------------------------------------------------------------------
@@ -190,7 +190,7 @@ fn set_box_layer() {
     assert!(!unsafe { mux_set_is_empty(set) });
 
     let as_list = mux_set_to_list(set);
-    assert!(mux_rc_dec(as_list));
+    assert!(unsafe { mux_rc_dec(as_list) });
     assert!(!read_cstr(mux_set_to_string(set)).is_empty());
 
     assert!(mux_set_remove(set, v));
@@ -203,7 +203,7 @@ fn set_box_layer() {
 
     mux_free_set(set);
     mux_free_set(other);
-    assert!(mux_rc_dec(v));
+    assert!(unsafe { mux_rc_dec(v) });
 }
 
 #[test]
@@ -213,8 +213,8 @@ fn set_value_layer() {
     mux_set_add_value(sv, v);
     assert!(mux_set_remove_value(sv, v));
     assert!(!mux_set_remove_value(sv, v));
-    assert!(mux_rc_dec(sv));
-    assert!(mux_rc_dec(v));
+    assert!(unsafe { mux_rc_dec(sv) });
+    assert!(unsafe { mux_rc_dec(v) });
 }
 
 // --- Tuple -------------------------------------------------------------------
@@ -230,19 +230,19 @@ fn tuple_ops() {
 
     let left = mux_tuple_left(t1);
     let right = mux_tuple_right(t1);
-    assert!(mux_rc_dec(left));
-    assert!(mux_rc_dec(right));
+    assert!(unsafe { mux_rc_dec(left) });
+    assert!(unsafe { mux_rc_dec(right) });
     assert_eq!(read_cstr(mux_tuple_to_string(t1)), "(1, 2)");
 
     // mux_tuple_value consumes the Box; the borrowed get_tuple result must NOT be freed.
     let tv = mux_tuple_value(t1);
     let borrowed = mux_value_get_tuple(tv);
     assert!(!borrowed.is_null());
-    assert!(mux_rc_dec(tv));
+    assert!(unsafe { mux_rc_dec(tv) });
 
     let tv2 = mux_tuple_value(t2);
-    assert!(mux_rc_dec(tv2));
+    assert!(unsafe { mux_rc_dec(tv2) });
 
-    assert!(mux_rc_dec(l));
-    assert!(mux_rc_dec(r));
+    assert!(unsafe { mux_rc_dec(l) });
+    assert!(unsafe { mux_rc_dec(r) });
 }
