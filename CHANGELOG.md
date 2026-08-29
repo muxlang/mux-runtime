@@ -23,6 +23,13 @@ compiler PRs land with no release notes at all.
 - **Math FFI wrappers no longer use the unmaintained `paste` crate.** The
   exported symbol names stay unchanged while the wrapper macro receives each
   name explicitly.
+- **Synchronization primitives now defer native destruction until every active
+  operation and lock owner releases its lifetime pin.** Owner-thread cleanup
+  unlocks held primitives before teardown, and the Windows rwlock mode tracker
+  preserves repeated shared acquisitions. The closure and capture retain/
+  release entry points document their unsafe exactly-one-reference contract;
+  the C ABI symbols and balanced compiler-generated ownership flow are
+  unchanged.
 
 ## [0.6.1] - 2026-08-27
 
