@@ -28,18 +28,33 @@ mod sync_backend {
         Ok(Box::into_raw(initialized))
     }
 
-    pub fn destroy_mutex(ptr: *mut MuxMutex) {
+    /// Destroys and deallocates an initialized POSIX mutex.
+    ///
+    /// # Safety
+    /// `ptr` must be non-null, point to an initialized mutex allocated by
+    /// [`init_mutex`], and not be locked or concurrently used.
+    pub unsafe fn destroy_mutex(ptr: *mut MuxMutex) {
         unsafe {
             let _ = libc::pthread_mutex_destroy(ptr);
             drop(Box::from_raw(ptr));
         }
     }
 
-    pub fn lock_mutex(ptr: *mut MuxMutex) -> i32 {
+    /// Locks an initialized POSIX mutex.
+    ///
+    /// # Safety
+    /// `ptr` must be non-null and point to an initialized mutex that remains
+    /// alive for the duration of the call.
+    pub unsafe fn lock_mutex(ptr: *mut MuxMutex) -> i32 {
         unsafe { libc::pthread_mutex_lock(ptr) }
     }
 
-    pub fn unlock_mutex(ptr: *mut MuxMutex) -> i32 {
+    /// Unlocks an initialized POSIX mutex held by the calling thread.
+    ///
+    /// # Safety
+    /// `ptr` must be non-null and point to an initialized mutex currently
+    /// locked by the calling thread.
+    pub unsafe fn unlock_mutex(ptr: *mut MuxMutex) -> i32 {
         unsafe { libc::pthread_mutex_unlock(ptr) }
     }
 
@@ -53,22 +68,42 @@ mod sync_backend {
         Ok(Box::into_raw(initialized))
     }
 
-    pub fn destroy_rwlock(ptr: *mut MuxRwLock) {
+    /// Destroys and deallocates an initialized POSIX read-write lock.
+    ///
+    /// # Safety
+    /// `ptr` must be non-null, point to an initialized lock allocated by
+    /// [`init_rwlock`], and have no active readers or writer.
+    pub unsafe fn destroy_rwlock(ptr: *mut MuxRwLock) {
         unsafe {
             let _ = libc::pthread_rwlock_destroy(ptr);
             drop(Box::from_raw(ptr));
         }
     }
 
-    pub fn rwlock_read_lock(ptr: *mut MuxRwLock) -> i32 {
+    /// Acquires a shared POSIX read-write lock.
+    ///
+    /// # Safety
+    /// `ptr` must be non-null and point to an initialized lock that remains
+    /// alive for the duration of the call.
+    pub unsafe fn rwlock_read_lock(ptr: *mut MuxRwLock) -> i32 {
         unsafe { libc::pthread_rwlock_rdlock(ptr) }
     }
 
-    pub fn rwlock_write_lock(ptr: *mut MuxRwLock) -> i32 {
+    /// Acquires an exclusive POSIX read-write lock.
+    ///
+    /// # Safety
+    /// `ptr` must be non-null and point to an initialized lock that remains
+    /// alive for the duration of the call.
+    pub unsafe fn rwlock_write_lock(ptr: *mut MuxRwLock) -> i32 {
         unsafe { libc::pthread_rwlock_wrlock(ptr) }
     }
 
-    pub fn rwlock_unlock(ptr: *mut MuxRwLock) -> i32 {
+    /// Releases a POSIX read-write lock held by the calling thread.
+    ///
+    /// # Safety
+    /// `ptr` must be non-null and point to an initialized lock currently held
+    /// by the calling thread.
+    pub unsafe fn rwlock_unlock(ptr: *mut MuxRwLock) -> i32 {
         unsafe { libc::pthread_rwlock_unlock(ptr) }
     }
 
@@ -82,22 +117,44 @@ mod sync_backend {
         Ok(Box::into_raw(initialized))
     }
 
-    pub fn destroy_condvar(ptr: *mut MuxCondVar) {
+    /// Destroys and deallocates an initialized POSIX condition variable.
+    ///
+    /// # Safety
+    /// `ptr` must be non-null, point to an initialized condition variable
+    /// allocated by [`init_condvar`], and have no waiters.
+    pub unsafe fn destroy_condvar(ptr: *mut MuxCondVar) {
         unsafe {
             let _ = libc::pthread_cond_destroy(ptr);
             drop(Box::from_raw(ptr));
         }
     }
 
-    pub fn condvar_wait(cond_ptr: *mut MuxCondVar, mutex_ptr: *mut MuxMutex) -> i32 {
+    /// Waits on a POSIX condition variable while atomically releasing and
+    /// reacquiring its mutex.
+    ///
+    /// # Safety
+    /// Both pointers must be non-null and point to initialized objects that
+    /// remain alive for the duration of the call. `mutex_ptr` must be locked
+    /// by the calling thread and associated with `cond_ptr`.
+    pub unsafe fn condvar_wait(cond_ptr: *mut MuxCondVar, mutex_ptr: *mut MuxMutex) -> i32 {
         unsafe { libc::pthread_cond_wait(cond_ptr, mutex_ptr) }
     }
 
-    pub fn condvar_signal(cond_ptr: *mut MuxCondVar) -> i32 {
+    /// Wakes one waiter on a POSIX condition variable.
+    ///
+    /// # Safety
+    /// `cond_ptr` must be non-null and point to an initialized condition
+    /// variable that remains alive for the duration of the call.
+    pub unsafe fn condvar_signal(cond_ptr: *mut MuxCondVar) -> i32 {
         unsafe { libc::pthread_cond_signal(cond_ptr) }
     }
 
-    pub fn condvar_broadcast(cond_ptr: *mut MuxCondVar) -> i32 {
+    /// Wakes all waiters on a POSIX condition variable.
+    ///
+    /// # Safety
+    /// `cond_ptr` must be non-null and point to an initialized condition
+    /// variable that remains alive for the duration of the call.
+    pub unsafe fn condvar_broadcast(cond_ptr: *mut MuxCondVar) -> i32 {
         unsafe { libc::pthread_cond_broadcast(cond_ptr) }
     }
 }
@@ -140,19 +197,34 @@ mod sync_backend {
         Ok(Box::into_raw(initialized))
     }
 
-    pub fn destroy_mutex(ptr: *mut MuxMutex) {
+    /// Destroys and deallocates an initialized Windows critical section.
+    ///
+    /// # Safety
+    /// `ptr` must be non-null, point to an initialized critical section
+    /// allocated by [`init_mutex`], and not be locked or concurrently used.
+    pub unsafe fn destroy_mutex(ptr: *mut MuxMutex) {
         unsafe {
             DeleteCriticalSection(ptr);
             drop(Box::from_raw(ptr));
         }
     }
 
-    pub fn lock_mutex(ptr: *mut MuxMutex) -> i32 {
+    /// Locks an initialized Windows critical section.
+    ///
+    /// # Safety
+    /// `ptr` must be non-null and point to an initialized critical section
+    /// that remains alive for the duration of the call.
+    pub unsafe fn lock_mutex(ptr: *mut MuxMutex) -> i32 {
         unsafe { EnterCriticalSection(ptr) };
         0
     }
 
-    pub fn unlock_mutex(ptr: *mut MuxMutex) -> i32 {
+    /// Unlocks an initialized Windows critical section held by the caller.
+    ///
+    /// # Safety
+    /// `ptr` must be non-null and point to an initialized critical section
+    /// currently locked by the calling thread.
+    pub unsafe fn unlock_mutex(ptr: *mut MuxMutex) -> i32 {
         unsafe { LeaveCriticalSection(ptr) };
         0
     }
@@ -164,7 +236,12 @@ mod sync_backend {
         Ok(Box::into_raw(initialized))
     }
 
-    pub fn destroy_rwlock(ptr: *mut MuxRwLock) {
+    /// Destroys and deallocates an initialized Windows SRW lock.
+    ///
+    /// # Safety
+    /// `ptr` must be non-null, point to an initialized lock allocated by
+    /// [`init_rwlock`], and have no active readers or writer.
+    pub unsafe fn destroy_rwlock(ptr: *mut MuxRwLock) {
         let lock_addr = ptr as usize;
         let mut hold_modes = rwlock_modes_lock();
         hold_modes.retain(|(_, addr), _| *addr != lock_addr);
@@ -173,7 +250,12 @@ mod sync_backend {
         }
     }
 
-    pub fn rwlock_read_lock(ptr: *mut MuxRwLock) -> i32 {
+    /// Acquires a shared Windows SRW lock.
+    ///
+    /// # Safety
+    /// `ptr` must be non-null and point to an initialized lock that remains
+    /// alive for the duration of the call.
+    pub unsafe fn rwlock_read_lock(ptr: *mut MuxRwLock) -> i32 {
         let thread_id = unsafe { GetCurrentThreadId() };
         let key = (thread_id, ptr as usize);
         {
@@ -184,7 +266,12 @@ mod sync_backend {
         0
     }
 
-    pub fn rwlock_write_lock(ptr: *mut MuxRwLock) -> i32 {
+    /// Acquires an exclusive Windows SRW lock.
+    ///
+    /// # Safety
+    /// `ptr` must be non-null and point to an initialized lock that remains
+    /// alive for the duration of the call.
+    pub unsafe fn rwlock_write_lock(ptr: *mut MuxRwLock) -> i32 {
         let thread_id = unsafe { GetCurrentThreadId() };
         let key = (thread_id, ptr as usize);
         {
@@ -195,7 +282,12 @@ mod sync_backend {
         0
     }
 
-    pub fn rwlock_unlock(ptr: *mut MuxRwLock) -> i32 {
+    /// Releases a Windows SRW lock held by the caller.
+    ///
+    /// # Safety
+    /// `ptr` must be non-null and point to an initialized lock currently held
+    /// by the calling thread.
+    pub unsafe fn rwlock_unlock(ptr: *mut MuxRwLock) -> i32 {
         let thread_id = unsafe { GetCurrentThreadId() };
         let key = (thread_id, ptr as usize);
         let mode = {
@@ -222,13 +314,24 @@ mod sync_backend {
         Ok(Box::into_raw(initialized))
     }
 
-    pub fn destroy_condvar(ptr: *mut MuxCondVar) {
+    /// Releases an initialized Windows condition variable allocation.
+    ///
+    /// # Safety
+    /// `ptr` must be non-null and point to an initialized condition variable
+    /// allocated by [`init_condvar`], with no active waiters.
+    pub unsafe fn destroy_condvar(ptr: *mut MuxCondVar) {
         unsafe {
             drop(Box::from_raw(ptr));
         }
     }
 
-    pub fn condvar_wait(cond_ptr: *mut MuxCondVar, mutex_ptr: *mut MuxMutex) -> i32 {
+    /// Waits on a Windows condition variable while releasing its mutex.
+    ///
+    /// # Safety
+    /// Both pointers must be non-null and point to initialized objects that
+    /// remain alive for the duration of the call. `mutex_ptr` must be locked
+    /// by the calling thread and associated with `cond_ptr`.
+    pub unsafe fn condvar_wait(cond_ptr: *mut MuxCondVar, mutex_ptr: *mut MuxMutex) -> i32 {
         let ok = unsafe { SleepConditionVariableCS(cond_ptr, mutex_ptr, INFINITE) };
         if ok == 0 {
             return unsafe { GetLastError() as i32 };
@@ -236,12 +339,22 @@ mod sync_backend {
         0
     }
 
-    pub fn condvar_signal(cond_ptr: *mut MuxCondVar) -> i32 {
+    /// Wakes one waiter on a Windows condition variable.
+    ///
+    /// # Safety
+    /// `cond_ptr` must be non-null and point to an initialized condition
+    /// variable that remains alive for the duration of the call.
+    pub unsafe fn condvar_signal(cond_ptr: *mut MuxCondVar) -> i32 {
         unsafe { WakeConditionVariable(cond_ptr) };
         0
     }
 
-    pub fn condvar_broadcast(cond_ptr: *mut MuxCondVar) -> i32 {
+    /// Wakes all waiters on a Windows condition variable.
+    ///
+    /// # Safety
+    /// `cond_ptr` must be non-null and point to an initialized condition
+    /// variable that remains alive for the duration of the call.
+    pub unsafe fn condvar_broadcast(cond_ptr: *mut MuxCondVar) -> i32 {
         unsafe { WakeAllConditionVariable(cond_ptr) };
         0
     }
@@ -327,7 +440,9 @@ extern "C" fn destroy_mutex_object(ptr: *mut c_void) {
             .map(|p| p as *mut sync_backend::MuxMutex)
     };
     if let Some(mutex_ptr) = mutex_ptr {
-        sync_backend::destroy_mutex(mutex_ptr);
+        // SAFETY: the pointer came from the registry and this callback removes
+        // its sole registry entry before destroying the initialized mutex.
+        unsafe { sync_backend::destroy_mutex(mutex_ptr) };
     }
 }
 
@@ -343,7 +458,9 @@ extern "C" fn destroy_rwlock_object(ptr: *mut c_void) {
             .map(|p| p as *mut sync_backend::MuxRwLock)
     };
     if let Some(rwlock_ptr) = rwlock_ptr {
-        sync_backend::destroy_rwlock(rwlock_ptr);
+        // SAFETY: the pointer came from the registry and this callback removes
+        // its sole registry entry before destroying the initialized lock.
+        unsafe { sync_backend::destroy_rwlock(rwlock_ptr) };
     }
 }
 
@@ -359,7 +476,9 @@ extern "C" fn destroy_condvar_object(ptr: *mut c_void) {
             .map(|p| p as *mut sync_backend::MuxCondVar)
     };
     if let Some(condvar_ptr) = condvar_ptr {
-        sync_backend::destroy_condvar(condvar_ptr);
+        // SAFETY: the pointer came from the registry and this callback removes
+        // its sole registry entry before destroying the initialized condvar.
+        unsafe { sync_backend::destroy_condvar(condvar_ptr) };
     }
 }
 
@@ -596,7 +715,9 @@ pub extern "C" fn mux_mutex_lock(mutex_handle: *mut Value) -> *mut Value {
         }
     };
 
-    let rc = sync_backend::lock_mutex(mutex_ptr);
+    // SAFETY: the pointer was read from the live-handle registry and remains
+    // initialized for this backend operation.
+    let rc = unsafe { sync_backend::lock_mutex(mutex_ptr) };
     if rc != 0 {
         return err_string(format!("mux_mutex_lock failed with error code {}", rc));
     }
@@ -618,7 +739,9 @@ pub extern "C" fn mux_mutex_unlock(mutex_handle: *mut Value) -> *mut Value {
         }
     };
 
-    let rc = sync_backend::unlock_mutex(mutex_ptr);
+    // SAFETY: the pointer was read from the live-handle registry and remains
+    // initialized for this backend operation.
+    let rc = unsafe { sync_backend::unlock_mutex(mutex_ptr) };
     if rc != 0 {
         return err_string(format!("mux_mutex_unlock failed with error code {}", rc));
     }
@@ -640,7 +763,9 @@ pub extern "C" fn mux_rwlock_read_lock(rwlock_handle: *mut Value) -> *mut Value 
         }
     };
 
-    let rc = sync_backend::rwlock_read_lock(rwlock_ptr);
+    // SAFETY: the pointer was read from the live-handle registry and remains
+    // initialized for this backend operation.
+    let rc = unsafe { sync_backend::rwlock_read_lock(rwlock_ptr) };
     if rc != 0 {
         return err_string(format!(
             "mux_rwlock_read_lock failed with error code {}",
@@ -665,7 +790,9 @@ pub extern "C" fn mux_rwlock_write_lock(rwlock_handle: *mut Value) -> *mut Value
         }
     };
 
-    let rc = sync_backend::rwlock_write_lock(rwlock_ptr);
+    // SAFETY: the pointer was read from the live-handle registry and remains
+    // initialized for this backend operation.
+    let rc = unsafe { sync_backend::rwlock_write_lock(rwlock_ptr) };
     if rc != 0 {
         return err_string(format!(
             "mux_rwlock_write_lock failed with error code {}",
@@ -690,7 +817,9 @@ pub extern "C" fn mux_rwlock_unlock(rwlock_handle: *mut Value) -> *mut Value {
         }
     };
 
-    let rc = sync_backend::rwlock_unlock(rwlock_ptr);
+    // SAFETY: the pointer was read from the live-handle registry and remains
+    // initialized for this backend operation.
+    let rc = unsafe { sync_backend::rwlock_unlock(rwlock_ptr) };
     if rc != 0 {
         return err_string(format!("mux_rwlock_unlock failed with error code {}", rc));
     }
@@ -727,7 +856,9 @@ pub extern "C" fn mux_condvar_wait(
         }
     };
 
-    let rc = sync_backend::condvar_wait(cond_ptr, mutex_ptr);
+    // SAFETY: both pointers were read from their live-handle registries and
+    // remain initialized; the Mux contract requires the mutex to be held.
+    let rc = unsafe { sync_backend::condvar_wait(cond_ptr, mutex_ptr) };
     if rc != 0 {
         return err_string(format!("mux_condvar_wait failed with error code {}", rc));
     }
@@ -749,7 +880,9 @@ pub extern "C" fn mux_condvar_signal(condvar_handle: *mut Value) -> *mut Value {
         }
     };
 
-    let rc = sync_backend::condvar_signal(cond_ptr);
+    // SAFETY: the pointer was read from the live-handle registry and remains
+    // initialized for this backend operation.
+    let rc = unsafe { sync_backend::condvar_signal(cond_ptr) };
     if rc != 0 {
         return err_string(format!("mux_condvar_signal failed with error code {}", rc));
     }
@@ -771,7 +904,9 @@ pub extern "C" fn mux_condvar_broadcast(condvar_handle: *mut Value) -> *mut Valu
         }
     };
 
-    let rc = sync_backend::condvar_broadcast(cond_ptr);
+    // SAFETY: the pointer was read from the live-handle registry and remains
+    // initialized for this backend operation.
+    let rc = unsafe { sync_backend::condvar_broadcast(cond_ptr) };
     if rc != 0 {
         return err_string(format!(
             "mux_condvar_broadcast failed with error code {}",
