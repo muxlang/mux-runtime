@@ -84,7 +84,8 @@ extern "C" fn copy_udp_socket(src: *mut c_void, dest: *mut c_void) {
 fn lock_map<'a, T>(
     map: &'a SocketMap<T>,
 ) -> std::sync::MutexGuard<'a, HashMap<i64, SocketEntry<T>>> {
-    map.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    map.lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 fn next_handle() -> i64 {
@@ -200,7 +201,7 @@ where
     let entry = socket_entry_or_err(map, handle, label)?;
     let mut guard = entry
         .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     op(&mut guard)
 }
 
