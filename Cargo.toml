@@ -26,6 +26,7 @@ map_unwrap_or = "deny"
 ignored_unit_patterns = "deny"
 match_same_arms = "deny"
 bool_to_int_with_if = "deny"
+single_match_else = "deny"
 
 [lib]
 name = "mux_runtime"
