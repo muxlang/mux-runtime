@@ -31,6 +31,7 @@ if_not_else = "deny"
 elidable_lifetime_names = "deny"
 items_after_statements = "deny"
 semicolon_if_nothing_returned = "deny"
+needless_raw_string_hashes = "deny"
 
 [lib]
 name = "mux_runtime"
