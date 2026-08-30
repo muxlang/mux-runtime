@@ -55,7 +55,7 @@ indexmap = { version = "2", optional = true }
 csv = { version = "1", optional = true }
 ureq = { version = "2.10", optional = true }
 httparse = { version = "1.10", optional = true }
-rusqlite = { version = "0.31", features = ["bundled"], optional = true }
+rusqlite = { version = "0.40", features = ["bundled"], optional = true }
 postgres = { version = "0.19", optional = true }
 mysql = { version = "28", optional = true }
 
