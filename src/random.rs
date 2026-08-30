@@ -1,7 +1,7 @@
 use std::sync::{Mutex, MutexGuard, Once};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-const RAND_MAX: i64 = 2147483647;
+const RAND_MAX: i64 = 2_147_483_647;
 
 /// Width of `mux_rand_int`'s output, in bits. `RAND_MAX` is `2^31 - 1`, so the
 /// generator fills 31 bits. `mux_rand_range` scales by this; deriving it from
@@ -19,8 +19,8 @@ fn lock_state() -> MutexGuard<'static, u64> {
 
 fn lcg_next(state: u64) -> u64 {
     state
-        .wrapping_mul(6364136223846793005)
-        .wrapping_add(1442695040888963407)
+        .wrapping_mul(6_364_136_223_846_793_005)
+        .wrapping_add(1_442_695_040_888_963_407)
 }
 
 #[unsafe(no_mangle)]

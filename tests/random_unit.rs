@@ -4,7 +4,7 @@
 
 use mux_runtime::random::*;
 
-const RAND_MAX: i64 = 2147483647;
+const RAND_MAX: i64 = 2_147_483_647;
 
 #[test]
 fn int_within_range() {
@@ -34,7 +34,7 @@ fn range_bounds() {
 /// large range must reach its top. Both fail if the scaling is off by a factor.
 #[test]
 fn range_covers_whole_span() {
-    mux_rand_init(20260812);
+    mux_rand_init(20_260_812);
 
     let mut seen = [false; 6];
     for _ in 0..6000 {

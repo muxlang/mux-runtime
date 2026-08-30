@@ -20,6 +20,7 @@ suspicious = "deny"
 # This first batch is mechanical and keeps the rule strict in every target.
 manual_string_new = "deny"
 manual_let_else = "deny"
+unreadable_literal = "deny"
 
 [lib]
 name = "mux_runtime"
