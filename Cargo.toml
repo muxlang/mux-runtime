@@ -23,6 +23,7 @@ manual_let_else = "deny"
 unreadable_literal = "deny"
 redundant_closure_for_method_calls = "deny"
 map_unwrap_or = "deny"
+ignored_unit_patterns = "deny"
 
 [lib]
 name = "mux_runtime"

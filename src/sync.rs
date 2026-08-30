@@ -759,7 +759,7 @@ pub extern "C" fn mux_thread_join(thread_handle: *mut Value) -> *mut Value {
     };
 
     match handle.join() {
-        Ok(_) => ok_unit(),
+        Ok(()) => ok_unit(),
         Err(_) => err_string("Thread panicked during execution"),
     }
 }

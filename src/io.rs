@@ -189,7 +189,7 @@ pub extern "C" fn mux_io_write_file(path: *const c_char, content: *const c_char)
     let content_str = unsafe { CStr::from_ptr(content).to_string_lossy() };
 
     match std::fs::write(&*path_str, content_str.as_bytes()) {
-        Ok(_) => io_ok(Value::Unit),
+        Ok(()) => io_ok(Value::Unit),
         Err(e) => io_err(format!("Failed to write file '{}': {}", path_str, e)),
     }
 }
@@ -215,7 +215,7 @@ pub extern "C" fn mux_io_remove(path: *const c_char) -> *mut Value {
     let path_str = unsafe { CStr::from_ptr(path).to_string_lossy() };
 
     match std::fs::remove_file(&*path_str) {
-        Ok(_) => io_ok(Value::Unit),
+        Ok(()) => io_ok(Value::Unit),
         Err(e) => io_err(format!("Failed to remove '{}': {}", path_str, e)),
     }
 }
@@ -256,7 +256,7 @@ pub extern "C" fn mux_io_mkdir(path: *const c_char) -> *mut Value {
     let path_str = unsafe { CStr::from_ptr(path).to_string_lossy() };
 
     match std::fs::create_dir_all(&*path_str) {
-        Ok(_) => io_ok(Value::Unit),
+        Ok(()) => io_ok(Value::Unit),
         Err(e) => io_err(format!("Failed to create directory '{}': {}", path_str, e)),
     }
 }
