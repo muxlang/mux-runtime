@@ -29,17 +29,7 @@ jobs:
       - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         id: filter
         with:
-          filters: |
-            runtime_src:
-              - 'src/**'
-              - 'examples/**'
-              - 'benches/**'
-              - 'Cargo.toml'
-              - 'Cargo.lock'
-              # A workflow-only change would otherwise skip every job here,
-              # including the one being changed - so CI edits would ship
-              # unexercised.
-              - '.github/workflows/**'
+          filters: .github/runtime-source-paths.yml
 
   ab_benchmark_gate:
     # Roc-style A/B regression gate (plan.md step 5): runs the PR head's
