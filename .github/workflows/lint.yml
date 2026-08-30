@@ -1,0 +1,30 @@
+name: Lint
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+concurrency:
+  # Keep lint feedback independent from the build workflow while still
+  # cancelling obsolete runs for the same branch or pull request.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  lint_workflows:
+    # actionlint plus its built-in shellcheck integration (active once
+    # shellcheck is on PATH, which it is on this image). This job deliberately
+    # remains named "Lint Workflows": that is the required status-check name.
+    name: Lint Workflows
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: actionlint + shellcheck
+        run: ./scripts/ci/lint-workflows.sh
