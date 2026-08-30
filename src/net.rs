@@ -423,9 +423,7 @@ fn read_http_response(response: ureq::http::Response<ureq::Body>) -> Result<Valu
             })
             .collect::<Result<Vec<_>, _>>()?
             .join(", ");
-        if !joined.is_empty() {
-            response_headers.insert(name.as_str().to_string(), Json::String(joined));
-        }
+        response_headers.insert(name.as_str().to_string(), Json::String(joined));
     }
 
     let body_text = response
