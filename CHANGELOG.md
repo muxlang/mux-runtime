@@ -30,6 +30,10 @@ compiler PRs land with no release notes at all.
   release entry points document their unsafe exactly-one-reference contract;
   the C ABI symbols and balanced compiler-generated ownership flow are
   unchanged.
+- **SQLite execution now rejects multi-statement SQL explicitly.** The
+  rusqlite 0.40 upgrade makes `execute` and `prepare` fail closed when a query
+  contains more than one statement; callers should submit statements
+  individually or use a transaction.
 
 ## [0.6.1] - 2026-08-27
 
