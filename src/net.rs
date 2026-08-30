@@ -750,13 +750,13 @@ fn write_http_response(stream: &mut StdTcpStream, response: &Json) -> Result<(),
         })
         .and_then(|value| value.split(';').next())
         .is_some_and(|value| value.trim().eq_ignore_ascii_case("application/json"));
-    let body_bytes = if !is_json_content_type {
+    let body_bytes = if is_json_content_type {
+        body_json.stringify(None).into_bytes()
+    } else {
         match &body_json {
             Json::String(text) => text.as_bytes().to_vec(),
             _ => body_json.stringify(None).into_bytes(),
         }
-    } else {
-        body_json.stringify(None).into_bytes()
     };
     headers.insert("Content-Length".to_string(), body_bytes.len().to_string());
     if !headers
