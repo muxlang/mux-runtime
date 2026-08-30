@@ -45,7 +45,7 @@ full = ["core", "json", "csv", "net", "sql", "sync"]
 rc-leak-check = []
 
 [dependencies]
-ordered-float = "4.0"
+ordered-float = "5.5"
 hashbrown = "0.15"
 lazy_static = "1.4"
 libc = "0.2"
@@ -63,7 +63,7 @@ mysql = { version = "28", optional = true }
 windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_Kernel", "Win32_System_Threading"] }
 
 [dev-dependencies]
-ordered-float = "4.0"
+ordered-float = "5.5"
 libc = "0.2"
 criterion = { version = "0.5", features = ["html_reports"] }
 
