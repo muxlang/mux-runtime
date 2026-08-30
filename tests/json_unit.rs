@@ -281,7 +281,7 @@ fn field_lookup_separates_absent_from_null() {
             assert!(
                 mux_json_is_null(inner.as_ref()),
                 "bio should hold JSON null"
-            )
+            );
         }
         other => panic!("an explicit null must be some(null), got {other:?}"),
     }

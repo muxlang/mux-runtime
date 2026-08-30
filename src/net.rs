@@ -241,15 +241,15 @@ fn store_udp_socket(socket: StdUdpSocket) -> i64 {
 }
 
 fn remove_tcp_stream(handle: i64) {
-    remove_socket(&TCP_STREAMS, handle)
+    remove_socket(&TCP_STREAMS, handle);
 }
 
 fn remove_tcp_listener(handle: i64) {
-    remove_socket(&TCP_LISTENERS, handle)
+    remove_socket(&TCP_LISTENERS, handle);
 }
 
 fn remove_udp_socket(handle: i64) {
-    remove_socket(&UDP_SOCKETS, handle)
+    remove_socket(&UDP_SOCKETS, handle);
 }
 
 fn socket_handle(value: *const Value) -> Option<i64> {

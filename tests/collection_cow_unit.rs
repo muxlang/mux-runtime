@@ -33,7 +33,7 @@ fn build_list(n: i64) -> *mut Value {
     );
     for i in 0..n {
         with_scalar(Value::Int(i), |elem| {
-            mux_list_push_back_value(list_val, elem)
+            mux_list_push_back_value(list_val, elem);
         });
     }
     list_val
@@ -85,7 +85,7 @@ fn list_set_value_overwrites_and_extends() {
     with_scalar(Value::Int(42), |elem| mux_list_set_value(list_val, 1, elem));
     // Negative index writes from the end.
     with_scalar(Value::Int(99), |elem| {
-        mux_list_set_value(list_val, -1, elem)
+        mux_list_set_value(list_val, -1, elem);
     });
     // Index past the end extends with default fill (Int(0)) then writes.
     with_scalar(Value::Int(7), |elem| mux_list_set_value(list_val, 5, elem));
