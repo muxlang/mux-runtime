@@ -394,6 +394,14 @@ struct ThreadEntry {
     handle: Option<thread::JoinHandle<()>>,
 }
 
+struct ClosureReleaseGuard(usize);
+
+impl Drop for ClosureReleaseGuard {
+    fn drop(&mut self) {
+        unsafe { crate::closure::mux_closure_release(self.0 as *mut c_void) };
+    }
+}
+
 struct MutexEntry {
     ptr: *mut sync_backend::MuxMutex,
     active_holds: AtomicUsize,
@@ -691,14 +699,8 @@ pub extern "C" fn mux_sync_spawn(closure: *mut c_void) -> *mut Value {
         // guard (rather than releasing after the body) means the reference is
         // released on EVERY thread exit path - normal return AND unwinding if the
         // closure body panics - so the closure and its captures never leak.
-        struct ReleaseOnDrop(usize);
-        impl Drop for ReleaseOnDrop {
-            fn drop(&mut self) {
-                unsafe { crate::closure::mux_closure_release(self.0 as *mut c_void) };
-            }
-        }
         let handle = thread::Builder::new().spawn(move || {
-            let _release = ReleaseOnDrop(closure_addr);
+            let _release = ClosureReleaseGuard(closure_addr);
             if captures_addr == 0 {
                 let func: extern "C" fn() = unsafe { std::mem::transmute(function_addr) };
                 func();
