@@ -67,7 +67,7 @@ fn convert_serde_value(v: &serde_json::Value) -> Json {
         serde_json::Value::Array(arr) => Json::Array(arr.iter().map(convert_serde_value).collect()),
         serde_json::Value::Object(map) => {
             let mut m = JsonMap::new();
-            for (k, v) in map.iter() {
+            for (k, v) in map {
                 m.insert(k.clone(), convert_serde_value(v));
             }
             Json::Object(m)
@@ -108,7 +108,7 @@ pub fn json_to_value(j: &Json) -> Value {
         Json::Array(a) => Value::List(a.iter().map(json_to_value).collect()),
         Json::Object(m) => {
             let mut map = crate::ordered::OrderedMap::new();
-            for (k, v) in m.iter() {
+            for (k, v) in m {
                 map.insert(Value::String(k.clone()), json_to_value(v));
             }
             Value::Map(map)
@@ -141,7 +141,7 @@ pub fn value_to_json(v: &Value) -> Result<Json, String> {
         }
         Value::Map(map) => {
             let mut m = JsonMap::new();
-            for (k, v) in map.iter() {
+            for (k, v) in map {
                 // only string keys allowed in JSON
                 if let Value::String(key_str) = k {
                     m.insert(key_str.clone(), value_to_json(v)?);
@@ -235,7 +235,7 @@ pub extern "C" fn mux_json_from_map(val: *const Value) -> *mut Value {
     };
     // Convert each value to Json to validate
     let mut jmap = JsonMap::new();
-    for (k, vv) in map.iter() {
+    for (k, vv) in map {
         if let Value::String(key_str) = k {
             match value_to_json(vv) {
                 Ok(jv) => {
