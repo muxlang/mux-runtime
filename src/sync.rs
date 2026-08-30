@@ -2,12 +2,11 @@ use crate::object::{alloc_object, get_object_ptr, get_object_type_id, register_o
 use crate::refcount::{mux_rc_alloc, mux_rc_dec};
 use crate::TypeId;
 use crate::Value;
-use lazy_static::lazy_static;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicI64, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 use std::thread;
 use std::time::Duration;
 
@@ -162,10 +161,9 @@ mod sync_backend {
 
 #[cfg(windows)]
 mod sync_backend {
-    use lazy_static::lazy_static;
     use std::collections::HashMap;
     use std::mem::MaybeUninit;
-    use std::sync::{Mutex, MutexGuard};
+    use std::sync::{LazyLock, Mutex, MutexGuard};
     use windows_sys::Win32::Foundation::GetLastError;
     use windows_sys::Win32::System::Threading::{
         AcquireSRWLockExclusive, AcquireSRWLockShared, DeleteCriticalSection, EnterCriticalSection,
@@ -175,10 +173,8 @@ mod sync_backend {
         CONDITION_VARIABLE, CRITICAL_SECTION, INFINITE, SRWLOCK,
     };
 
-    lazy_static! {
-        static ref RWLOCK_HOLD_MODES: Mutex<HashMap<(u32, usize), Vec<bool>>> =
-            Mutex::new(HashMap::new());
-    }
+    static RWLOCK_HOLD_MODES: LazyLock<Mutex<HashMap<(u32, usize), Vec<bool>>>> =
+        LazyLock::new(|| Mutex::new(HashMap::new()));
 
     fn rwlock_modes_lock() -> MutexGuard<'static, HashMap<(u32, usize), Vec<bool>>> {
         match RWLOCK_HOLD_MODES.lock() {
@@ -517,36 +513,46 @@ thread_local! {
     static HELD_RWLOCKS: RefCell<HashMap<i64, Vec<HeldRwLock>>> = RefCell::new(HashMap::new());
 }
 
-lazy_static! {
-    static ref NEXT_THREAD_ID: AtomicI64 = AtomicI64::new(1);
-    static ref THREADS: Mutex<HashMap<i64, ThreadEntry>> = Mutex::new(HashMap::new());
-    static ref NEXT_MUTEX_ID: AtomicI64 = AtomicI64::new(1);
-    static ref MUTEXES: Mutex<HashMap<i64, Arc<MutexEntry>>> = Mutex::new(HashMap::new());
-    static ref NEXT_RWLOCK_ID: AtomicI64 = AtomicI64::new(1);
-    static ref RWLOCKS: Mutex<HashMap<i64, Arc<RwLockEntry>>> = Mutex::new(HashMap::new());
-    static ref NEXT_CONDVAR_ID: AtomicI64 = AtomicI64::new(1);
-    static ref CONDVARS: Mutex<HashMap<i64, Arc<CondVarEntry>>> = Mutex::new(HashMap::new());
-    static ref MUTEX_TYPE_ID: TypeId = register_object_type(
+static NEXT_THREAD_ID: LazyLock<AtomicI64> = LazyLock::new(|| AtomicI64::new(1));
+static THREADS: LazyLock<Mutex<HashMap<i64, ThreadEntry>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+static NEXT_MUTEX_ID: LazyLock<AtomicI64> = LazyLock::new(|| AtomicI64::new(1));
+static MUTEXES: LazyLock<Mutex<HashMap<i64, Arc<MutexEntry>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+static NEXT_RWLOCK_ID: LazyLock<AtomicI64> = LazyLock::new(|| AtomicI64::new(1));
+static RWLOCKS: LazyLock<Mutex<HashMap<i64, Arc<RwLockEntry>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+static NEXT_CONDVAR_ID: LazyLock<AtomicI64> = LazyLock::new(|| AtomicI64::new(1));
+static CONDVARS: LazyLock<Mutex<HashMap<i64, Arc<CondVarEntry>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+static MUTEX_TYPE_ID: LazyLock<TypeId> = LazyLock::new(|| {
+    register_object_type(
         "Mutex",
         8,
-        Some(destroy_mutex_object as extern "C" fn(*mut c_void))
-    );
-    static ref RWLOCK_TYPE_ID: TypeId = register_object_type(
+        Some(destroy_mutex_object as extern "C" fn(*mut c_void)),
+    )
+});
+static RWLOCK_TYPE_ID: LazyLock<TypeId> = LazyLock::new(|| {
+    register_object_type(
         "RwLock",
         8,
-        Some(destroy_rwlock_object as extern "C" fn(*mut c_void))
-    );
-    static ref CONDVAR_TYPE_ID: TypeId = register_object_type(
+        Some(destroy_rwlock_object as extern "C" fn(*mut c_void)),
+    )
+});
+static CONDVAR_TYPE_ID: LazyLock<TypeId> = LazyLock::new(|| {
+    register_object_type(
         "CondVar",
         8,
-        Some(destroy_condvar_object as extern "C" fn(*mut c_void))
-    );
-    static ref THREAD_TYPE_ID: TypeId = register_object_type(
+        Some(destroy_condvar_object as extern "C" fn(*mut c_void)),
+    )
+});
+static THREAD_TYPE_ID: LazyLock<TypeId> = LazyLock::new(|| {
+    register_object_type(
         "Thread",
         8,
-        Some(destroy_thread_object as extern "C" fn(*mut c_void))
-    );
-}
+        Some(destroy_thread_object as extern "C" fn(*mut c_void)),
+    )
+});
 
 fn ok_unit() -> *mut Value {
     mux_rc_alloc(Value::Result(Ok(Box::new(Value::Unit))))

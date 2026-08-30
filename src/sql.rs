@@ -1,7 +1,6 @@
 use crate::object::{alloc_object, get_object_ptr, register_object_type};
 use crate::refcount::{mux_rc_alloc, mux_rc_dec};
 use crate::{TypeId, Value};
-use lazy_static::lazy_static;
 use mysql::prelude::Queryable;
 use mysql::{
     Conn as MySqlConnection, Opts as MySqlOpts, Params as MySqlParams, Value as MySqlValue,
@@ -14,6 +13,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ffi::{c_char, c_void, CStr};
 use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::LazyLock;
 
 // THREAD AFFINITY INVARIANT:
 // Handle IDs (Connection, Transaction, ResultSet) are globally unique via NEXT_HANDLE,
@@ -31,23 +31,27 @@ thread_local! {
     static SQL_RESULTSETS: RefCell<HashMap<i64, SqlResultSet>> = RefCell::new(HashMap::new());
 }
 
-lazy_static! {
-    static ref SQL_CONNECTION_TYPE_ID: TypeId = register_object_type(
+static SQL_CONNECTION_TYPE_ID: LazyLock<TypeId> = LazyLock::new(|| {
+    register_object_type(
         "Connection",
         std::mem::size_of::<i64>(),
         Some(drop_connection_handle as extern "C" fn(*mut c_void)),
-    );
-    static ref SQL_TRANSACTION_TYPE_ID: TypeId = register_object_type(
+    )
+});
+static SQL_TRANSACTION_TYPE_ID: LazyLock<TypeId> = LazyLock::new(|| {
+    register_object_type(
         "Transaction",
         std::mem::size_of::<i64>(),
         Some(drop_transaction_handle as extern "C" fn(*mut c_void)),
-    );
-    static ref SQL_RESULTSET_TYPE_ID: TypeId = register_object_type(
+    )
+});
+static SQL_RESULTSET_TYPE_ID: LazyLock<TypeId> = LazyLock::new(|| {
+    register_object_type(
         "ResultSet",
         std::mem::size_of::<i64>(),
         Some(drop_resultset_handle as extern "C" fn(*mut c_void)),
-    );
-}
+    )
+});
 
 enum SqlConnection {
     Sqlite(SqliteConnection),
