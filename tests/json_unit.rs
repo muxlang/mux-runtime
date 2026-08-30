@@ -110,7 +110,7 @@ fn numbers_survive_a_roundtrip() {
         // Past 2^53, where an f64 silently rounds to an even neighbour.
         r#"{"n":9007199254740993}"#,
         r#"{"n":-9007199254740993}"#,
-        r#"[1,2,3]"#,
+        r"[1,2,3]",
         r#"{"a":true,"b":null}"#,
         r#"{"s":"hi"}"#,
         // Keys must come back in the order they were written. A sorted map
