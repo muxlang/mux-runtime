@@ -204,6 +204,25 @@ fn query_params_and_errors() {
 }
 
 #[test]
+fn sqlite_rejects_multiple_statements_explicitly() {
+    let conn = connect_memory();
+
+    // rusqlite 0.40 rejects a second statement instead of silently executing
+    // only the first one. Keep that safer behavior explicit at the runtime
+    // boundary so callers do not depend on version-specific SQLite semantics.
+    let execute = sval("CREATE TABLE t (id INTEGER); INSERT INTO t VALUES (1)");
+    assert_err(mux_sql_connection_execute(conn, execute));
+    assert!(unsafe { mux_rc_dec(execute) });
+
+    let query = sval("SELECT 1; SELECT 2");
+    assert_err(mux_sql_connection_query(conn, query));
+    assert!(unsafe { mux_rc_dec(query) });
+
+    mux_sql_connection_close(conn);
+    assert!(unsafe { mux_rc_dec(conn) });
+}
+
+#[test]
 fn sql_value_bytes_and_type_errors() {
     // bytes value round trip
     let list = mux_rc_alloc(Value::List(vec![
