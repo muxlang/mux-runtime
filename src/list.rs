@@ -243,7 +243,6 @@ fn default_fill_value(list: &[Value]) -> Value {
     }
 
     match &list[0] {
-        Value::Int(_) => Value::Int(0),
         Value::Float(_) => Value::Float(0.0.into()),
         Value::String(_) => Value::String(String::new()),
         Value::Bool(_) => Value::Bool(false),

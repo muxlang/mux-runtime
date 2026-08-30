@@ -811,16 +811,14 @@ fn execute_http_request(request: *const Value) -> Result<Value, String> {
         }
         let payload = body_json.stringify(None);
         match req.send_string(&payload) {
-            Ok(response) => response,
-            Err(ureq::Error::Status(_, response)) => response,
+            Ok(response) | Err(ureq::Error::Status(_, response)) => response,
             Err(ureq::Error::Transport(error)) => {
                 return Err(format!("http request failed: {}", error));
             }
         }
     } else {
         match req.call() {
-            Ok(response) => response,
-            Err(ureq::Error::Status(_, response)) => response,
+            Ok(response) | Err(ureq::Error::Status(_, response)) => response,
             Err(ureq::Error::Transport(error)) => {
                 return Err(format!("http request failed: {}", error));
             }
