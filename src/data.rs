@@ -3,9 +3,8 @@ use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 
 fn err_result(message: &str) -> *mut Value {
-    let msg = match CString::new(message) {
-        Ok(c) => c,
-        Err(_) => return std::ptr::null_mut(),
+    let Ok(msg) = CString::new(message) else {
+        return std::ptr::null_mut();
     };
     unsafe { crate::result::mux_result_err_str(msg.as_ptr()) }
 }
