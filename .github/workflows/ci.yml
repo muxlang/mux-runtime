@@ -373,6 +373,7 @@ jobs:
       - name: Install cargo-llvm-cov
         run: cargo install cargo-llvm-cov --locked --version 0.8.7 --force
       - name: Tests with coverage
+        id: coverage
         run: |
           set -euo pipefail
           # The merged workspace profile has unstable per-function mappings
@@ -383,7 +384,10 @@ jobs:
           grep -q '^BRF:' lcov.info
           grep -q '^BRH:' lcov.info
           ! grep -q 'functions have mismatched data' coverage.log
+      - name: Enforce branch coverage floor
+        run: ./scripts/ci/check-branch-coverage.sh lcov.info 44
       - name: Upload coverage report
+        if: ${{ always() && steps.coverage.outcome == 'success' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: coverage-lcov
