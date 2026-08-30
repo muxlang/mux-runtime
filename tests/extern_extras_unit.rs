@@ -9,6 +9,7 @@ use std::os::raw::c_char;
 use common::{assert_err, assert_ok};
 use mux_runtime::refcount::mux_rc_dec;
 use mux_runtime::std::{mux_free_string, mux_int_value, mux_value_get_float, mux_value_get_int};
+use ordered_float::OrderedFloat;
 
 fn read_cstr(p: *mut c_char) -> String {
     assert!(!p.is_null());
@@ -45,7 +46,10 @@ fn float_extern_remainder() {
     assert!((mux_value_get_float(as_float) - 4.0).abs() < 1e-9);
     let back = unsafe { mux_float_to_int(as_float) };
     assert_eq!(mux_value_get_int(back), 4);
-    assert_eq!(unsafe { mux_float_from_value(as_float) }, 4.0);
+    assert_eq!(
+        OrderedFloat(unsafe { mux_float_from_value(as_float) }),
+        OrderedFloat(4.0)
+    );
     assert!(unsafe { mux_rc_dec(back) });
     assert!(unsafe { mux_rc_dec(as_float) });
     assert!(unsafe { mux_rc_dec(i) });

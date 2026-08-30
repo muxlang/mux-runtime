@@ -35,7 +35,7 @@ fn int_compare_and_convert() {
     assert!(Int(1).lt(&Int(2)));
     assert!(!Int(2).lt(&Int(1)));
     assert_eq!(Int(3), Int(3));
-    assert_eq!(Int(3).to_float(), 3.0);
+    assert_eq!(OrderedFloat(Int(3).to_float()), OrderedFloat(3.0));
     assert_eq!(format!("{}", Int(-5)), "-5");
 }
 
@@ -76,9 +76,9 @@ fn float_compare_and_convert() {
 #[test]
 fn float_extern_scalars() {
     use mux_runtime::float::*;
-    assert_eq!(mux_float_add(1.5, 2.5), 4.0);
-    assert_eq!(mux_float_sub(5.0, 1.0), 4.0);
-    assert_eq!(mux_float_mul(2.0, 4.0), 8.0);
+    assert_eq!(OrderedFloat(mux_float_add(1.5, 2.5)), OrderedFloat(4.0));
+    assert_eq!(OrderedFloat(mux_float_sub(5.0, 1.0)), OrderedFloat(4.0));
+    assert_eq!(OrderedFloat(mux_float_mul(2.0, 4.0)), OrderedFloat(8.0));
     assert!(mux_float_eq(1.0, 1.0));
     assert!(mux_float_lt(1.0, 2.0));
 }
@@ -99,7 +99,10 @@ fn bool_convert_and_display() {
 fn string_parse() {
     assert_eq!(MuxString("42".to_string()).to_int().unwrap(), 42);
     assert!(MuxString("nope".to_string()).to_int().is_err());
-    assert_eq!(MuxString("3.5".to_string()).to_float().unwrap(), 3.5);
+    assert_eq!(
+        OrderedFloat(MuxString("3.5".to_string()).to_float().unwrap()),
+        OrderedFloat(3.5)
+    );
     assert!(MuxString("nope".to_string()).to_float().is_err());
 }
 
