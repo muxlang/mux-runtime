@@ -253,7 +253,7 @@ where
         self.table
             .find_entry(hash, |&i| i == index)
             .ok()
-            .map(|entry| entry.remove());
+            .map(hashbrown::hash_table::OccupiedEntry::remove);
 
         // Tested before the swap, not after: replacing a slot that is already
         // free would push its index onto the free list a second time, and the

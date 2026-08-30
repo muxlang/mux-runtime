@@ -52,7 +52,7 @@ impl List {
 
 impl fmt::Display for List {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let strs: Vec<String> = self.0.iter().map(|v| v.to_string()).collect();
+        let strs: Vec<String> = self.0.iter().map(ToString::to_string).collect();
         write!(f, "[{}]", strs.join(", "))
     }
 }
@@ -135,7 +135,7 @@ pub extern "C" fn mux_list_push_value(list_val: *mut Value, val: *mut Value) {
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
 pub extern "C" fn mux_list_pop_back_value(list_val: *mut Value) -> *mut Value {
-    let opt = unsafe { with_list_mut(list_val, |list_data| list_data.pop()).flatten() };
+    let opt = unsafe { with_list_mut(list_val, Vec::pop).flatten() };
     match opt {
         Some(v) => mux_rc_alloc(Value::Optional(Some(Box::new(v)))),
         None => mux_rc_alloc(Value::Optional(None)),

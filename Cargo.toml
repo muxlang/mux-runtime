@@ -21,6 +21,7 @@ suspicious = "deny"
 manual_string_new = "deny"
 manual_let_else = "deny"
 unreadable_literal = "deny"
+redundant_closure_for_method_calls = "deny"
 
 [lib]
 name = "mux_runtime"
