@@ -83,8 +83,7 @@ fn convert_to_serde_value(j: &Json) -> serde_json::Value {
         // NaN and infinity have no JSON representation, so `from_f64` returns
         // None and the value becomes null.
         Json::Float(f) => serde_json::Number::from_f64(*f)
-            .map(serde_json::Value::Number)
-            .unwrap_or(serde_json::Value::Null),
+            .map_or(serde_json::Value::Null, serde_json::Value::Number),
         Json::String(s) => serde_json::Value::String(s.clone()),
         Json::Array(a) => serde_json::Value::Array(a.iter().map(convert_to_serde_value).collect()),
         Json::Object(m) => {
