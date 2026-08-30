@@ -82,7 +82,7 @@ impl fmt::Display for MuxString {
     }
 }
 
-/// Convert a Value to a C string (caller must free with mux_free_string).
+/// Convert a Value to a C string (caller must free with `mux_free_string`).
 ///
 /// # Safety
 /// `v` must be a valid, non-null pointer to a `Value`. Does not take ownership of `v`.
@@ -247,7 +247,7 @@ pub extern "C" fn mux_string_to_string(s: *const c_char) -> *mut c_char {
     }
 }
 
-/// Create a new reference-counted Value::String from a C string.
+/// Create a new reference-counted `Value::String` from a C string.
 /// Borrows the input pointer (does not free it). Caller must manage the input's lifetime.
 ///
 /// # Safety
@@ -264,7 +264,7 @@ pub extern "C" fn mux_new_string_from_cstr(s: *const c_char) -> *mut Value {
     mux_rc_alloc(value)
 }
 
-/// Create a new reference-counted Value::String from an owned C string.
+/// Create a new reference-counted `Value::String` from an owned C string.
 /// Takes ownership of the input pointer and frees it after cloning the string.
 /// This is used by codegen for primitive-to-string conversions like `int.to_string()`.
 ///

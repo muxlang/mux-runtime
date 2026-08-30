@@ -21,9 +21,9 @@ extern "C" fn thread_body() {}
 /// Allocate a closure matching exactly what the compiler produces, so it can be
 /// retained/released by the runtime's closure lifetime functions:
 ///
-///   [ i64 refcount=1 | fn_ptr | captures_ptr=null | i64 capture_count=0 ]
+///   [ i64 refcount=1 | `fn_ptr` | `captures_ptr=null` | i64 `capture_count=0` ]
 ///
-/// The pointer handed to the runtime points AT the closure struct (the fn_ptr
+/// The pointer handed to the runtime points AT the closure struct (the `fn_ptr`
 /// field), i.e. 8 bytes past the refcount header. It is allocated with
 /// `libc::malloc` because `mux_closure_release` frees it with `libc::free` once
 /// the last reference is dropped. Capture-free, so `captures_ptr` is null.

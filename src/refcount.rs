@@ -1,7 +1,7 @@
 //! Reference counting infrastructure for Mux runtime values.
 //!
 //! This module provides automatic memory management via reference counting.
-//! Every heap-allocated Value is prefixed with a RefHeader containing an
+//! Every heap-allocated Value is prefixed with a `RefHeader` containing an
 //! atomic reference count. When the count reaches zero, the memory is freed.
 //!
 //! Memory layout:
@@ -233,7 +233,7 @@ impl RefHeader {
     }
 }
 
-/// Calculate the memory layout for RefHeader + Value
+/// Calculate the memory layout for `RefHeader` + Value
 #[inline]
 fn layout_for_value() -> Option<Layout> {
     let header_size = std::mem::size_of::<RefHeader>();
@@ -262,7 +262,7 @@ fn value_offset() -> usize {
 /// Allocate a new reference-counted Value.
 ///
 /// Returns a pointer to the Value (not the header).
-/// The Value starts with ref_count = 1.
+/// The Value starts with `ref_count` = 1.
 ///
 /// # Safety
 /// The returned pointer must eventually be passed to `mux_rc_dec` to free the memory.

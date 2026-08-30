@@ -170,7 +170,7 @@ fn boxing_roundtrips() {
 }
 
 /// Splitting, which is the operation whose absence meant a program could read
-/// a file with io.read_file and then do nothing with the text.
+/// a file with `io.read_file` and then do nothing with the text.
 #[test]
 fn string_split() {
     use mux_runtime::Value;
@@ -305,7 +305,7 @@ fn string_transforms_and_predicates() {
     );
 }
 
-/// to_list is what lets `for char c in s` work through the existing list loop
+/// `to_list` is what lets `for char c in s` work through the existing list loop
 /// rather than needing a string case of its own.
 #[test]
 fn string_to_list_yields_characters() {
