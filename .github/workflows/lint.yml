@@ -8,9 +8,10 @@ on:
     types: [opened, synchronize, reopened]
 
 concurrency:
-  # Keep lint feedback independent from the build workflow while still
-  # cancelling obsolete runs for the same branch or pull request.
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  # Keep lint feedback independent from the build workflow. Pull requests
+  # share a group so a newer commit supersedes an obsolete run; pushes use
+  # their unique run ID so every main commit retains its own verification.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: true
 
 permissions:
