@@ -398,6 +398,8 @@ struct ClosureReleaseGuard(usize);
 
 impl Drop for ClosureReleaseGuard {
     fn drop(&mut self) {
+        // SAFETY: This address is a valid retained closure reference transferred
+        // to the guard, and Drop releases that ownership exactly once.
         unsafe { crate::closure::mux_closure_release(self.0 as *mut c_void) };
     }
 }
