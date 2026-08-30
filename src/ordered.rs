@@ -551,7 +551,7 @@ impl<K: Hash + Eq, V: Hash, S: BuildHasher> Hash for OrderedMap<K, V, S> {
     /// does not depend on insertion order.
     fn hash<H: Hasher>(&self, state: &mut H) {
         let mut combined = 0u64;
-        for (key, value) in self.iter() {
+        for (key, value) in self {
             // Deliberately NOT `self.hasher`: each map builds its own
             // `RandomState`, so using it would give two equal maps different
             // hashes and break a map used as a key. `DefaultHasher` has fixed
