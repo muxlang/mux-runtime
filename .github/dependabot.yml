@@ -5,6 +5,22 @@
 # updates both together.
 version: 2
 updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      rust-patch-and-minor:
+        patterns:
+          - "*"
+        update-types:
+          - patch
+          - minor
+    commit-message:
+      prefix: "deps"
+    labels:
+      - chore
+
   - package-ecosystem: github-actions
     directory: /
     schedule:
