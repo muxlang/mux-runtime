@@ -38,7 +38,8 @@ use std::ffi::CString;
 use std::ptr;
 use std::time::Duration;
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion};
+use std::hint::black_box;
 
 use mux_runtime::boxing::mux_box_int;
 use mux_runtime::float::mux_float_mul;
