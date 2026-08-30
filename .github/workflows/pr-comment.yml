@@ -1,18 +1,18 @@
 name: PR Report Comment
-# Posts the valgrind report produced by the "Build" workflow as a comment on the
-# PR. (Benchmarks used to be reported here too; the suite now runs from
-# benchmarks.yml on demand and on release tags, so it produces no PR artifact.) This is a SEPARATE workflow triggered via workflow_run so
-# it runs in the trusted base-repo context (with a write token) even when the
-# "Build" run it reports on came from an untrusted fork PR.
+# Posts the Valgrind and A/B benchmark reports produced by the "Runtime Reports"
+# workflow. The full benchmark suite in benchmarks.yml remains on demand and on
+# release tags, so it produces no PR artifact. This separate workflow uses
+# workflow_run to get a trusted base-repo write token even when the report run
+# came from an untrusted fork PR.
 #
-# Threat model: a fork controls its own Build workflow (pull_request runs the
-# fork's copy), so EVERYTHING the Build uploads is untrusted. This workflow
-# therefore:
+# Threat model: a fork controls its own Runtime Reports workflow (pull_request
+# runs the fork's copy), so EVERYTHING that run uploads is untrusted. This
+# workflow therefore:
 #   - resolves the target PR only from trusted workflow_run metadata (head repo
 #     + branch + SHA), never from artifact data;
 #   - consumes only the raw logs from the exact expected artifacts and does the
 #     fence-escaping, length cap, and markdown assembly HERE (a fork cannot make
-#     the Build skip escaping it does not perform);
+#     the report run skip escaping it does not perform);
 #   - takes pass/fail from the trusted jobs API, not from the artifact.
 # It never checks out or executes the PR's code.
 #
@@ -20,11 +20,11 @@ name: PR Report Comment
 # so it takes effect once merged to main (not from the PR that adds it).
 on:
   workflow_run:
-    workflows: ["Build"]
+    workflows: ["Runtime Reports"]
     types: [completed]
 
 # Serialize report runs for the same PR branch. The sticky-comment update is a
-# lookup-then-create: two Build runs completing close together would both find
+# lookup-then-create: two report runs completing close together would both find
 # no marker and both post, producing exactly the duplicate comments the marker
 # exists to prevent. GitHub offers no atomic comment upsert, so serializing per
 # PR is what makes the pair safe. Keyed on the trusted workflow_run head fields
@@ -44,7 +44,7 @@ permissions:
 
 jobs:
   comment:
-    # Only PR-triggered Build runs carry a PR to comment on (skip push to main).
+    # Only PR-triggered report runs carry a PR to comment on (skip push to main).
     if: ${{ github.event.workflow_run.event == 'pull_request' }}
     runs-on: ubuntu-latest
     steps:
@@ -66,7 +66,7 @@ jobs:
         run: ./scripts/ci/resolve-target-pr.sh
       - name: Download report artifacts from the triggering run
         if: ${{ steps.pr.outputs.number != '' }}
-        continue-on-error: true # a path-skipped Build uploads no artifacts
+        continue-on-error: true # a path-skipped report run uploads no artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           run-id: ${{ github.event.workflow_run.id }}

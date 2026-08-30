@@ -25,10 +25,13 @@ Run `cargo fmt --all -- --check`,
 `cargo test --all-features` before committing. Run strict rustdoc and the
 security/coverage jobs in [`.github/workflows/ci.yml`](.github/workflows/ci.yml)
 for cross-cutting work. Source-policy jobs live in
-[`.github/workflows/source-gates.yml`](.github/workflows/source-gates.yml).
+[`.github/workflows/source-gates.yml`](.github/workflows/source-gates.yml), and
+memory/benchmark reports live in
+[`.github/workflows/runtime-reports.yml`](.github/workflows/runtime-reports.yml).
 
 ## Documentation
 
 See [`README.md`](README.md), [the build workflow](.github/workflows/ci.yml),
-[the source gates](.github/workflows/source-gates.yml), and the linked design
-documents in `mux-context` for public API and ownership details.
+[the source gates](.github/workflows/source-gates.yml),
+[the runtime reports](.github/workflows/runtime-reports.yml), and the linked
+design documents in `mux-context` for public API and ownership details.
