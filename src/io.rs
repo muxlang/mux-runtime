@@ -11,7 +11,7 @@ use crate::Value;
 pub struct MuxFile(pub std::fs::File);
 
 pub fn print(s: &str) {
-    print!("{}", s);
+    print!("{s}");
     let _ = std::io::Write::flush(&mut std::io::stdout());
 }
 
@@ -62,7 +62,7 @@ pub extern "C" fn mux_print_cstr(s: *const c_char) {
         return;
     }
     let s = unsafe { CStr::from_ptr(s).to_string_lossy() };
-    print!("{}", s);
+    print!("{s}");
     let _ = std::io::Write::flush(&mut std::io::stdout());
 }
 
@@ -70,7 +70,7 @@ pub extern "C" fn mux_print_cstr(s: *const c_char) {
 #[unsafe(no_mangle)]
 pub extern "C" fn mux_print(val: *mut Value) {
     let val = unsafe { &*val };
-    println!("{}", val);
+    println!("{val}");
 }
 
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
@@ -174,7 +174,7 @@ pub extern "C" fn mux_io_read_file(path: *const c_char) -> *mut Value {
 
     match std::fs::read_to_string(&*path_str) {
         Ok(contents) => io_ok(Value::String(contents)),
-        Err(e) => io_err(format!("Failed to read file '{}': {}", path_str, e)),
+        Err(e) => io_err(format!("Failed to read file '{path_str}': {e}")),
     }
 }
 
@@ -190,7 +190,7 @@ pub extern "C" fn mux_io_write_file(path: *const c_char, content: *const c_char)
 
     match std::fs::write(&*path_str, content_str.as_bytes()) {
         Ok(()) => io_ok(Value::Unit),
-        Err(e) => io_err(format!("Failed to write file '{}': {}", path_str, e)),
+        Err(e) => io_err(format!("Failed to write file '{path_str}': {e}")),
     }
 }
 
@@ -216,7 +216,7 @@ pub extern "C" fn mux_io_remove(path: *const c_char) -> *mut Value {
 
     match std::fs::remove_file(&*path_str) {
         Ok(()) => io_ok(Value::Unit),
-        Err(e) => io_err(format!("Failed to remove '{}': {}", path_str, e)),
+        Err(e) => io_err(format!("Failed to remove '{path_str}': {e}")),
     }
 }
 
@@ -257,7 +257,7 @@ pub extern "C" fn mux_io_mkdir(path: *const c_char) -> *mut Value {
 
     match std::fs::create_dir_all(&*path_str) {
         Ok(()) => io_ok(Value::Unit),
-        Err(e) => io_err(format!("Failed to create directory '{}': {}", path_str, e)),
+        Err(e) => io_err(format!("Failed to create directory '{path_str}': {e}")),
     }
 }
 
@@ -280,7 +280,7 @@ pub extern "C" fn mux_io_listdir(path: *const c_char) -> *mut Value {
             }
             io_ok(Value::List(list))
         }
-        Err(e) => io_err(format!("Failed to list directory '{}': {}", path_str, e)),
+        Err(e) => io_err(format!("Failed to list directory '{path_str}': {e}")),
     }
 }
 

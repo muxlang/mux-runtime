@@ -9,18 +9,22 @@ use crate::Value;
 pub struct Int(pub i64);
 
 impl Int {
+    #[must_use]
     pub fn to_float(&self) -> f64 {
         self.0 as f64
     }
 
+    #[must_use]
     pub fn add(&self, other: &Int) -> Int {
         Int(self.0 + other.0)
     }
 
+    #[must_use]
     pub fn sub(&self, other: &Int) -> Int {
         Int(self.0 - other.0)
     }
 
+    #[must_use]
     pub fn mul(&self, other: &Int) -> Int {
         Int(self.0 * other.0)
     }
@@ -41,6 +45,7 @@ impl Int {
         }
     }
 
+    #[must_use]
     pub fn lt(&self, other: &Int) -> bool {
         self.0 < other.0
     }

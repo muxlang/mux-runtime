@@ -44,6 +44,7 @@ impl Map {
         self.0.insert(key, val);
     }
 
+    #[must_use]
     pub fn get(&self, key: &Value) -> Option<&Value> {
         self.0.get(key)
     }
@@ -52,6 +53,7 @@ impl Map {
         self.0.remove(key)
     }
 
+    #[must_use]
     pub fn contains(&self, key: &Value) -> bool {
         self.0.contains_key(key)
     }
@@ -59,11 +61,7 @@ impl Map {
 
 impl fmt::Display for Map {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let pairs: Vec<String> = self
-            .0
-            .iter()
-            .map(|(k, v)| format!("{}: {}", k, v))
-            .collect();
+        let pairs: Vec<String> = self.0.iter().map(|(k, v)| format!("{k}: {v}")).collect();
         write!(f, "{{{}}}", pairs.join(", "))
     }
 }

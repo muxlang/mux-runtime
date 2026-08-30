@@ -10,6 +10,7 @@ pub enum MuxResult {
 }
 
 impl MuxResult {
+    #[must_use]
     pub fn ok(val: Value) -> MuxResult {
         MuxResult::Ok(Box::new(val))
     }
@@ -22,8 +23,8 @@ impl MuxResult {
 impl fmt::Display for MuxResult {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            MuxResult::Ok(v) => write!(f, "Ok({})", v),
-            MuxResult::Err(e) => write!(f, "Err({})", e),
+            MuxResult::Ok(v) => write!(f, "Ok({v})"),
+            MuxResult::Err(e) => write!(f, "Err({e})"),
         }
     }
 }

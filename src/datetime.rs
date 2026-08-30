@@ -21,7 +21,7 @@ pub extern "C" fn mux_datetime_now() -> *mut Value {
             let seconds = duration.as_secs() as i64;
             dt_ok(Value::Int(seconds))
         }
-        Err(e) => dt_err(format!("Failed to get current time: {}", e)),
+        Err(e) => dt_err(format!("Failed to get current time: {e}")),
     }
 }
 
@@ -32,7 +32,7 @@ pub extern "C" fn mux_datetime_now_millis() -> *mut Value {
             let millis = duration.as_millis() as i64;
             dt_ok(Value::Int(millis))
         }
-        Err(e) => dt_err(format!("Failed to get current time: {}", e)),
+        Err(e) => dt_err(format!("Failed to get current time: {e}")),
     }
 }
 
@@ -54,7 +54,7 @@ fn read_pattern(pattern: *const c_char) -> Result<String, String> {
 fn datetime_field(timestamp: i64, get_field: impl FnOnce(&DateTime<Utc>) -> i64) -> *mut Value {
     match timestamp_to_datetime(timestamp) {
         Some(dt) => dt_ok(Value::Int(get_field(&dt))),
-        None => dt_err(format!("Invalid timestamp: {}", timestamp)),
+        None => dt_err(format!("Invalid timestamp: {timestamp}")),
     }
 }
 
@@ -106,7 +106,7 @@ pub extern "C" fn mux_datetime_format(timestamp: i64, pattern: *const c_char) ->
             let formatted = dt.format(&pattern).to_string();
             dt_ok(Value::String(formatted))
         }
-        None => dt_err(format!("Invalid timestamp: {}", timestamp)),
+        None => dt_err(format!("Invalid timestamp: {timestamp}")),
     }
 }
 
@@ -124,7 +124,7 @@ pub extern "C" fn mux_datetime_format_local(timestamp: i64, pattern: *const c_ch
             let formatted = local_dt.format(&pattern).to_string();
             dt_ok(Value::String(formatted))
         }
-        None => dt_err(format!("Invalid timestamp: {}", timestamp)),
+        None => dt_err(format!("Invalid timestamp: {timestamp}")),
     }
 }
 

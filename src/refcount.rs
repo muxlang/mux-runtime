@@ -143,7 +143,7 @@ pub unsafe extern "C" fn mux_value_deep_clone(val: *const Value) -> *mut Value {
     if let Value::Object(_) = unsafe { &*val } {
         // copy_object already returns a refcounted *mut Value wrapping the
         // new object; forward it directly so we do not double-wrap.
-        return unsafe { crate::object::copy_object(val as *mut Value) };
+        return unsafe { crate::object::copy_object(val.cast_mut()) };
     }
     let cloned = unsafe { deep_clone_value(&*val) };
     mux_rc_alloc(cloned)
@@ -201,7 +201,7 @@ fn deep_clone_value(val: &Value) -> Value {
         },
         Value::Object(obj) => unsafe {
             let temp = Value::Object(obj.clone());
-            let copied_ptr = crate::object::copy_object(&temp as *const Value);
+            let copied_ptr = crate::object::copy_object(&raw const temp);
             if copied_ptr.is_null() {
                 return Value::Object(obj.clone());
             }
@@ -279,10 +279,10 @@ pub extern "C" fn mux_rc_alloc(value: Value) -> *mut Value {
             return std::ptr::null_mut();
         }
 
-        let header = ptr as *mut RefHeader;
+        let header = ptr.cast::<RefHeader>();
         header.write(RefHeader::new());
 
-        let value_ptr = ptr.add(value_offset()) as *mut Value;
+        let value_ptr = ptr.add(value_offset()).cast::<Value>();
         value_ptr.write(value);
 
         #[cfg(feature = "rc-leak-check")]
@@ -299,12 +299,12 @@ pub extern "C" fn mux_rc_alloc(value: Value) -> *mut Value {
 /// The Value pointer must have been returned by `mux_rc_alloc`.
 #[inline]
 unsafe fn get_header(val: *mut Value) -> *mut RefHeader {
-    unsafe { (val as *mut u8).sub(value_offset()) as *mut RefHeader }
+    unsafe { val.cast::<u8>().sub(value_offset()).cast::<RefHeader>() }
 }
 
 #[inline]
 unsafe fn get_alloc_base(val: *mut Value) -> *mut u8 {
-    unsafe { (val as *mut u8).sub(value_offset()) }
+    unsafe { val.cast::<u8>().sub(value_offset()) }
 }
 
 /// Increment the reference count of a Value.
@@ -391,7 +391,7 @@ pub unsafe extern "C" fn mux_rc_count(val: *const Value) -> usize {
     }
 
     unsafe {
-        let header = get_header(val as *mut Value);
+        let header = get_header(val.cast_mut());
         (*header).ref_count.load(Ordering::Relaxed)
     }
 }
@@ -610,7 +610,7 @@ mod tests {
 
         // Write sentinel into the original.
         unsafe {
-            let data = crate::object::get_object_ptr(original) as *mut u64;
+            let data = crate::object::get_object_ptr(original).cast::<u64>();
             *data = 0xAABB;
         }
 
@@ -632,7 +632,7 @@ mod tests {
     extern "C" fn probe_copy(src: *mut c_void, dst: *mut c_void) {
         unsafe {
             let s = src as *const u64;
-            let d = dst as *mut u64;
+            let d = dst.cast::<u64>();
             *d = *s;
         }
     }

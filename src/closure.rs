@@ -78,9 +78,9 @@ pub extern "C" fn mux_cell_alloc(initial: *mut Value) -> *mut c_void {
         if base.is_null() {
             return std::ptr::null_mut();
         }
-        *(base as *mut i64) = 1;
-        let cell = (base as *mut i64).add(1) as *mut c_void;
-        *(cell as *mut *mut Value) = initial;
+        *base.cast::<i64>() = 1;
+        let cell = base.cast::<i64>().add(1).cast::<c_void>();
+        *cell.cast::<*mut Value>() = initial;
         cell
     }
 }
@@ -120,7 +120,7 @@ pub unsafe extern "C" fn mux_cell_release(cell: *mut c_void) {
             return;
         }
         crate::refcount::mux_rc_dec(*(cell as *const *mut Value));
-        libc::free((cell as *mut i64).sub(1) as *mut c_void);
+        libc::free(cell.cast::<i64>().sub(1).cast::<c_void>());
     }
 }
 

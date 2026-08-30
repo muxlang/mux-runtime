@@ -32,6 +32,7 @@ impl MuxString {
         }
     }
 
+    #[must_use]
     pub fn concat(&self, other: &MuxString) -> MuxString {
         MuxString(self.0.clone() + &other.0)
     }
@@ -46,6 +47,7 @@ impl MuxString {
     ///
     /// This is O(n) where the byte length was O(1). If that ever matters, cache
     /// a count alongside the string; do not go back to bytes.
+    #[must_use]
     pub fn length(&self) -> i64 {
         self.0.chars().count() as i64
     }
@@ -55,6 +57,7 @@ impl MuxString {
     /// Rust's `str` ordering is byte-wise, which for UTF-8 gives the same
     /// answer as comparing code points, so this is character ordering despite
     /// operating on bytes.
+    #[must_use]
     pub fn compare(&self, other: &MuxString) -> i64 {
         match self.0.cmp(&other.0) {
             std::cmp::Ordering::Less => -1,
@@ -63,6 +66,7 @@ impl MuxString {
         }
     }
 
+    #[must_use]
     pub fn hash(&self) -> i64 {
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};

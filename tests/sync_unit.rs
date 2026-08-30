@@ -29,13 +29,13 @@ extern "C" fn thread_body() {}
 /// the last reference is dropped. Capture-free, so `captures_ptr` is null.
 unsafe fn make_capture_free_closure(func: extern "C" fn()) -> *mut c_void {
     // 4 machine words: refcount, fn_ptr, captures_ptr, capture_count.
-    let base = libc::malloc(4 * std::mem::size_of::<usize>()) as *mut usize;
+    let base = libc::malloc(4 * std::mem::size_of::<usize>()).cast::<usize>();
     assert!(!base.is_null());
     *base.add(0) = 1; // refcount header
-    *(base.add(1) as *mut *mut c_void) = func as *const () as *mut c_void; // fn_ptr
-    *(base.add(2) as *mut *mut c_void) = std::ptr::null_mut(); // captures_ptr
+    *base.add(1).cast::<*mut c_void>() = func as *const () as *mut c_void; // fn_ptr
+    *base.add(2).cast::<*mut c_void>() = std::ptr::null_mut(); // captures_ptr
     *base.add(3) = 0; // capture_count
-    base.add(1) as *mut c_void // closure struct pointer (at fn_ptr)
+    base.add(1).cast::<c_void>() // closure struct pointer (at fn_ptr)
 }
 
 #[test]

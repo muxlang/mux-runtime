@@ -9,6 +9,7 @@ use crate::Value;
 pub struct Bool(pub bool);
 
 impl Bool {
+    #[must_use]
     pub fn to_int(&self) -> i64 {
         i64::from(self.0)
     }

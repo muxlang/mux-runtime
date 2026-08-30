@@ -426,11 +426,11 @@ pub extern "C" fn mux_value_unbox_enum(val: *mut Value) -> *mut u8 {
     }
     unsafe {
         match &*val {
-            Value::Opaque(data) => data.as_ptr() as *mut u8,
+            Value::Opaque(data) => data.as_ptr().cast_mut(),
             // A payload-carrying enum is a managed BoxedEnum rather than a raw
             // Opaque, but its inline struct bytes are read the same way (from an
             // 8-aligned backing store).
-            Value::BoxedEnum(be) => be.as_ptr() as *mut u8,
+            Value::BoxedEnum(be) => be.as_ptr().cast_mut(),
             _ => std::ptr::null_mut(),
         }
     }

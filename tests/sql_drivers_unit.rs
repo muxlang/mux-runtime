@@ -127,7 +127,7 @@ fn postgres_driver() {
         eprintln!("skipping postgres_driver: MUX_TEST_POSTGRES_URL not set");
         return;
     };
-    run_driver_suite(&uri, |i| format!("${}", i));
+    run_driver_suite(&uri, |i| format!("${i}"));
 }
 
 #[test]

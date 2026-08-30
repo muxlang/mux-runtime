@@ -53,6 +53,7 @@ impl<K: Hash + Eq, V> Default for OrderedMap<K, V> {
 }
 
 impl<K: Hash + Eq, V> OrderedMap<K, V> {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             table: HashTable::new(),
@@ -422,6 +423,7 @@ impl<T: Hash + Eq> Default for OrderedSet<T> {
 }
 
 impl<T: Hash + Eq> OrderedSet<T> {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             map: OrderedMap::new(),

@@ -26,7 +26,7 @@ impl Drop for ObjectData {
                 ::std::alloc::Layout::from_size_align(self.size, ::std::mem::align_of::<u8>())
             {
                 unsafe {
-                    ::std::alloc::dealloc(self.ptr as *mut u8, layout);
+                    ::std::alloc::dealloc(self.ptr.cast::<u8>(), layout);
                 }
             }
         }
@@ -61,10 +61,12 @@ impl ObjectRef {
         }
     }
 
+    #[must_use]
     pub fn ptr(&self) -> *mut c_void {
         self.data.ptr
     }
 
+    #[must_use]
     pub fn type_id(&self) -> TypeId {
         self.data.type_id
     }
@@ -73,6 +75,7 @@ impl ObjectRef {
         self.data.ref_count.fetch_add(1, Ordering::Relaxed);
     }
 
+    #[must_use]
     pub fn dec_ref(&self) -> usize {
         self.data.ref_count.fetch_sub(1, Ordering::Relaxed)
     }
@@ -269,7 +272,7 @@ impl BoxedEnum {
         unsafe {
             rust_std::ptr::copy_nonoverlapping(
                 src.as_ptr(),
-                words.as_mut_ptr() as *mut u8,
+                words.as_mut_ptr().cast::<u8>(),
                 src.len(),
             );
         }
@@ -284,26 +287,28 @@ impl BoxedEnum {
     }
 
     /// Read-only view of the inline enum struct bytes.
+    #[must_use]
     pub fn bytes(&self) -> &[u8] {
         // SAFETY: `len` bytes were initialized from the source in `from_bytes`.
-        unsafe { rust_std::slice::from_raw_parts(self.words.as_ptr() as *const u8, self.len) }
+        unsafe { rust_std::slice::from_raw_parts(self.words.as_ptr().cast::<u8>(), self.len) }
     }
 
     /// 8-aligned pointer to the inline enum struct, for the compiler's glue.
     pub fn as_mut_ptr(&mut self) -> *mut u8 {
-        self.words.as_mut_ptr() as *mut u8
+        self.words.as_mut_ptr().cast::<u8>()
     }
 
     /// 8-aligned read pointer to the inline enum struct, for unboxing.
+    #[must_use]
     pub fn as_ptr(&self) -> *const u8 {
-        self.words.as_ptr() as *const u8
+        self.words.as_ptr().cast::<u8>()
     }
 
     /// Structural hash, through the compiler-emitted glue, so two enums that
     /// compare equal hash equally.
     fn hash_value(&self) -> u64 {
         // The glue only reads its operand; the *mut is C-ABI convention.
-        (self.hash_glue)(self.as_ptr() as *mut u8)
+        (self.hash_glue)(self.as_ptr().cast_mut())
     }
 
     /// Structural ordering. Two enums of the same type share a `cmp_glue`, so it
@@ -312,7 +317,7 @@ impl BoxedEnum {
     fn compare(&self, other: &BoxedEnum) -> cmp::Ordering {
         if (self.cmp_glue as usize) == (other.cmp_glue as usize) {
             // The glue only reads its operands; the *mut is C-ABI convention.
-            let ordering = (self.cmp_glue)(self.as_ptr() as *mut u8, other.as_ptr() as *mut u8);
+            let ordering = (self.cmp_glue)(self.as_ptr().cast_mut(), other.as_ptr().cast_mut());
             ordering.cmp(&0)
         } else {
             (self.cmp_glue as usize).cmp(&(other.cmp_glue as usize))
@@ -433,6 +438,7 @@ impl PartialOrd for Value {
 }
 
 impl Value {
+    #[must_use]
     pub fn type_tag(&self) -> i32 {
         // A BoxedEnum shares the Opaque tag (12): both wrap inline enum bytes and
         // are indistinguishable to the language's type reflection.
@@ -511,39 +517,39 @@ impl fmt::Display for Value {
             items: impl IntoIterator<Item = T>,
             mut write_item: impl FnMut(&mut fmt::Formatter<'_>, T) -> fmt::Result,
         ) -> fmt::Result {
-            write!(f, "{}", open)?;
+            write!(f, "{open}")?;
             for (i, item) in items.into_iter().enumerate() {
                 if i > 0 {
                     write!(f, ", ")?;
                 }
                 write_item(f, item)?;
             }
-            write!(f, "{}", close)
+            write!(f, "{close}")
         }
 
         match self {
             Value::Unit => write!(f, "()"),
-            Value::Bool(b) => write!(f, "{}", b),
-            Value::Int(i) => write!(f, "{}", i),
+            Value::Bool(b) => write!(f, "{b}"),
+            Value::Int(i) => write!(f, "{i}"),
             Value::Float(fl) => write!(f, "{}", crate::float::format_float(fl.into_inner())),
-            Value::String(s) => write!(f, "{}", s),
+            Value::String(s) => write!(f, "{s}"),
             Value::List(list) => {
-                write_delimited(f, "[", "]", list.iter(), |f, item| write!(f, "{}", item))
+                write_delimited(f, "[", "]", list.iter(), |f, item| write!(f, "{item}"))
             }
             Value::Map(map) => write_delimited(f, "{", "}", map.iter(), |f, (key, val)| {
-                write!(f, "{}: {}", key, val)
+                write!(f, "{key}: {val}")
             }),
             Value::Set(set) => {
-                write_delimited(f, "{", "}", set.iter(), |f, item| write!(f, "{}", item))
+                write_delimited(f, "{", "}", set.iter(), |f, item| write!(f, "{item}"))
             }
-            Value::Tuple(tuple) => write!(f, "{}", tuple),
+            Value::Tuple(tuple) => write!(f, "{tuple}"),
             Value::Optional(opt) => match opt {
-                Some(val) => write!(f, "Some({})", val),
+                Some(val) => write!(f, "Some({val})"),
                 None => write!(f, "None"),
             },
             Value::Result(res) => match res {
-                Ok(val) => write!(f, "Ok({})", val),
-                Err(val) => write!(f, "Err({})", val),
+                Ok(val) => write!(f, "Ok({val})"),
+                Err(val) => write!(f, "Err({val})"),
             },
             Value::Object(obj) => {
                 write!(f, "<Object at {:p} type_id={}>", obj.ptr(), obj.type_id())

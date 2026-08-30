@@ -30,28 +30,28 @@ extern "C" fn noop() {}
 /// Returns the pointer to the closure struct (the `fn_ptr` field, 8 bytes past
 /// the refcount header).
 unsafe fn make_closure(func: extern "C" fn(), captures: &[*mut Value]) -> *mut c_void {
-    let base = unsafe { libc::malloc(4 * WORD) } as *mut usize;
+    let base = unsafe { libc::malloc(4 * WORD) }.cast::<usize>();
     assert!(!base.is_null());
     unsafe {
         *base.add(0) = 1; // refcount header
-        *(base.add(1) as *mut *mut c_void) = func as *const () as *mut c_void;
+        *base.add(1).cast::<*mut c_void>() = func as *const () as *mut c_void;
 
         let captures_ptr = if captures.is_empty() {
             std::ptr::null_mut()
         } else {
-            let arr = libc::malloc(captures.len() * WORD) as *mut *mut c_void;
+            let arr = libc::malloc(captures.len() * WORD).cast::<*mut c_void>();
             assert!(!arr.is_null());
             for (i, &value) in captures.iter().enumerate() {
                 let cell = mux_cell_alloc(value);
                 assert!(!cell.is_null());
                 *arr.add(i) = cell;
             }
-            arr as *mut c_void
+            arr.cast::<c_void>()
         };
-        *(base.add(2) as *mut *mut c_void) = captures_ptr;
+        *base.add(2).cast::<*mut c_void>() = captures_ptr;
         *base.add(3) = captures.len();
 
-        base.add(1) as *mut c_void
+        base.add(1).cast::<c_void>()
     }
 }
 

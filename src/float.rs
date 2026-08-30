@@ -9,18 +9,22 @@ use crate::Value;
 pub struct Float(pub ordered_float::OrderedFloat<f64>);
 
 impl Float {
+    #[must_use]
     pub fn to_int(&self) -> i64 {
         self.0.into_inner() as i64
     }
 
+    #[must_use]
     pub fn add(&self, other: &Float) -> Float {
         Float(self.0 + other.0)
     }
 
+    #[must_use]
     pub fn sub(&self, other: &Float) -> Float {
         Float(self.0 - other.0)
     }
 
+    #[must_use]
     pub fn mul(&self, other: &Float) -> Float {
         Float(self.0 * other.0)
     }
@@ -33,22 +37,27 @@ impl Float {
         }
     }
 
+    #[must_use]
     pub fn abs(&self) -> Float {
         Float(ordered_float::OrderedFloat(self.0.abs()))
     }
 
+    #[must_use]
     pub fn round(&self) -> Float {
         Float(ordered_float::OrderedFloat(self.0.round()))
     }
 
+    #[must_use]
     pub fn floor(&self) -> Float {
         Float(ordered_float::OrderedFloat(self.0.floor()))
     }
 
+    #[must_use]
     pub fn ceil(&self) -> Float {
         Float(ordered_float::OrderedFloat(self.0.ceil()))
     }
 
+    #[must_use]
     pub fn lt(&self, other: &Float) -> bool {
         self.0 < other.0
     }
@@ -71,11 +80,12 @@ impl fmt::Display for Float {
 /// whole float printed as an int again, which is the same defect at a
 /// different scale. Infinity and NaN have no fractional part to test, so
 /// `fract()` yields NaN for them and they fall through to their own spelling.
+#[must_use]
 pub fn format_float(f: f64) -> String {
     if f.fract() == 0.0 {
-        format!("{:.1}", f)
+        format!("{f:.1}")
     } else {
-        format!("{}", f)
+        format!("{f}")
     }
 }
 

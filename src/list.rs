@@ -45,6 +45,7 @@ impl List {
         self.0.pop()
     }
 
+    #[must_use]
     pub fn length(&self) -> i64 {
         self.0.len() as i64
     }

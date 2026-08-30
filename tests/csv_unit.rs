@@ -177,7 +177,7 @@ fn rows_as_maps_rejects_other_shapes() {
     use mux_runtime::data::mux_csv_rows_as_maps;
 
     for input in [Value::Int(1), Value::String("csv".into())] {
-        let got = mux_csv_rows_as_maps(&input);
+        let got = mux_csv_rows_as_maps(&raw const input);
         assert!(mux_result_is_err(got));
         assert!(unsafe { mux_rc_dec(got) });
     }

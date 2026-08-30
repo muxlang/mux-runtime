@@ -1,83 +1,104 @@
+#[must_use]
 pub fn pow(base: f64, exp: f64) -> f64 {
     base.powf(exp)
 }
 
+#[must_use]
 pub fn sqrt(x: f64) -> f64 {
     x.sqrt()
 }
 
+#[must_use]
 pub fn sin(x: f64) -> f64 {
     x.sin()
 }
 
+#[must_use]
 pub fn cos(x: f64) -> f64 {
     x.cos()
 }
 
+#[must_use]
 pub fn tan(x: f64) -> f64 {
     x.tan()
 }
 
+#[must_use]
 pub fn asin(x: f64) -> f64 {
     x.asin()
 }
 
+#[must_use]
 pub fn acos(x: f64) -> f64 {
     x.acos()
 }
 
+#[must_use]
 pub fn atan(x: f64) -> f64 {
     x.atan()
 }
 
+#[must_use]
 pub fn atan2(y: f64, x: f64) -> f64 {
     y.atan2(x)
 }
 
+#[must_use]
 pub fn ln(x: f64) -> f64 {
     x.ln()
 }
 
+#[must_use]
 pub fn log(x: f64, base: f64) -> f64 {
     x.log(base)
 }
 
+#[must_use]
 pub fn log2(x: f64) -> f64 {
     x.log2()
 }
 
+#[must_use]
 pub fn log10(x: f64) -> f64 {
     x.log10()
 }
 
+#[must_use]
 pub fn exp(x: f64) -> f64 {
     x.exp()
 }
 
+#[must_use]
 pub fn abs(x: f64) -> f64 {
     x.abs()
 }
 
+#[must_use]
 pub fn floor(x: f64) -> f64 {
     x.floor()
 }
 
+#[must_use]
 pub fn ceil(x: f64) -> f64 {
     x.ceil()
 }
 
+#[must_use]
 pub fn round(x: f64) -> f64 {
     x.round()
 }
 
+#[must_use]
 pub fn min(a: f64, b: f64) -> f64 {
     a.min(b)
 }
 
+#[must_use]
 pub fn max(a: f64, b: f64) -> f64 {
     a.max(b)
 }
 
+#[must_use]
 pub fn hypot(x: f64, y: f64) -> f64 {
     x.hypot(y)
 }

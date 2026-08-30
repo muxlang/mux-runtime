@@ -22,7 +22,7 @@ mod sync_backend {
         let mut mutex = Box::new(MaybeUninit::<MuxMutex>::uninit());
         let rc = unsafe { libc::pthread_mutex_init(mutex.as_mut_ptr(), std::ptr::null()) };
         if rc != 0 {
-            return Err(format!("pthread_mutex_init failed with error code {}", rc));
+            return Err(format!("pthread_mutex_init failed with error code {rc}"));
         }
         let initialized = unsafe { Box::<MaybeUninit<MuxMutex>>::assume_init(mutex) };
         Ok(Box::into_raw(initialized))
@@ -62,7 +62,7 @@ mod sync_backend {
         let mut rwlock = Box::new(MaybeUninit::<MuxRwLock>::uninit());
         let rc = unsafe { libc::pthread_rwlock_init(rwlock.as_mut_ptr(), std::ptr::null()) };
         if rc != 0 {
-            return Err(format!("pthread_rwlock_init failed with error code {}", rc));
+            return Err(format!("pthread_rwlock_init failed with error code {rc}"));
         }
         let initialized = unsafe { Box::<MaybeUninit<MuxRwLock>>::assume_init(rwlock) };
         Ok(Box::into_raw(initialized))
@@ -111,7 +111,7 @@ mod sync_backend {
         let mut condvar = Box::new(MaybeUninit::<MuxCondVar>::uninit());
         let rc = unsafe { libc::pthread_cond_init(condvar.as_mut_ptr(), std::ptr::null()) };
         if rc != 0 {
-            return Err(format!("pthread_cond_init failed with error code {}", rc));
+            return Err(format!("pthread_cond_init failed with error code {rc}"));
         }
         let initialized = unsafe { Box::<MaybeUninit<MuxCondVar>>::assume_init(condvar) };
         Ok(Box::into_raw(initialized))
@@ -486,8 +486,7 @@ impl Drop for HeldMutex {
             self.entry.active_holds.fetch_sub(1, Ordering::AcqRel);
         } else {
             eprintln!(
-                "mux-runtime: failed to unlock native mutex during thread cleanup (error code {})",
-                rc
+                "mux-runtime: failed to unlock native mutex during thread cleanup (error code {rc})"
             );
         }
     }
@@ -508,8 +507,7 @@ impl Drop for HeldRwLock {
             self.entry.active_holds.fetch_sub(1, Ordering::AcqRel);
         } else {
             eprintln!(
-                "mux-runtime: failed to unlock native rwlock during thread cleanup (error code {})",
-                rc
+                "mux-runtime: failed to unlock native rwlock during thread cleanup (error code {rc})"
             );
         }
     }
@@ -576,7 +574,7 @@ extern "C" fn destroy_mutex_object(ptr: *mut c_void) {
     if ptr.is_null() {
         return;
     }
-    let id = unsafe { *(ptr as *mut i64) };
+    let id = unsafe { *ptr.cast::<i64>() };
     let entry = {
         let mut mutexes = MUTEXES
             .lock()
@@ -590,7 +588,7 @@ extern "C" fn destroy_rwlock_object(ptr: *mut c_void) {
     if ptr.is_null() {
         return;
     }
-    let id = unsafe { *(ptr as *mut i64) };
+    let id = unsafe { *ptr.cast::<i64>() };
     let entry = {
         let mut rwlocks = RWLOCKS
             .lock()
@@ -604,7 +602,7 @@ extern "C" fn destroy_condvar_object(ptr: *mut c_void) {
     if ptr.is_null() {
         return;
     }
-    let id = unsafe { *(ptr as *mut i64) };
+    let id = unsafe { *ptr.cast::<i64>() };
     let entry = {
         let mut condvars = CONDVARS
             .lock()
@@ -618,7 +616,7 @@ extern "C" fn destroy_thread_object(ptr: *mut c_void) {
     if ptr.is_null() {
         return;
     }
-    let id = unsafe { *(ptr as *mut i64) };
+    let id = unsafe { *ptr.cast::<i64>() };
     let _entry = {
         let mut threads = THREADS
             .lock()
@@ -638,7 +636,7 @@ fn extract_handle_id(
     }
     let actual_type_id = unsafe { get_object_type_id(handle) };
     if actual_type_id != expected_type_id {
-        return Err(err_string(format!("expected {} handle", type_name)));
+        return Err(err_string(format!("expected {type_name} handle")));
     }
     let ptr = unsafe { get_object_ptr(handle) };
     if ptr.is_null() {
@@ -653,7 +651,7 @@ fn mutex_entry(id: i64) -> Result<Arc<MutexEntry>, *mut Value> {
         .unwrap_or_else(std::sync::PoisonError::into_inner)
         .get(&id)
         .cloned()
-        .ok_or_else(|| err_string(format!("Mutex handle {} not found", id)))
+        .ok_or_else(|| err_string(format!("Mutex handle {id} not found")))
 }
 
 fn rwlock_entry(id: i64) -> Result<Arc<RwLockEntry>, *mut Value> {
@@ -662,7 +660,7 @@ fn rwlock_entry(id: i64) -> Result<Arc<RwLockEntry>, *mut Value> {
         .unwrap_or_else(std::sync::PoisonError::into_inner)
         .get(&id)
         .cloned()
-        .ok_or_else(|| err_string(format!("RwLock handle {} not found", id)))
+        .ok_or_else(|| err_string(format!("RwLock handle {id} not found")))
 }
 
 fn condvar_entry(id: i64) -> Result<Arc<CondVarEntry>, *mut Value> {
@@ -671,7 +669,7 @@ fn condvar_entry(id: i64) -> Result<Arc<CondVarEntry>, *mut Value> {
         .unwrap_or_else(std::sync::PoisonError::into_inner)
         .get(&id)
         .cloned()
-        .ok_or_else(|| err_string(format!("CondVar handle {} not found", id)))
+        .ok_or_else(|| err_string(format!("CondVar handle {id} not found")))
 }
 
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
@@ -719,7 +717,7 @@ pub extern "C" fn mux_sync_spawn(closure: *mut c_void) -> *mut Value {
                 // The thread never started, so it will never run the guard that
                 // releases the retain above; release it here before returning.
                 unsafe { crate::closure::mux_closure_release(closure_addr as *mut c_void) };
-                return err_string(format!("Failed to spawn thread: {}", e));
+                return err_string(format!("Failed to spawn thread: {e}"));
             }
         };
 
@@ -738,7 +736,7 @@ pub extern "C" fn mux_sync_spawn(closure: *mut c_void) -> *mut Value {
         let obj_ptr = alloc_object(*THREAD_TYPE_ID);
         let data_ptr = unsafe { get_object_ptr(obj_ptr) };
         if !data_ptr.is_null() {
-            unsafe { *(data_ptr as *mut i64) = id };
+            unsafe { *data_ptr.cast::<i64>() = id };
         }
         let value = unsafe { (*obj_ptr).clone() };
         unsafe { mux_rc_dec(obj_ptr) };
@@ -760,7 +758,7 @@ pub extern "C" fn mux_thread_join(thread_handle: *mut Value) -> *mut Value {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         match threads.remove(&id) {
             Some(entry) => entry.handle,
-            None => return err_string(format!("Thread handle {} not found", id)),
+            None => return err_string(format!("Thread handle {id} not found")),
         }
     };
 
@@ -786,7 +784,7 @@ pub extern "C" fn mux_thread_detach(thread_handle: *mut Value) -> *mut Value {
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     let Some(entry) = threads.remove(&id) else {
-        return err_string(format!("Thread handle {} not found", id));
+        return err_string(format!("Thread handle {id} not found"));
     };
     if entry.handle.is_none() {
         return err_string("Thread already joined or detached");
@@ -825,13 +823,13 @@ pub extern "C" fn mux_mutex_new() -> *mut Value {
             let obj_ptr = alloc_object(*MUTEX_TYPE_ID);
             let data_ptr = unsafe { get_object_ptr(obj_ptr) };
             if !data_ptr.is_null() {
-                unsafe { *(data_ptr as *mut i64) = id };
+                unsafe { *data_ptr.cast::<i64>() = id };
             }
             let value = unsafe { (*obj_ptr).clone() };
             unsafe { mux_rc_dec(obj_ptr) };
             mux_rc_alloc(value)
         }
-        Err(e) => err_string(format!("Failed to initialize Mutex: {}", e)),
+        Err(e) => err_string(format!("Failed to initialize Mutex: {e}")),
     }
 }
 
@@ -854,13 +852,13 @@ pub extern "C" fn mux_rwlock_new() -> *mut Value {
             let obj_ptr = alloc_object(*RWLOCK_TYPE_ID);
             let data_ptr = unsafe { get_object_ptr(obj_ptr) };
             if !data_ptr.is_null() {
-                unsafe { *(data_ptr as *mut i64) = id };
+                unsafe { *data_ptr.cast::<i64>() = id };
             }
             let value = unsafe { (*obj_ptr).clone() };
             unsafe { mux_rc_dec(obj_ptr) };
             mux_rc_alloc(value)
         }
-        Err(e) => err_string(format!("Failed to initialize RwLock: {}", e)),
+        Err(e) => err_string(format!("Failed to initialize RwLock: {e}")),
     }
 }
 
@@ -877,13 +875,13 @@ pub extern "C" fn mux_condvar_new() -> *mut Value {
             let obj_ptr = alloc_object(*CONDVAR_TYPE_ID);
             let data_ptr = unsafe { get_object_ptr(obj_ptr) };
             if !data_ptr.is_null() {
-                unsafe { *(data_ptr as *mut i64) = id };
+                unsafe { *data_ptr.cast::<i64>() = id };
             }
             let value = unsafe { (*obj_ptr).clone() };
             unsafe { mux_rc_dec(obj_ptr) };
             mux_rc_alloc(value)
         }
-        Err(e) => err_string(format!("Failed to initialize CondVar: {}", e)),
+        Err(e) => err_string(format!("Failed to initialize CondVar: {e}")),
     }
 }
 
@@ -903,7 +901,7 @@ pub extern "C" fn mux_mutex_lock(mutex_handle: *mut Value) -> *mut Value {
     // initialized for this backend operation.
     let rc = unsafe { sync_backend::lock_mutex(entry.ptr) };
     if rc != 0 {
-        return err_string(format!("mux_mutex_lock failed with error code {}", rc));
+        return err_string(format!("mux_mutex_lock failed with error code {rc}"));
     }
     entry.active_holds.fetch_add(1, Ordering::AcqRel);
     HELD_MUTEXES.with(|held| {
@@ -932,7 +930,7 @@ pub extern "C" fn mux_mutex_unlock(mutex_handle: *mut Value) -> *mut Value {
         entry
     });
     let Some(mut held_entry) = entry else {
-        return err_string(format!("Mutex handle {} is not locked by this thread", id));
+        return err_string(format!("Mutex handle {id} is not locked by this thread"));
     };
 
     // SAFETY: the pointer was read from the live-handle registry and remains
@@ -942,7 +940,7 @@ pub extern "C" fn mux_mutex_unlock(mutex_handle: *mut Value) -> *mut Value {
         HELD_MUTEXES.with(|held| {
             held.borrow_mut().entry(id).or_default().push(held_entry);
         });
-        return err_string(format!("mux_mutex_unlock failed with error code {}", rc));
+        return err_string(format!("mux_mutex_unlock failed with error code {rc}"));
     }
     held_entry.active = false;
     held_entry.entry.active_holds.fetch_sub(1, Ordering::AcqRel);
@@ -965,10 +963,7 @@ pub extern "C" fn mux_rwlock_read_lock(rwlock_handle: *mut Value) -> *mut Value 
     // initialized for this backend operation.
     let rc = unsafe { sync_backend::rwlock_read_lock(entry.ptr) };
     if rc != 0 {
-        return err_string(format!(
-            "mux_rwlock_read_lock failed with error code {}",
-            rc
-        ));
+        return err_string(format!("mux_rwlock_read_lock failed with error code {rc}"));
     }
     entry.active_holds.fetch_add(1, Ordering::AcqRel);
     HELD_RWLOCKS.with(|held| {
@@ -996,10 +991,7 @@ pub extern "C" fn mux_rwlock_write_lock(rwlock_handle: *mut Value) -> *mut Value
     // initialized for this backend operation.
     let rc = unsafe { sync_backend::rwlock_write_lock(entry.ptr) };
     if rc != 0 {
-        return err_string(format!(
-            "mux_rwlock_write_lock failed with error code {}",
-            rc
-        ));
+        return err_string(format!("mux_rwlock_write_lock failed with error code {rc}"));
     }
     entry.active_holds.fetch_add(1, Ordering::AcqRel);
     HELD_RWLOCKS.with(|held| {
@@ -1028,7 +1020,7 @@ pub extern "C" fn mux_rwlock_unlock(rwlock_handle: *mut Value) -> *mut Value {
         entry
     });
     let Some(mut held_entry) = entry else {
-        return err_string(format!("RwLock handle {} is not locked by this thread", id));
+        return err_string(format!("RwLock handle {id} is not locked by this thread"));
     };
 
     // SAFETY: the pointer was read from the live-handle registry and remains
@@ -1038,7 +1030,7 @@ pub extern "C" fn mux_rwlock_unlock(rwlock_handle: *mut Value) -> *mut Value {
         HELD_RWLOCKS.with(|held| {
             held.borrow_mut().entry(id).or_default().push(held_entry);
         });
-        return err_string(format!("mux_rwlock_unlock failed with error code {}", rc));
+        return err_string(format!("mux_rwlock_unlock failed with error code {rc}"));
     }
     held_entry.active = false;
     held_entry.entry.active_holds.fetch_sub(1, Ordering::AcqRel);
@@ -1067,8 +1059,7 @@ pub extern "C" fn mux_condvar_wait(
     });
     if !mutex_is_held {
         return err_string(format!(
-            "CondVar wait requires Mutex handle {} to be locked by this thread",
-            mutex_id
+            "CondVar wait requires Mutex handle {mutex_id} to be locked by this thread"
         ));
     }
 
@@ -1085,7 +1076,7 @@ pub extern "C" fn mux_condvar_wait(
     // remain initialized; the Mux contract requires the mutex to be held.
     let rc = unsafe { sync_backend::condvar_wait(cond_entry.ptr, mutex_entry.ptr) };
     if rc != 0 {
-        return err_string(format!("mux_condvar_wait failed with error code {}", rc));
+        return err_string(format!("mux_condvar_wait failed with error code {rc}"));
     }
     ok_unit()
 }
@@ -1106,7 +1097,7 @@ pub extern "C" fn mux_condvar_signal(condvar_handle: *mut Value) -> *mut Value {
     // initialized for this backend operation.
     let rc = unsafe { sync_backend::condvar_signal(entry.ptr) };
     if rc != 0 {
-        return err_string(format!("mux_condvar_signal failed with error code {}", rc));
+        return err_string(format!("mux_condvar_signal failed with error code {rc}"));
     }
     ok_unit()
 }
@@ -1127,10 +1118,7 @@ pub extern "C" fn mux_condvar_broadcast(condvar_handle: *mut Value) -> *mut Valu
     // initialized for this backend operation.
     let rc = unsafe { sync_backend::condvar_broadcast(entry.ptr) };
     if rc != 0 {
-        return err_string(format!(
-            "mux_condvar_broadcast failed with error code {}",
-            rc
-        ));
+        return err_string(format!("mux_condvar_broadcast failed with error code {rc}"));
     }
     ok_unit()
 }

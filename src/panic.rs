@@ -21,6 +21,7 @@ pub enum RuntimeErrorCode {
 }
 
 impl RuntimeErrorCode {
+    #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::IndexOutOfBounds => "E0600",
@@ -33,6 +34,7 @@ impl RuntimeErrorCode {
         }
     }
 
+    #[must_use]
     pub const fn all() -> &'static [Self] {
         &[
             Self::IndexOutOfBounds,
@@ -45,6 +47,7 @@ impl RuntimeErrorCode {
         ]
     }
 
+    #[must_use]
     pub const fn from_ffi(value: i32) -> Self {
         match value {
             600 => Self::IndexOutOfBounds,
@@ -69,9 +72,9 @@ impl std::fmt::Display for RuntimeErrorCode {
 /// location line when one is available. Any dynamic detail (offending index,
 /// key, etc.) is folded into `message`. Writes to stderr and exits with 1.
 fn emit_panic(code: RuntimeErrorCode, message: &str, loc: Option<String>) -> ! {
-    eprintln!("panic[{}]: {}", code, message);
+    eprintln!("panic[{code}]: {message}");
     if let Some(loc) = loc {
-        eprintln!("--> {}", loc);
+        eprintln!("--> {loc}");
     }
     // A panic bypasses global teardown, so tell the leak-check (when built in)
     // not to report the still-live blocks or override this exit code.
@@ -134,10 +137,7 @@ pub extern "C" fn mux_panic_cstr_code(code: i32, msg: *const c_char, loc: *const
 pub extern "C" fn mux_panic_index_oob(index: i64, length: u64, loc: *const c_char) -> ! {
     emit_panic(
         RuntimeErrorCode::IndexOutOfBounds,
-        &format!(
-            "list index out of bounds: index {}, length {}",
-            index, length
-        ),
+        &format!("list index out of bounds: index {index}, length {length}"),
         decode_cstr(loc),
     );
 }
@@ -155,7 +155,7 @@ pub extern "C" fn mux_panic_key_not_found(key: *const Value, loc: *const c_char)
     };
     emit_panic(
         RuntimeErrorCode::KeyNotFound,
-        &format!("key not found in map: key {}", key_text),
+        &format!("key not found in map: key {key_text}"),
         decode_cstr(loc),
     );
 }

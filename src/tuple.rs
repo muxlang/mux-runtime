@@ -67,7 +67,7 @@ pub extern "C" fn mux_value_get_tuple(value: *mut Value) -> *mut Tuple {
     unsafe {
         let value_ref = &mut *value;
         if let Value::Tuple(tuple_box) = value_ref {
-            let tuple_ptr: *mut Tuple = &mut **tuple_box;
+            let tuple_ptr: *mut Tuple = &raw mut **tuple_box;
             tuple_ptr
         } else {
             std::ptr::null_mut()

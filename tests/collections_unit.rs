@@ -24,7 +24,7 @@ fn list_push_pop_length() {
 #[test]
 fn list_display_contains_elements() {
     let list = List(vec![Value::Int(1), Value::Int(2)]);
-    let s = format!("{}", list);
+    let s = format!("{list}");
     assert!(s.contains('1') && s.contains('2'));
 }
 
@@ -78,7 +78,7 @@ fn list_slice_bounds() {
     ]);
 
     let check = |start: i64, end: i64, want: Vec<i64>| {
-        let got = mux_list_slice_value(&xs, start, end);
+        let got = mux_list_slice_value(&raw const xs, start, end);
         let expected = Value::List(want.into_iter().map(Value::Int).collect());
         assert_eq!(
             unsafe { &*got },
@@ -102,7 +102,7 @@ fn list_slice_bounds() {
     // A non-list is empty rather than a panic - the runtime must not abort a
     // compiled program over a shape it did not expect.
     let not_a_list = Value::Int(7);
-    let got = mux_list_slice_value(&not_a_list, 0, 1);
+    let got = mux_list_slice_value(&raw const not_a_list, 0, 1);
     assert_eq!(unsafe { &*got }, &Value::List(vec![]));
     assert!(unsafe { mux_rc_dec(got) });
 }
