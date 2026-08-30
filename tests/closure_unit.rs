@@ -20,7 +20,7 @@ extern "C" fn noop() {}
 
 /// Allocate a closure matching the compiler's layout:
 ///
-///   [ i64 refcount=1 | fn_ptr | captures_ptr | i64 capture_count ]
+///   [ i64 refcount=1 | `fn_ptr` | `captures_ptr` | i64 `capture_count` ]
 ///
 /// `captures` are the already-owned (+1) values the closure holds one reference
 /// to; each is wrapped in a reference-counted cell via `mux_cell_alloc`, exactly

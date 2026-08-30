@@ -31,7 +31,7 @@ pub extern "C" fn mux_bool_to_string(b: i32) -> *mut c_char {
 }
 
 /// # Safety
-/// v must be a valid pointer to a Value::Bool.
+/// v must be a valid pointer to a `Value::Bool`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn mux_bool_from_value(v: *mut Value) -> i32 {
     if let Value::Bool(b) = unsafe { &*v } {
@@ -42,7 +42,7 @@ pub unsafe extern "C" fn mux_bool_from_value(v: *mut Value) -> i32 {
 }
 
 /// # Safety
-/// v must be a valid pointer to a Value::Bool.
+/// v must be a valid pointer to a `Value::Bool`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn mux_bool_to_int(v: *mut Value) -> *mut Value {
     if v.is_null() {
@@ -56,7 +56,7 @@ pub unsafe extern "C" fn mux_bool_to_int(v: *mut Value) -> *mut Value {
 }
 
 /// # Safety
-/// v must be a valid pointer to a Value::Bool.
+/// v must be a valid pointer to a `Value::Bool`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn mux_bool_to_float(v: *mut Value) -> *mut Value {
     if v.is_null() {

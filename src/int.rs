@@ -67,7 +67,7 @@ pub extern "C" fn mux_int_to_string(i: i64) -> *mut c_char {
 }
 
 /// # Safety
-/// v must be a valid pointer to a Value::Int.
+/// v must be a valid pointer to a `Value::Int`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn mux_int_from_value(v: *mut crate::Value) -> i64 {
     if v.is_null() {

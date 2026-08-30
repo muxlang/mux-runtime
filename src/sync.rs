@@ -368,11 +368,11 @@ mod sync_backend {
 /// Closure representation as produced by the Mux compiler.
 ///
 /// INVARIANTS (must match codegen exactly):
-/// - Field order: function_ptr MUST be first, captures_ptr MUST be second
-/// - captures_ptr == null if and only if the closure has no captures
-/// - function_ptr always points to a valid function with signature:
-///   - `extern "C" fn()` if captures_ptr is null
-///   - `extern "C" fn(*mut c_void)` if captures_ptr is non-null
+/// - Field order: `function_ptr` MUST be first, `captures_ptr` MUST be second
+/// - `captures_ptr` == null if and only if the closure has no captures
+/// - `function_ptr` always points to a valid function with signature:
+///   - `extern "C" fn()` if `captures_ptr` is null
+///   - `extern "C" fn(*mut c_void)` if `captures_ptr` is non-null
 ///
 /// These invariants are critical for safe transmutation in `mux_sync_spawn`.
 /// If the compiler's closure representation changes, this must be updated.

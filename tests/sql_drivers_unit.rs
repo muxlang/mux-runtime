@@ -1,4 +1,4 @@
-//! Driver-level SQL coverage for Postgres and MySQL (feature-gated behind `sql`).
+//! Driver-level SQL coverage for Postgres and `MySQL` (feature-gated behind `sql`).
 //!
 //! These connect to live servers and are skipped unless the corresponding env
 //! var is set, so `cargo test` stays green without databases:
@@ -45,7 +45,7 @@ fn exec(conn: *mut Value, sql: &str) {
 }
 
 /// Run the full driver exercise. `ph` builds the placeholder for a 1-based index
-/// ("$1" for Postgres, "?" for MySQL).
+/// ("$1" for Postgres, "?" for `MySQL`).
 fn run_driver_suite(uri: &str, ph: impl Fn(usize) -> String) {
     let conn = connect(uri);
 
@@ -139,7 +139,7 @@ fn mysql_driver() {
     run_driver_suite(&uri, |_| "?".to_string());
 }
 
-/// Postgres column types map through distinct branches of postgres_query_value
+/// Postgres column types map through distinct branches of `postgres_query_value`
 /// (INT2/INT4/FLOAT4/BYTEA + the NULL -> Unit path); use literal SQL so the
 /// server parses each literal into its column type.
 #[test]

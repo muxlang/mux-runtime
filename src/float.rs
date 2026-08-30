@@ -98,7 +98,7 @@ pub extern "C" fn mux_float_to_string(f: f64) -> *mut c_char {
 }
 
 /// # Safety
-/// v must be a valid pointer to a Value::Float.
+/// v must be a valid pointer to a `Value::Float`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn mux_float_from_value(v: *mut Value) -> f64 {
     if v.is_null() {
@@ -112,7 +112,7 @@ pub unsafe extern "C" fn mux_float_from_value(v: *mut Value) -> f64 {
 }
 
 /// # Safety
-/// v must be a valid pointer to a Value::Int.
+/// v must be a valid pointer to a `Value::Int`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn mux_int_to_float(v: *mut Value) -> *mut Value {
     if v.is_null() {
@@ -127,7 +127,7 @@ pub unsafe extern "C" fn mux_int_to_float(v: *mut Value) -> *mut Value {
 }
 
 /// # Safety
-/// v must be a valid pointer to a Value::Float.
+/// v must be a valid pointer to a `Value::Float`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn mux_float_to_int(v: *mut Value) -> *mut Value {
     if v.is_null() {

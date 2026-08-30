@@ -1,5 +1,5 @@
-//! Coverage for the MuxFile handle API, value_from_string, and the print/flush
-//! helpers. (stdin-based helpers like read_line are not exercised.)
+//! Coverage for the `MuxFile` handle API, `value_from_string`, and the print/flush
+//! helpers. (stdin-based helpers like `read_line` are not exercised.)
 
 use std::ffi::{CStr, CString};
 

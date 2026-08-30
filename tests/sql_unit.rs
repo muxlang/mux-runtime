@@ -1,4 +1,4 @@
-//! Unit tests for the SQL layer against an in-memory SQLite database
+//! Unit tests for the SQL layer against an in-memory `SQLite` database
 //! (feature-gated behind `sql`). Postgres/MySQL paths need live servers and are
 //! not exercised here.
 #![cfg(feature = "sql")]
