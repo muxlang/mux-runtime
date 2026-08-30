@@ -416,8 +416,12 @@ fn read_http_response(response: ureq::http::Response<ureq::Body>) -> Result<Valu
         let values = response.headers().get_all(name);
         let joined = values
             .iter()
-            .filter_map(|value| value.to_str().ok())
-            .collect::<Vec<_>>()
+            .map(|value| {
+                value
+                    .to_str()
+                    .map_err(|error| format!("invalid UTF-8 in response header '{name}': {error}"))
+            })
+            .collect::<Result<Vec<_>, _>>()?
             .join(", ");
         if !joined.is_empty() {
             response_headers.insert(name.as_str().to_string(), Json::String(joined));
