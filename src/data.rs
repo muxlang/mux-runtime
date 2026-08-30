@@ -204,14 +204,11 @@ fn csv_rows_error(message: &str) -> *mut Value {
 pub extern "C" fn mux_csv_render(val: *const Value) -> *mut Value {
     let text = if val.is_null() {
         String::new()
+    } else if let Ok((headers, rows)) = validate_and_extract_csv(unsafe { &*val }) {
+        build_csv_string(&headers, &rows, true)
     } else {
-        match validate_and_extract_csv(unsafe { &*val }) {
-            Ok((headers, rows)) => build_csv_string(&headers, &rows, true),
-            Err(_) => {
-                debug_assert!(false, "a Csv value that is not a well formed table");
-                String::new()
-            }
-        }
+        debug_assert!(false, "a Csv value that is not a well formed table");
+        String::new()
     };
     crate::refcount::mux_rc_alloc(Value::String(text))
 }

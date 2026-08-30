@@ -89,14 +89,14 @@ where
     /// program cannot handle, and the honest answer to "is this key here" is
     /// still "no". `debug_assert` keeps it loud where it can be acted on.
     fn entry_at(&self, index: usize) -> Option<(&K, &V, Option<usize>)> {
-        match self.slab.get(index) {
-            Some(Slot::Occupied {
-                key, value, next, ..
-            }) => Some((key, value, *next)),
-            _ => {
-                debug_assert!(false, "index {index} does not name a live slot");
-                None
-            }
+        if let Some(Slot::Occupied {
+            key, value, next, ..
+        }) = self.slab.get(index)
+        {
+            Some((key, value, *next))
+        } else {
+            debug_assert!(false, "index {index} does not name a live slot");
+            None
         }
     }
 
@@ -228,14 +228,14 @@ where
         // Rehashing needs each stored index's own hash, which means reading its
         // key back out of the slab. A slot with no key cannot supply one; 0
         // merely misplaces an entry that is already inconsistent.
-        self.table
-            .insert_unique(hash, index, |&i| match slab.get(i) {
-                Some(Slot::Occupied { key, .. }) => hasher.hash_one(key),
-                _ => {
-                    debug_assert!(false, "table index {i} does not name a live slot");
-                    0
-                }
-            });
+        self.table.insert_unique(hash, index, |&i| {
+            if let Some(Slot::Occupied { key, .. }) = slab.get(i) {
+                hasher.hash_one(key)
+            } else {
+                debug_assert!(false, "table index {i} does not name a live slot");
+                0
+            }
+        });
         self.len += 1;
         None
     }
@@ -341,27 +341,25 @@ impl<'a, K, V> Iterator for Iter<'a, K, V> {
 
     fn next(&mut self) -> Option<Self::Item> {
         let index = self.next?;
-        match self.slab.get(index) {
-            Some(Slot::Occupied {
-                key, value, next, ..
-            }) => {
-                self.next = *next;
-                self.remaining = self.remaining.saturating_sub(1);
-                Some((key, value))
-            }
+        if let Some(Slot::Occupied {
+            key, value, next, ..
+        }) = self.slab.get(index)
+        {
+            self.next = *next;
+            self.remaining = self.remaining.saturating_sub(1);
+            Some((key, value))
+        } else {
             // The chain should only reach live slots. Ending iteration yields a
             // short map; panicking ends the program that was reading it. Short
             // is recoverable and this is a library, so it ends here and
             // `debug_assert` catches it where it can be fixed.
-            _ => {
-                debug_assert!(
-                    false,
-                    "the link chain reached index {index}, not a live slot"
-                );
-                self.next = None;
-                self.remaining = 0;
-                None
-            }
+            debug_assert!(
+                false,
+                "the link chain reached index {index}, not a live slot"
+            );
+            self.next = None;
+            self.remaining = 0;
+            None
         }
     }
 

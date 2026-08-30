@@ -229,39 +229,33 @@ pub extern "C" fn mux_json_from_map(val: *const Value) -> *mut Value {
         unsafe { return crate::result::mux_result_err_str(msg.as_ptr()) }
     }
     let v = unsafe { &*val };
-    // Expect a Map at runtime
-    match v {
-        Value::Map(map) => {
-            // Convert each value to Json to validate
-            let mut jmap = JsonMap::new();
-            for (k, vv) in map.iter() {
-                if let Value::String(key_str) = k {
-                    match value_to_json(vv) {
-                        Ok(jv) => {
-                            jmap.insert(key_str.clone(), jv);
-                        }
-                        Err(e) => {
-                            let cmsg = CString::new(e).unwrap();
-                            unsafe { return crate::result::mux_result_err_str(cmsg.as_ptr()) }
-                        }
-                    }
-                } else {
-                    let cmsg = CString::new("map contains non-string key, cannot convert to JSON")
-                        .unwrap();
+    let Value::Map(map) = v else {
+        let cmsg = CString::new("value is not a map").unwrap();
+        unsafe { return crate::result::mux_result_err_str(cmsg.as_ptr()) }
+    };
+    // Convert each value to Json to validate
+    let mut jmap = JsonMap::new();
+    for (k, vv) in map.iter() {
+        if let Value::String(key_str) = k {
+            match value_to_json(vv) {
+                Ok(jv) => {
+                    jmap.insert(key_str.clone(), jv);
+                }
+                Err(e) => {
+                    let cmsg = CString::new(e).unwrap();
                     unsafe { return crate::result::mux_result_err_str(cmsg.as_ptr()) }
                 }
             }
-            let j = Json::Object(jmap);
-            let v = json_to_value(&j);
-            // Wrap directly to avoid leaking the intermediate allocation (see
-            // mux_json_parse).
-            crate::refcount::mux_rc_alloc(Value::Result(Ok(Box::new(v))))
-        }
-        _ => {
-            let cmsg = CString::new("value is not a map").unwrap();
-            unsafe { crate::result::mux_result_err_str(cmsg.as_ptr()) }
+        } else {
+            let cmsg = CString::new("map contains non-string key, cannot convert to JSON").unwrap();
+            unsafe { return crate::result::mux_result_err_str(cmsg.as_ptr()) }
         }
     }
+    let j = Json::Object(jmap);
+    let v = json_to_value(&j);
+    // Wrap directly to avoid leaking the intermediate allocation (see
+    // mux_json_parse).
+    crate::refcount::mux_rc_alloc(Value::Result(Ok(Box::new(v))))
 }
 
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
@@ -472,12 +466,11 @@ pub extern "C" fn mux_json_to_string(val: *const Value) -> *mut Value {
     if val.is_null() {
         return crate::refcount::mux_rc_alloc(Value::String("null".to_string()));
     }
-    let text = match value_to_json(unsafe { &*val }) {
-        Ok(json) => json.stringify(None),
-        Err(_) => {
-            debug_assert!(false, "a Json value that cannot be serialized to JSON");
-            "null".to_string()
-        }
+    let text = if let Ok(json) = value_to_json(unsafe { &*val }) {
+        json.stringify(None)
+    } else {
+        debug_assert!(false, "a Json value that cannot be serialized to JSON");
+        "null".to_string()
     };
     crate::refcount::mux_rc_alloc(Value::String(text))
 }
