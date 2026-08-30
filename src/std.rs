@@ -371,15 +371,9 @@ pub extern "C" fn mux_value_get_type_tag(val: *const Value) -> i32 {
 #[unsafe(no_mangle)]
 pub extern "C" fn mux_value_equal(a: *const Value, b: *const Value) -> i32 {
     if a.is_null() || b.is_null() {
-        return if a == b { 1 } else { 0 };
+        return i32::from(a == b);
     }
-    unsafe {
-        if *a == *b {
-            1
-        } else {
-            0
-        }
-    }
+    unsafe { i32::from(*a == *b) }
 }
 
 /// Three-way compare two Value pointers, returning -1, 0, or 1 like `Ord::cmp`.
@@ -405,11 +399,7 @@ pub extern "C" fn mux_value_compare(a: *const Value, b: *const Value) -> i32 {
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
 pub extern "C" fn mux_value_not_equal(a: *const Value, b: *const Value) -> i32 {
-    if mux_value_equal(a, b) == 1 {
-        0
-    } else {
-        1
-    }
+    i32::from(mux_value_equal(a, b) != 1)
 }
 
 #[allow(clippy::not_unsafe_ptr_arg_deref)]

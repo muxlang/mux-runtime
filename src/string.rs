@@ -295,16 +295,12 @@ pub extern "C" fn mux_new_string_from_owned_cstr(s: *mut c_char) -> *mut Value {
 #[unsafe(no_mangle)]
 pub extern "C" fn mux_string_equal(a: *const c_char, b: *const c_char) -> i32 {
     if a.is_null() || b.is_null() {
-        return if a == b { 1 } else { 0 };
+        return i32::from(a == b);
     }
     unsafe {
         let a_str = CStr::from_ptr(a);
         let b_str = CStr::from_ptr(b);
-        if a_str == b_str {
-            1
-        } else {
-            0
-        }
+        i32::from(a_str == b_str)
     }
 }
 
@@ -313,11 +309,7 @@ pub extern "C" fn mux_string_equal(a: *const c_char, b: *const c_char) -> i32 {
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
 pub extern "C" fn mux_string_not_equal(a: *const c_char, b: *const c_char) -> i32 {
-    if mux_string_equal(a, b) == 1 {
-        0
-    } else {
-        1
-    }
+    i32::from(mux_string_equal(a, b) != 1)
 }
 
 /// Convert a string to a single character.

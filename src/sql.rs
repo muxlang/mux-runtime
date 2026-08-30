@@ -405,7 +405,7 @@ fn mux_value_to_sql_param(value: &Value) -> Result<SqlParam, String> {
 fn sql_param_to_sqlite(param: &SqlParam) -> SqliteValue {
     match param {
         SqlParam::Null => SqliteValue::Null,
-        SqlParam::Bool(b) => SqliteValue::Integer(if *b { 1 } else { 0 }),
+        SqlParam::Bool(b) => SqliteValue::Integer(i64::from(*b)),
         SqlParam::Int(i) => SqliteValue::Integer(*i),
         SqlParam::Float(f) => SqliteValue::Real(*f),
         SqlParam::String(s) => SqliteValue::Text(s.clone()),
@@ -416,7 +416,7 @@ fn sql_param_to_sqlite(param: &SqlParam) -> SqliteValue {
 fn sql_param_to_mysql(param: &SqlParam) -> MySqlValue {
     match param {
         SqlParam::Null => MySqlValue::NULL,
-        SqlParam::Bool(b) => MySqlValue::Int(if *b { 1 } else { 0 }),
+        SqlParam::Bool(b) => MySqlValue::Int(i64::from(*b)),
         SqlParam::Int(i) => MySqlValue::Int(*i),
         SqlParam::Float(f) => MySqlValue::Double(*f),
         SqlParam::String(s) => MySqlValue::Bytes(s.as_bytes().to_vec()),
@@ -451,7 +451,7 @@ fn sql_value_from_ref(value: ValueRef<'_>) -> Value {
 fn sql_value_to_int(value: &Value) -> Result<i64, String> {
     match value {
         Value::Int(i) => Ok(*i),
-        Value::Bool(b) => Ok(if *b { 1 } else { 0 }),
+        Value::Bool(b) => Ok(i64::from(*b)),
         Value::Float(f) => {
             let raw = f.into_inner();
             if !raw.is_finite() {

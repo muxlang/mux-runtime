@@ -10,11 +10,7 @@ pub struct Bool(pub bool);
 
 impl Bool {
     pub fn to_int(&self) -> i64 {
-        if self.0 {
-            1
-        } else {
-            0
-        }
+        i64::from(self.0)
     }
 }
 
@@ -38,11 +34,7 @@ pub extern "C" fn mux_bool_to_string(b: i32) -> *mut c_char {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn mux_bool_from_value(v: *mut Value) -> i32 {
     if let Value::Bool(b) = unsafe { &*v } {
-        if *b {
-            1
-        } else {
-            0
-        }
+        i32::from(*b)
     } else {
         0
     }
