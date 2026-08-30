@@ -236,10 +236,10 @@ fn number_accessors_convert_deliberately() {
 
     // The largest float that still converts exactly, to pin the boundary rather
     // than only the far side of it.
-    let big = Value::Float(ordered_float::OrderedFloat(9007199254740992.0));
+    let big = Value::Float(ordered_float::OrderedFloat(9_007_199_254_740_992.0));
     assert_eq!(
         ok_payload(mux_json_as_int(&big)),
-        Value::Int(9007199254740992)
+        Value::Int(9_007_199_254_740_992)
     );
 
     let whole = Value::Int(3);
