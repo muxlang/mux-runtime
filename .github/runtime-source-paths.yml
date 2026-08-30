@@ -1,0 +1,9 @@
+runtime_src:
+  - 'src/**'
+  - 'examples/**'
+  - 'benches/**'
+  - 'Cargo.toml'
+  - 'Cargo.lock'
+  # CI edits must run the jobs they change instead of shipping unexercised.
+  - '.github/workflows/**'
+  - '.github/runtime-source-paths.yml'

@@ -24,10 +24,11 @@ Run `cargo fmt --all -- --check`,
 `cargo clippy --all-targets --all-features -- -D warnings`, and
 `cargo test --all-features` before committing. Run strict rustdoc and the
 security/coverage jobs in [`.github/workflows/ci.yml`](.github/workflows/ci.yml)
-for cross-cutting work.
+for cross-cutting work. Source-policy jobs live in
+[`.github/workflows/source-gates.yml`](.github/workflows/source-gates.yml).
 
 ## Documentation
 
-See [`README.md`](README.md), [the CI workflow](.github/workflows/ci.yml), and
-the linked design documents in `mux-context` for public API and ownership
-details.
+See [`README.md`](README.md), [the build workflow](.github/workflows/ci.yml),
+[the source gates](.github/workflows/source-gates.yml), and the linked design
+documents in `mux-context` for public API and ownership details.
