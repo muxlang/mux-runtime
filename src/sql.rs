@@ -632,7 +632,7 @@ fn postgres_query_value(
             let v: Option<$rust_type> = $row
                 .try_get($idx)
                 .map_err(|e| format!("postgres row read failed: {}", e))?;
-            Ok(v.map($map).unwrap_or(Value::Unit))
+            Ok(v.map_or(Value::Unit, $map))
         }};
     }
 
@@ -651,16 +651,14 @@ fn postgres_query_value(
             let value: Option<Vec<u8>> = row
                 .try_get(idx)
                 .map_err(|e| format!("postgres row read failed: {}", e))?;
-            Ok(value
-                .map(|bytes| {
-                    Value::List(
-                        bytes
-                            .into_iter()
-                            .map(|b| Value::Int(i64::from(b)))
-                            .collect(),
-                    )
-                })
-                .unwrap_or(Value::Unit))
+            Ok(value.map_or(Value::Unit, |bytes| {
+                Value::List(
+                    bytes
+                        .into_iter()
+                        .map(|b| Value::Int(i64::from(b)))
+                        .collect(),
+                )
+            }))
         }
         _ => get_col!(row, idx, String, Value::String),
     }
