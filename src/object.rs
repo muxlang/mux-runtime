@@ -44,7 +44,9 @@ impl ObjectType {
         copy: Option<extern "C" fn(*mut c_void, *mut c_void)>,
     ) -> Self {
         let id = {
-            let mut next_id = NEXT_TYPE_ID.lock().unwrap_or_else(|e| e.into_inner());
+            let mut next_id = NEXT_TYPE_ID
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             let id = *next_id;
             *next_id += 1;
             id
@@ -81,7 +83,7 @@ pub fn register_object_type_with_copy(
     let id = obj_type.id;
     TYPE_REGISTRY
         .lock()
-        .unwrap_or_else(|e| e.into_inner())
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
         .insert(id, obj_type);
     id
 }
@@ -91,7 +93,9 @@ pub fn call_object_destructor(type_id: TypeId, ptr: *mut c_void) {
         return;
     }
     let destructor = {
-        let registry = TYPE_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
+        let registry = TYPE_REGISTRY
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         registry
             .get(&type_id)
             .and_then(|obj_type| obj_type.destructor)
@@ -102,7 +106,9 @@ pub fn call_object_destructor(type_id: TypeId, ptr: *mut c_void) {
 }
 
 pub fn alloc_object(type_id: TypeId) -> *mut Value {
-    let registry = TYPE_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
+    let registry = TYPE_REGISTRY
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let Some(obj_type) = registry.get(&type_id) else {
         return std::ptr::null_mut();
     };
@@ -181,7 +187,9 @@ pub unsafe fn copy_object(src: *const Value) -> *mut Value {
 
     let type_id = unsafe { get_object_type_id(src) };
     let copy_fn = {
-        let registry = TYPE_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
+        let registry = TYPE_REGISTRY
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let Some(obj_type) = registry.get(&type_id) else {
             return std::ptr::null_mut();
         };
@@ -225,7 +233,9 @@ pub extern "C" fn mux_register_object_copy(
     type_id: TypeId,
     copy_fn: extern "C" fn(*mut c_void, *mut c_void),
 ) {
-    let mut registry = TYPE_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
+    let mut registry = TYPE_REGISTRY
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     if let Some(obj_type) = registry.get_mut(&type_id) {
         obj_type.copy = Some(copy_fn);
     }
@@ -242,7 +252,9 @@ pub extern "C" fn mux_register_object_destructor(
     type_id: TypeId,
     destructor: extern "C" fn(*mut c_void),
 ) {
-    let mut registry = TYPE_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
+    let mut registry = TYPE_REGISTRY
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     if let Some(obj_type) = registry.get_mut(&type_id) {
         obj_type.destructor = Some(destructor);
     }
@@ -259,7 +271,9 @@ pub extern "C" fn mux_register_object_equals(
     type_id: TypeId,
     equals_fn: extern "C" fn(*mut Value, *mut Value) -> bool,
 ) {
-    let mut registry = TYPE_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
+    let mut registry = TYPE_REGISTRY
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     if let Some(obj_type) = registry.get_mut(&type_id) {
         obj_type.equals = Some(equals_fn);
     }
@@ -276,7 +290,9 @@ pub extern "C" fn mux_register_object_compare(
     type_id: TypeId,
     compare_fn: extern "C" fn(*mut Value, *mut Value) -> i32,
 ) {
-    let mut registry = TYPE_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
+    let mut registry = TYPE_REGISTRY
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     if let Some(obj_type) = registry.get_mut(&type_id) {
         obj_type.compare = Some(compare_fn);
     }
@@ -293,7 +309,9 @@ pub extern "C" fn mux_register_object_hash(
     type_id: TypeId,
     hash_fn: extern "C" fn(*mut Value) -> u64,
 ) {
-    let mut registry = TYPE_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
+    let mut registry = TYPE_REGISTRY
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     if let Some(obj_type) = registry.get_mut(&type_id) {
         obj_type.hash = Some(hash_fn);
     }
@@ -318,7 +336,9 @@ pub struct ObjectCallbacks {
 /// The lock is released before returning, so the caller may then run compiled
 /// code that registers or allocates another object type.
 pub fn object_callbacks(type_id: TypeId) -> ObjectCallbacks {
-    let registry = TYPE_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
+    let registry = TYPE_REGISTRY
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     match registry.get(&type_id) {
         Some(obj_type) => ObjectCallbacks {
             equals: obj_type.equals,

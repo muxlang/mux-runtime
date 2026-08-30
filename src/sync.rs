@@ -562,7 +562,9 @@ extern "C" fn destroy_mutex_object(ptr: *mut c_void) {
     }
     let id = unsafe { *(ptr as *mut i64) };
     let entry = {
-        let mut mutexes = MUTEXES.lock().unwrap_or_else(|e| e.into_inner());
+        let mut mutexes = MUTEXES
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         mutexes.remove(&id)
     };
     drop(entry);
@@ -574,7 +576,9 @@ extern "C" fn destroy_rwlock_object(ptr: *mut c_void) {
     }
     let id = unsafe { *(ptr as *mut i64) };
     let entry = {
-        let mut rwlocks = RWLOCKS.lock().unwrap_or_else(|e| e.into_inner());
+        let mut rwlocks = RWLOCKS
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         rwlocks.remove(&id)
     };
     drop(entry);
@@ -586,7 +590,9 @@ extern "C" fn destroy_condvar_object(ptr: *mut c_void) {
     }
     let id = unsafe { *(ptr as *mut i64) };
     let entry = {
-        let mut condvars = CONDVARS.lock().unwrap_or_else(|e| e.into_inner());
+        let mut condvars = CONDVARS
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         condvars.remove(&id)
     };
     drop(entry);
@@ -598,7 +604,9 @@ extern "C" fn destroy_thread_object(ptr: *mut c_void) {
     }
     let id = unsafe { *(ptr as *mut i64) };
     let _entry = {
-        let mut threads = THREADS.lock().unwrap_or_else(|e| e.into_inner());
+        let mut threads = THREADS
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         threads.remove(&id)
     };
 }
@@ -626,7 +634,7 @@ fn extract_handle_id(
 fn mutex_entry(id: i64) -> Result<Arc<MutexEntry>, *mut Value> {
     MUTEXES
         .lock()
-        .unwrap_or_else(|e| e.into_inner())
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
         .get(&id)
         .cloned()
         .ok_or_else(|| err_string(format!("Mutex handle {} not found", id)))
@@ -635,7 +643,7 @@ fn mutex_entry(id: i64) -> Result<Arc<MutexEntry>, *mut Value> {
 fn rwlock_entry(id: i64) -> Result<Arc<RwLockEntry>, *mut Value> {
     RWLOCKS
         .lock()
-        .unwrap_or_else(|e| e.into_inner())
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
         .get(&id)
         .cloned()
         .ok_or_else(|| err_string(format!("RwLock handle {} not found", id)))
@@ -644,7 +652,7 @@ fn rwlock_entry(id: i64) -> Result<Arc<RwLockEntry>, *mut Value> {
 fn condvar_entry(id: i64) -> Result<Arc<CondVarEntry>, *mut Value> {
     CONDVARS
         .lock()
-        .unwrap_or_else(|e| e.into_inner())
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
         .get(&id)
         .cloned()
         .ok_or_else(|| err_string(format!("CondVar handle {} not found", id)))
@@ -706,7 +714,9 @@ pub extern "C" fn mux_sync_spawn(closure: *mut c_void) -> *mut Value {
         };
 
         let id = NEXT_THREAD_ID.fetch_add(1, Ordering::Relaxed);
-        let mut threads = THREADS.lock().unwrap_or_else(|e| e.into_inner());
+        let mut threads = THREADS
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         threads.insert(
             id,
             ThreadEntry {
@@ -735,7 +745,9 @@ pub extern "C" fn mux_thread_join(thread_handle: *mut Value) -> *mut Value {
     };
 
     let join_handle = {
-        let mut threads = THREADS.lock().unwrap_or_else(|e| e.into_inner());
+        let mut threads = THREADS
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         match threads.remove(&id) {
             Some(entry) => entry.handle,
             None => return err_string(format!("Thread handle {} not found", id)),
@@ -760,7 +772,9 @@ pub extern "C" fn mux_thread_detach(thread_handle: *mut Value) -> *mut Value {
         Err(e) => return e,
     };
 
-    let mut threads = THREADS.lock().unwrap_or_else(|e| e.into_inner());
+    let mut threads = THREADS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let Some(entry) = threads.remove(&id) else {
         return err_string(format!("Thread handle {} not found", id));
     };
@@ -787,7 +801,9 @@ pub extern "C" fn mux_mutex_new() -> *mut Value {
     match init_pthread_mutex() {
         Ok(ptr) => {
             let id = NEXT_MUTEX_ID.fetch_add(1, Ordering::Relaxed);
-            let mut mutexes = MUTEXES.lock().unwrap_or_else(|e| e.into_inner());
+            let mut mutexes = MUTEXES
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             mutexes.insert(
                 id,
                 Arc::new(MutexEntry {
@@ -814,7 +830,9 @@ pub extern "C" fn mux_rwlock_new() -> *mut Value {
     match init_pthread_rwlock() {
         Ok(ptr) => {
             let id = NEXT_RWLOCK_ID.fetch_add(1, Ordering::Relaxed);
-            let mut rwlocks = RWLOCKS.lock().unwrap_or_else(|e| e.into_inner());
+            let mut rwlocks = RWLOCKS
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             rwlocks.insert(
                 id,
                 Arc::new(RwLockEntry {
@@ -841,7 +859,9 @@ pub extern "C" fn mux_condvar_new() -> *mut Value {
     match init_pthread_condvar() {
         Ok(ptr) => {
             let id = NEXT_CONDVAR_ID.fetch_add(1, Ordering::Relaxed);
-            let mut condvars = CONDVARS.lock().unwrap_or_else(|e| e.into_inner());
+            let mut condvars = CONDVARS
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             condvars.insert(id, Arc::new(CondVarEntry { ptr }));
 
             let obj_ptr = alloc_object(*CONDVAR_TYPE_ID);
@@ -1140,13 +1160,10 @@ mod tests {
         assert!(unsafe { mux_rc_dec(handle) });
         assert!(!MUTEXES
             .lock()
-            .unwrap_or_else(|error| error.into_inner())
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .contains_key(&id));
-        let entry = HELD_MUTEXES.with(|held| {
-            held.borrow_mut()
-                .get_mut(&id)
-                .and_then(|entries| entries.pop())
-        });
+        let entry =
+            HELD_MUTEXES.with(|held| held.borrow_mut().get_mut(&id).and_then(std::vec::Vec::pop));
         let mut entry = entry.expect("successful lock must retain a lifetime pin");
         assert_eq!(unsafe { sync_backend::unlock_mutex(entry.entry.ptr) }, 0);
         entry.active = false;
@@ -1163,13 +1180,10 @@ mod tests {
         assert!(unsafe { mux_rc_dec(handle) });
         assert!(!RWLOCKS
             .lock()
-            .unwrap_or_else(|error| error.into_inner())
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .contains_key(&id));
-        let entry = HELD_RWLOCKS.with(|held| {
-            held.borrow_mut()
-                .get_mut(&id)
-                .and_then(|entries| entries.pop())
-        });
+        let entry =
+            HELD_RWLOCKS.with(|held| held.borrow_mut().get_mut(&id).and_then(std::vec::Vec::pop));
         let mut entry = entry.expect("successful lock must retain a lifetime pin");
         assert_eq!(unsafe { sync_backend::rwlock_unlock(entry.entry.ptr) }, 0);
         entry.active = false;
@@ -1186,7 +1200,7 @@ mod tests {
         assert!(unsafe { mux_rc_dec(handle) });
         assert!(!CONDVARS
             .lock()
-            .unwrap_or_else(|error| error.into_inner())
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .contains_key(&id));
         assert_eq!(unsafe { sync_backend::condvar_signal(entry.ptr) }, 0);
         drop(entry);

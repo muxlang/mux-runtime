@@ -53,7 +53,7 @@ impl Set {
 
 impl fmt::Display for Set {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let strs: Vec<String> = self.0.iter().map(|v| v.to_string()).collect();
+        let strs: Vec<String> = self.0.iter().map(ToString::to_string).collect();
         write!(f, "{{{}}}", strs.join(", "))
     }
 }
