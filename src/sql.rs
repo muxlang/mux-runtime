@@ -1138,9 +1138,8 @@ pub extern "C" fn mux_sql_connection_begin_transaction(connection: *mut Value) -
     if connection_has_active_transaction(handle) {
         return sql_result_err("connection already has an active transaction".to_string());
     }
-    let conn = match take_connection(handle) {
-        Ok(conn) => conn,
-        Err(_) => return sql_result_err("invalid sql connection handle".to_string()),
+    let Ok(conn) = take_connection(handle) else {
+        return sql_result_err("invalid sql connection handle".to_string());
     };
     let mut conn = conn;
     if let Err(err) = begin_transaction_on_connection(&mut conn) {
