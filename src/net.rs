@@ -406,23 +406,27 @@ fn json_headers(map: &JsonMap, key: &str) -> Result<BTreeMap<String, String>, St
     Ok(resolved)
 }
 
-fn read_http_response(response: ureq::Response) -> Result<Value, String> {
-    let status = i64::from(response.status());
+fn read_http_response(response: ureq::http::Response<ureq::Body>) -> Result<Value, String> {
+    let status = i64::from(response.status().as_u16());
     let mut response_headers = JsonMap::new();
-    for name in response.headers_names() {
-        // `ureq::Response::header` returns only the first value for a header name.
+    for name in response.headers().keys() {
         // HTTP allows multiple values for the same header (e.g. Set-Cookie). Join
         // multiple values with ", " per RFC 7230 §3.2.2 so callers receive all
         // header occurrences.
-        let values = response.all(&name);
-        if !values.is_empty() {
-            let joined = values.join(", ");
-            response_headers.insert(name, Json::String(joined));
+        let values = response.headers().get_all(name);
+        let joined = values
+            .iter()
+            .filter_map(|value| value.to_str().ok())
+            .collect::<Vec<_>>()
+            .join(", ");
+        if !joined.is_empty() {
+            response_headers.insert(name.as_str().to_string(), Json::String(joined));
         }
     }
 
     let body_text = response
-        .into_string()
+        .into_body()
+        .read_to_string()
         .map_err(|e| format!("failed to read response body: {}", e))?;
     let body_json = if body_text.trim().is_empty() {
         Json::Null
@@ -799,32 +803,38 @@ fn execute_http_request(request: *const Value) -> Result<Value, String> {
     let body = request_map.get("body").cloned();
 
     let mut has_content_type = false;
-    let mut req = ureq::request(&method, &url);
+    let mut builder = ureq::http::Request::builder()
+        .method(method.as_str())
+        .uri(url.as_str());
     for (header_name, header_value) in &headers {
         if header_name.eq_ignore_ascii_case("content-type") {
             has_content_type = true;
         }
-        req = req.set(header_name, header_value);
+        builder = builder.header(header_name, header_value);
     }
 
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .http_status_as_error(false)
+        .build()
+        .into();
     let response = if let Some(body_json) = body {
         if !has_content_type {
-            req = req.set("Content-Type", "application/json");
+            builder = builder.header("Content-Type", "application/json");
         }
         let payload = body_json.stringify(None);
-        match req.send_string(&payload) {
-            Ok(response) | Err(ureq::Error::Status(_, response)) => response,
-            Err(ureq::Error::Transport(error)) => {
-                return Err(format!("http request failed: {}", error));
-            }
-        }
+        let request = builder
+            .body(payload)
+            .map_err(|error| format!("http request failed: {}", error))?;
+        agent
+            .run(request)
+            .map_err(|error| format!("http request failed: {}", error))?
     } else {
-        match req.call() {
-            Ok(response) | Err(ureq::Error::Status(_, response)) => response,
-            Err(ureq::Error::Transport(error)) => {
-                return Err(format!("http request failed: {}", error));
-            }
-        }
+        let request = builder
+            .body(())
+            .map_err(|error| format!("http request failed: {}", error))?;
+        agent
+            .run(request)
+            .map_err(|error| format!("http request failed: {}", error))?
     };
 
     read_http_response(response)
