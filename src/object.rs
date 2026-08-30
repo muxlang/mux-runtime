@@ -2,12 +2,11 @@ use crate::refcount::{mux_rc_alloc, mux_rc_dec};
 use crate::{ObjectRef, TypeId, Value};
 use std::collections::HashMap;
 use std::ffi::{c_char, c_void, CStr};
-use std::sync::Mutex;
+use std::sync::{LazyLock, Mutex};
 
-lazy_static::lazy_static! {
-    static ref TYPE_REGISTRY: Mutex<HashMap<TypeId, ObjectType>> = Mutex::new(HashMap::new());
-    static ref NEXT_TYPE_ID: Mutex<TypeId> = Mutex::new(1);
-}
+static TYPE_REGISTRY: LazyLock<Mutex<HashMap<TypeId, ObjectType>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+static NEXT_TYPE_ID: LazyLock<Mutex<TypeId>> = LazyLock::new(|| Mutex::new(1));
 
 #[derive(Clone, Debug)]
 pub struct ObjectType {

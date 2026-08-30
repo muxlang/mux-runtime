@@ -2,7 +2,6 @@ use crate::json::{json_to_value, value_to_json, Json, JsonMap};
 use crate::object::{alloc_object, get_object_ptr, register_object_type_with_copy};
 use crate::refcount::{mux_rc_alloc, mux_rc_dec};
 use crate::{Tuple, TypeId, Value};
-use lazy_static::lazy_static;
 use std::collections::{BTreeMap, HashMap};
 use std::ffi::c_void;
 use std::io::{Read, Write};
@@ -10,7 +9,7 @@ use std::net::{
     TcpListener as StdTcpListener, TcpStream as StdTcpStream, UdpSocket as StdUdpSocket,
 };
 use std::sync::atomic::{AtomicI64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 
 /// A live socket, and how many Mux values name it.
 ///
@@ -30,32 +29,37 @@ type SocketMap<T> = Mutex<HashMap<i64, SocketEntry<T>>>;
 
 static NEXT_HANDLE: AtomicI64 = AtomicI64::new(1);
 
-lazy_static! {
-    static ref TCP_STREAMS: SocketMap<StdTcpStream> = Mutex::new(HashMap::new());
-    static ref TCP_LISTENERS: SocketMap<StdTcpListener> = Mutex::new(HashMap::new());
-    static ref UDP_SOCKETS: SocketMap<StdUdpSocket> = Mutex::new(HashMap::new());
-}
+static TCP_STREAMS: LazyLock<SocketMap<StdTcpStream>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+static TCP_LISTENERS: LazyLock<SocketMap<StdTcpListener>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+static UDP_SOCKETS: LazyLock<SocketMap<StdUdpSocket>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
-lazy_static! {
-    static ref TCP_STREAM_TYPE_ID: TypeId = register_object_type_with_copy(
+static TCP_STREAM_TYPE_ID: LazyLock<TypeId> = LazyLock::new(|| {
+    register_object_type_with_copy(
         "TcpStream",
         std::mem::size_of::<i64>(),
         Some(drop_tcp_stream as extern "C" fn(*mut c_void)),
         Some(copy_tcp_stream as extern "C" fn(*mut c_void, *mut c_void)),
-    );
-    static ref TCP_LISTENER_TYPE_ID: TypeId = register_object_type_with_copy(
+    )
+});
+static TCP_LISTENER_TYPE_ID: LazyLock<TypeId> = LazyLock::new(|| {
+    register_object_type_with_copy(
         "TcpListener",
         std::mem::size_of::<i64>(),
         Some(drop_tcp_listener as extern "C" fn(*mut c_void)),
         Some(copy_tcp_listener as extern "C" fn(*mut c_void, *mut c_void)),
-    );
-    static ref UDP_SOCKET_TYPE_ID: TypeId = register_object_type_with_copy(
+    )
+});
+static UDP_SOCKET_TYPE_ID: LazyLock<TypeId> = LazyLock::new(|| {
+    register_object_type_with_copy(
         "UdpSocket",
         std::mem::size_of::<i64>(),
         Some(drop_udp_socket as extern "C" fn(*mut c_void)),
         Some(copy_udp_socket as extern "C" fn(*mut c_void, *mut c_void)),
-    );
-}
+    )
+});
 
 extern "C" fn drop_tcp_stream(ptr: *mut c_void) {
     drop_socket_handle(&TCP_STREAMS, ptr);
