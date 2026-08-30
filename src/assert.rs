@@ -5,7 +5,7 @@ use std::os::raw::c_char;
 fn panic_assert(msg: &str) -> ! {
     crate::panic::panic_with_code(
         crate::panic::RuntimeErrorCode::AssertionFailed,
-        &format!("assertion failed: {}", msg),
+        &format!("assertion failed: {msg}"),
     );
 }
 
@@ -32,10 +32,10 @@ pub extern "C" fn mux_assert_eq(actual: *mut Value, expected: *mut Value) {
     if expected.is_null() {
         panic_assert("assert_eq received null pointer for expected");
     }
-    let actual_val = unsafe { &*(actual as *const Value) };
-    let expected_val = unsafe { &*(expected as *const Value) };
+    let actual_val = unsafe { &*actual.cast_const() };
+    let expected_val = unsafe { &*expected.cast_const() };
     if actual_val != expected_val {
-        panic_assert(&format!("expected {}, got {}", expected_val, actual_val));
+        panic_assert(&format!("expected {expected_val}, got {actual_val}"));
     }
 }
 
@@ -47,12 +47,11 @@ pub extern "C" fn mux_assert_ne(actual: *mut Value, expected: *mut Value) {
     if expected.is_null() {
         panic_assert("assert_ne received null pointer for expected");
     }
-    let actual_val = unsafe { &*(actual as *const Value) };
-    let expected_val = unsafe { &*(expected as *const Value) };
+    let actual_val = unsafe { &*actual.cast_const() };
+    let expected_val = unsafe { &*expected.cast_const() };
     if actual_val == expected_val {
         panic_assert(&format!(
-            "expected values to differ, but both were {}",
-            actual_val
+            "expected values to differ, but both were {actual_val}"
         ));
     }
 }
@@ -76,7 +75,7 @@ pub extern "C" fn mux_assert_some(val: *mut Value) {
     if val.is_null() {
         panic_assert("assert_some received null pointer");
     }
-    let v = unsafe { &*(val as *const Value) };
+    let v = unsafe { &*val.cast_const() };
     match v {
         Value::Optional(None) => panic_assert("expected Some, got None"),
         Value::Optional(Some(_)) => {}
@@ -89,12 +88,10 @@ pub extern "C" fn mux_assert_none(val: *mut Value) {
     if val.is_null() {
         panic_assert("assert_none received null pointer");
     }
-    let v = unsafe { &*(val as *const Value) };
+    let v = unsafe { &*val.cast_const() };
     match v {
         Value::Optional(None) => {}
-        Value::Optional(Some(inner)) => {
-            panic_assert(&format!("expected None, got Some({})", inner))
-        }
+        Value::Optional(Some(inner)) => panic_assert(&format!("expected None, got Some({inner})")),
         _ => panic_assert("expected Optional value"),
     }
 }
@@ -104,9 +101,9 @@ pub extern "C" fn mux_assert_ok(val: *mut Value) {
     if val.is_null() {
         panic_assert("assert_ok received null pointer");
     }
-    let v = unsafe { &*(val as *const Value) };
+    let v = unsafe { &*val.cast_const() };
     match v {
-        Value::Result(Err(e)) => panic_assert(&format!("expected Ok, got Err({})", e)),
+        Value::Result(Err(e)) => panic_assert(&format!("expected Ok, got Err({e})")),
         Value::Result(Ok(_)) => {}
         _ => panic_assert("expected Result value"),
     }
@@ -117,10 +114,10 @@ pub extern "C" fn mux_assert_err(val: *mut Value) {
     if val.is_null() {
         panic_assert("assert_err received null pointer");
     }
-    let v = unsafe { &*(val as *const Value) };
+    let v = unsafe { &*val.cast_const() };
     match v {
         Value::Result(Err(_)) => {}
-        Value::Result(Ok(v)) => panic_assert(&format!("expected Err, got Ok({})", v)),
+        Value::Result(Ok(v)) => panic_assert(&format!("expected Err, got Ok({v})")),
         _ => panic_assert("expected Result value"),
     }
 }

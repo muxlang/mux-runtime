@@ -143,7 +143,7 @@ fn handle_at(ptr: *mut c_void) -> Option<i64> {
     if ptr.is_null() {
         return None;
     }
-    let handle = unsafe { *(ptr as *mut i64) };
+    let handle = unsafe { *ptr.cast::<i64>() };
     if handle == 0 {
         None
     } else {
@@ -185,7 +185,7 @@ fn copy_socket_handle<T>(map: &SocketMap<T>, src: *mut c_void, dest: *mut c_void
             }
         })
         .unwrap_or(0);
-    unsafe { *(dest as *mut i64) = copied };
+    unsafe { *dest.cast::<i64>() = copied };
 }
 
 fn socket_entry_or_err<T>(
@@ -193,7 +193,7 @@ fn socket_entry_or_err<T>(
     handle: i64,
     label: &str,
 ) -> Result<Arc<Mutex<T>>, String> {
-    get_socket_entry(map, handle).ok_or_else(|| format!("invalid {} handle", label))
+    get_socket_entry(map, handle).ok_or_else(|| format!("invalid {label} handle"))
 }
 
 fn with_socket<T, R, F>(map: &SocketMap<T>, handle: i64, label: &str, op: F) -> Result<R, String>
@@ -266,7 +266,7 @@ fn socket_handle(value: *const Value) -> Option<i64> {
 fn require_handle(value: *const Value, label: &str) -> Result<i64, String> {
     socket_handle(value)
         .filter(|&handle| handle != 0)
-        .ok_or_else(|| format!("invalid {}", label))
+        .ok_or_else(|| format!("invalid {label}"))
 }
 
 fn tcp_handle(value: *const Value) -> Result<i64, String> {
@@ -289,14 +289,14 @@ fn write_handle(value: *mut Value, handle: i64) {
     if ptr.is_null() {
         return;
     }
-    unsafe { *(ptr as *mut i64) = handle };
+    unsafe { *ptr.cast::<i64>() = handle };
 }
 
 fn create_socket_value(handle: i64, type_id: TypeId) -> Value {
     let obj_ptr = alloc_object(type_id);
     let data_ptr = unsafe { get_object_ptr(obj_ptr) };
     if !data_ptr.is_null() {
-        unsafe { *(data_ptr as *mut i64) = handle };
+        unsafe { *data_ptr.cast::<i64>() = handle };
     }
     let value = unsafe { (*obj_ptr).clone() };
     unsafe { mux_rc_dec(obj_ptr) };
@@ -368,21 +368,21 @@ fn net_result_string(result: Result<String, String>) -> *mut Value {
 
 fn value_to_json_map(value: *const Value, label: &str) -> Result<JsonMap, String> {
     if value.is_null() {
-        return Err(format!("{} is null", label));
+        return Err(format!("{label} is null"));
     }
     let json = value_to_json(unsafe { &*value })?;
     if let Json::Object(map) = json {
         Ok(map)
     } else {
-        Err(format!("{} must be a JSON object", label))
+        Err(format!("{label} must be a JSON object"))
     }
 }
 
 fn json_get_string(map: &JsonMap, key: &str, required: bool) -> Result<Option<String>, String> {
     match map.get(key) {
         Some(Json::String(value)) => Ok(Some(value.clone())),
-        Some(_) => Err(format!("'{}' must be a string", key)),
-        None if required => Err(format!("missing required field '{}'", key)),
+        Some(_) => Err(format!("'{key}' must be a string")),
+        None if required => Err(format!("missing required field '{key}'")),
         None => Ok(None),
     }
 }
@@ -392,7 +392,7 @@ fn json_headers(map: &JsonMap, key: &str) -> Result<BTreeMap<String, String>, St
         return Ok(BTreeMap::new());
     };
     let Json::Object(headers) = headers_value else {
-        return Err(format!("'{}' must be a JSON object", key));
+        return Err(format!("'{key}' must be a JSON object"));
     };
 
     let mut resolved = BTreeMap::new();
@@ -400,7 +400,7 @@ fn json_headers(map: &JsonMap, key: &str) -> Result<BTreeMap<String, String>, St
         if let Json::String(header_value) = value {
             resolved.insert(name.clone(), header_value.clone());
         } else {
-            return Err(format!("header '{}' must be a string", name));
+            return Err(format!("header '{name}' must be a string"));
         }
     }
     Ok(resolved)
@@ -429,7 +429,7 @@ fn read_http_response(response: ureq::http::Response<ureq::Body>) -> Result<Valu
     let body_text = response
         .into_body()
         .read_to_string()
-        .map_err(|e| format!("failed to read response body: {}", e))?;
+        .map_err(|e| format!("failed to read response body: {e}"))?;
     let body_json = if body_text.trim().is_empty() {
         Json::Null
     } else {
@@ -524,7 +524,7 @@ fn reason_phrase(status: u16) -> &'static str {
 fn json_get_optional_object(map: &JsonMap, key: &str) -> Result<Option<JsonMap>, String> {
     match map.get(key) {
         Some(Json::Object(obj)) => Ok(Some(obj.clone())),
-        Some(_) => Err(format!("'{}' must be an object", key)),
+        Some(_) => Err(format!("'{key}' must be an object")),
         None => Ok(None),
     }
 }
@@ -536,15 +536,15 @@ fn json_get_required_int(map: &JsonMap, key: &str) -> Result<i64, String> {
         // written as `{"status": 200.0}` keeps working.
         Some(Json::Float(value)) => {
             if !value.is_finite() {
-                return Err(format!("'{}' must be a finite number", key));
+                return Err(format!("'{key}' must be a finite number"));
             }
             if value.fract() != 0.0 {
-                return Err(format!("'{}' must be an integer", key));
+                return Err(format!("'{key}' must be an integer"));
             }
             Ok(value.round() as i64)
         }
-        Some(_) => Err(format!("'{}' must be a number", key)),
-        None => Err(format!("missing required field '{}'", key)),
+        Some(_) => Err(format!("'{key}' must be a number")),
+        None => Err(format!("missing required field '{key}'")),
     }
 }
 
@@ -572,7 +572,7 @@ fn read_http_request_headers(stream: &mut StdTcpStream) -> Result<(Vec<u8>, usiz
     loop {
         let count = stream
             .read(&mut chunk)
-            .map_err(|e| format!("http read failed: {}", e))?;
+            .map_err(|e| format!("http read failed: {e}"))?;
         if count == 0 {
             return Err("connection closed before request headers".to_string());
         }
@@ -593,7 +593,7 @@ fn parse_http_request_headers(
     let mut request = httparse::Request::new(&mut parsed_headers);
     let parse_status = request
         .parse(header_slice)
-        .map_err(|e| format!("invalid http request: {}", e))?;
+        .map_err(|e| format!("invalid http request: {e}"))?;
     if parse_status.is_partial() {
         return Err("incomplete http request headers".to_string());
     }
@@ -609,7 +609,7 @@ fn parse_http_request_headers(
     let version = match request.version {
         Some(0) => "HTTP/1.0".to_string(),
         Some(1) => "HTTP/1.1".to_string(),
-        Some(v) => return Err(format!("unsupported http version {}", v)),
+        Some(v) => return Err(format!("unsupported http version {v}")),
         None => return Err("http request missing version".to_string()),
     };
 
@@ -640,7 +640,7 @@ fn read_http_request_body(
     while body.len() < content_length {
         let count = stream
             .read(&mut chunk)
-            .map_err(|e| format!("http read failed: {}", e))?;
+            .map_err(|e| format!("http read failed: {e}"))?;
         if count == 0 {
             return Err("connection closed before request body complete".to_string());
         }
@@ -733,7 +733,7 @@ fn write_http_response(stream: &mut StdTcpStream, response: &Json) -> Result<(),
             if let Json::String(value) = v {
                 headers.insert(k, value);
             } else {
-                return Err(format!("response header '{}' must be a string", k));
+                return Err(format!("response header '{k}' must be a string"));
             }
         }
     }
@@ -785,13 +785,13 @@ fn write_http_response(stream: &mut StdTcpStream, response: &Json) -> Result<(),
 
     stream
         .write_all(message.as_bytes())
-        .map_err(|e| format!("http write failed: {}", e))?;
+        .map_err(|e| format!("http write failed: {e}"))?;
     stream
         .write_all(&body_bytes)
-        .map_err(|e| format!("http write failed: {}", e))?;
+        .map_err(|e| format!("http write failed: {e}"))?;
     stream
         .flush()
-        .map_err(|e| format!("http flush failed: {}", e))?;
+        .map_err(|e| format!("http flush failed: {e}"))?;
     Ok(())
 }
 
@@ -826,17 +826,17 @@ fn execute_http_request(request: *const Value) -> Result<Value, String> {
         let payload = body_json.stringify(None);
         let request = builder
             .body(payload)
-            .map_err(|error| format!("http request failed: {}", error))?;
+            .map_err(|error| format!("http request failed: {error}"))?;
         agent
             .run(request)
-            .map_err(|error| format!("http request failed: {}", error))?
+            .map_err(|error| format!("http request failed: {error}"))?
     } else {
         let request = builder
             .body(())
-            .map_err(|error| format!("http request failed: {}", error))?;
+            .map_err(|error| format!("http request failed: {error}"))?;
         agent
             .run(request)
-            .map_err(|error| format!("http request failed: {}", error))?
+            .map_err(|error| format!("http request failed: {error}"))?
     };
 
     read_http_response(response)
@@ -855,7 +855,7 @@ pub extern "C" fn mux_net_http_request(request: *const Value) -> *mut Value {
 #[unsafe(no_mangle)]
 pub extern "C" fn mux_net_tcp_listener_bind(addr: *mut Value) -> *mut Value {
     match value_to_string(addr).and_then(|address| {
-        StdTcpListener::bind(address).map_err(|e| format!("tcp listener bind failed: {}", e))
+        StdTcpListener::bind(address).map_err(|e| format!("tcp listener bind failed: {e}"))
     }) {
         Ok(listener) => {
             let handle = store_tcp_listener(listener);
@@ -876,7 +876,7 @@ pub extern "C" fn mux_net_tcp_listener_accept(listener: *mut Value) -> *mut Valu
         socket
             .accept()
             .map(|(stream, _)| stream)
-            .map_err(|e| format!("tcp listener accept failed: {}", e))
+            .map_err(|e| format!("tcp listener accept failed: {e}"))
     }) {
         Ok(stream) => {
             let stream_handle = store_tcp_stream(stream);
@@ -899,7 +899,7 @@ pub extern "C" fn mux_net_tcp_listener_set_nonblocking(
     net_result_unit(with_tcp_listener(handle, |socket| {
         socket
             .set_nonblocking(enabled != 0)
-            .map_err(|e| format!("tcp listener set_nonblocking failed: {}", e))
+            .map_err(|e| format!("tcp listener set_nonblocking failed: {e}"))
     }))
 }
 
@@ -911,7 +911,7 @@ pub extern "C" fn mux_net_tcp_listener_local_addr(listener: *mut Value) -> *mut 
             socket
                 .local_addr()
                 .map(|addr| addr.to_string())
-                .map_err(|e| format!("tcp listener local_addr failed: {}", e))
+                .map_err(|e| format!("tcp listener local_addr failed: {e}"))
         })
     });
     net_result_string(result)
@@ -967,7 +967,7 @@ pub extern "C" fn mux_net_http_write_response(
 #[unsafe(no_mangle)]
 pub extern "C" fn mux_net_tcp_connect(addr: *mut Value) -> *mut Value {
     match value_to_string(addr).and_then(|address| {
-        StdTcpStream::connect(address).map_err(|e| format!("failed to connect: {}", e))
+        StdTcpStream::connect(address).map_err(|e| format!("failed to connect: {e}"))
     }) {
         Ok(stream) => {
             let handle = store_tcp_stream(stream);
@@ -991,7 +991,7 @@ pub extern "C" fn mux_net_tcp_read(stream: *mut Value, size: i64) -> *mut Value 
         let mut buf = vec![0u8; size as usize];
         let count = socket
             .read(&mut buf)
-            .map_err(|e| format!("tcp read failed: {}", e))?;
+            .map_err(|e| format!("tcp read failed: {e}"))?;
         buf.truncate(count);
         Ok(buf)
     });
@@ -1018,7 +1018,7 @@ pub extern "C" fn mux_net_tcp_write(stream: *mut Value, data: *mut Value) -> *mu
     let result = with_tcp_stream(handle, |socket| {
         socket
             .write(&payload)
-            .map_err(|e| format!("tcp write failed: {}", e))
+            .map_err(|e| format!("tcp write failed: {e}"))
     });
     match result {
         Ok(written) => net_result_ok(Value::Int(written as i64)),
@@ -1045,7 +1045,7 @@ pub extern "C" fn mux_net_tcp_set_nonblocking(stream: *mut Value, enabled: i32) 
     net_result_unit(with_tcp_stream(handle, |socket| {
         socket
             .set_nonblocking(enabled != 0)
-            .map_err(|e| format!("tcp set_nonblocking failed: {}", e))
+            .map_err(|e| format!("tcp set_nonblocking failed: {e}"))
     }))
 }
 
@@ -1057,7 +1057,7 @@ pub extern "C" fn mux_net_tcp_peer_addr(stream: *mut Value) -> *mut Value {
             socket
                 .peer_addr()
                 .map(|addr| addr.to_string())
-                .map_err(|e| format!("tcp peer_addr failed: {}", e))
+                .map_err(|e| format!("tcp peer_addr failed: {e}"))
         })
     });
     net_result_string(result)
@@ -1071,7 +1071,7 @@ pub extern "C" fn mux_net_tcp_local_addr(stream: *mut Value) -> *mut Value {
             socket
                 .local_addr()
                 .map(|addr| addr.to_string())
-                .map_err(|e| format!("tcp local_addr failed: {}", e))
+                .map_err(|e| format!("tcp local_addr failed: {e}"))
         })
     });
     net_result_string(result)
@@ -1081,7 +1081,7 @@ pub extern "C" fn mux_net_tcp_local_addr(stream: *mut Value) -> *mut Value {
 #[unsafe(no_mangle)]
 pub extern "C" fn mux_net_udp_bind(addr: *mut Value) -> *mut Value {
     match value_to_string(addr).and_then(|address| {
-        StdUdpSocket::bind(address).map_err(|e| format!("udp bind failed: {}", e))
+        StdUdpSocket::bind(address).map_err(|e| format!("udp bind failed: {e}"))
     }) {
         Ok(socket) => {
             let handle = store_udp_socket(socket);
@@ -1112,7 +1112,7 @@ pub extern "C" fn mux_net_udp_send_to(
     };
     match with_udp_socket(handle, |sock| {
         sock.send_to(&payload, destination.clone())
-            .map_err(|e| format!("udp send failed: {}", e))
+            .map_err(|e| format!("udp send failed: {e}"))
     }) {
         Ok(written) => net_result_ok(Value::Int(written as i64)),
         Err(err) => net_result_err(err),
@@ -1133,7 +1133,7 @@ pub extern "C" fn mux_net_udp_recv_from(socket: *mut Value, size: i64) -> *mut V
         let mut buf = vec![0u8; size as usize];
         let result = sock
             .recv_from(&mut buf)
-            .map_err(|e| format!("udp recv failed: {}", e))?;
+            .map_err(|e| format!("udp recv failed: {e}"))?;
         buf.truncate(result.0);
         Ok(tuple_from_bytes_and_addr(buf, result.1.to_string()))
     }) {
@@ -1160,7 +1160,7 @@ pub extern "C" fn mux_net_udp_set_nonblocking(socket: *mut Value, enabled: i32) 
     };
     net_result_unit(with_udp_socket(handle, |sock| {
         sock.set_nonblocking(enabled != 0)
-            .map_err(|e| format!("udp set_nonblocking failed: {}", e))
+            .map_err(|e| format!("udp set_nonblocking failed: {e}"))
     }))
 }
 
@@ -1171,7 +1171,7 @@ pub extern "C" fn mux_net_udp_peer_addr(socket: *mut Value) -> *mut Value {
         with_udp_socket(handle, |sock| {
             sock.peer_addr()
                 .map(|addr| addr.to_string())
-                .map_err(|e| format!("udp peer_addr failed: {}", e))
+                .map_err(|e| format!("udp peer_addr failed: {e}"))
         })
     });
     net_result_string(result)
@@ -1184,7 +1184,7 @@ pub extern "C" fn mux_net_udp_local_addr(socket: *mut Value) -> *mut Value {
         with_udp_socket(handle, |sock| {
             sock.local_addr()
                 .map(|addr| addr.to_string())
-                .map_err(|e| format!("udp local_addr failed: {}", e))
+                .map_err(|e| format!("udp local_addr failed: {e}"))
         })
     });
     net_result_string(result)

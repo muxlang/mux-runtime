@@ -46,6 +46,7 @@ impl Set {
         self.0.remove(val)
     }
 
+    #[must_use]
     pub fn contains(&self, val: &Value) -> bool {
         self.0.contains(val)
     }

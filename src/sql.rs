@@ -129,7 +129,7 @@ fn create_handle_value(handle: i64, type_id: TypeId) -> Value {
     let obj_ptr = alloc_object(type_id);
     let data_ptr = unsafe { get_object_ptr(obj_ptr) };
     if !data_ptr.is_null() {
-        unsafe { *(data_ptr as *mut i64) = handle };
+        unsafe { *data_ptr.cast::<i64>() = handle };
     }
     let value = unsafe { (*obj_ptr).clone() };
     unsafe { mux_rc_dec(obj_ptr) };
@@ -150,7 +150,7 @@ fn object_handle(value: *const Value) -> Option<i64> {
 fn require_handle(value: *const Value, label: &str) -> Result<i64, String> {
     object_handle(value)
         .filter(|&handle| handle != 0)
-        .ok_or_else(|| format!("invalid {}", label))
+        .ok_or_else(|| format!("invalid {label}"))
 }
 
 fn connection_handle(value: *const Value) -> Result<i64, String> {
@@ -173,7 +173,7 @@ fn write_handle(value: *mut Value, handle: i64) {
     if ptr.is_null() {
         return;
     }
-    unsafe { *(ptr as *mut i64) = handle };
+    unsafe { *ptr.cast::<i64>() = handle };
 }
 
 fn remove_connection(handle: i64) {
@@ -240,7 +240,7 @@ extern "C" fn drop_connection_handle(ptr: *mut c_void) {
     if ptr.is_null() {
         return;
     }
-    let handle = unsafe { *(ptr as *mut i64) };
+    let handle = unsafe { *ptr.cast::<i64>() };
     if handle != 0 {
         remove_connection(handle);
     }
@@ -255,7 +255,7 @@ extern "C" fn drop_transaction_handle(ptr: *mut c_void) {
         return;
     }
 
-    let handle = unsafe { *(ptr as *mut i64) };
+    let handle = unsafe { *ptr.cast::<i64>() };
     if handle == 0 {
         return;
     }
@@ -283,7 +283,7 @@ extern "C" fn drop_resultset_handle(ptr: *mut c_void) {
     if ptr.is_null() {
         return;
     }
-    let handle = unsafe { *(ptr as *mut i64) };
+    let handle = unsafe { *ptr.cast::<i64>() };
     if handle != 0 {
         remove_resultset(handle);
     }
@@ -537,35 +537,31 @@ fn route_connect(uri: &str) -> Result<SqlConnection, String> {
     if uri == "sqlite::memory:" || uri == "sqlite://:memory:" {
         return SqliteConnection::open_in_memory()
             .map(SqlConnection::Sqlite)
-            .map_err(|e| format!("sqlite connect failed: {}", e));
+            .map_err(|e| format!("sqlite connect failed: {e}"));
     }
 
     if let Some(path) = uri.strip_prefix("sqlite://") {
         return SqliteConnection::open(path)
             .map(SqlConnection::Sqlite)
-            .map_err(|e| format!("sqlite connect failed: {}", e));
+            .map_err(|e| format!("sqlite connect failed: {e}"));
     }
 
     if uri.starts_with("postgres://") || uri.starts_with("postgresql://") {
         return PostgresClient::connect(uri, NoTls)
             .map(SqlConnection::Postgres)
-            .map_err(|e| format!("postgres connect failed: {}", e));
+            .map_err(|e| format!("postgres connect failed: {e}"));
     }
     if uri.starts_with("mysql://") || uri.starts_with("mariadb://") {
-        let opts =
-            MySqlOpts::from_url(uri).map_err(|e| format!("mysql url parse failed: {}", e))?;
+        let opts = MySqlOpts::from_url(uri).map_err(|e| format!("mysql url parse failed: {e}"))?;
         return MySqlConnection::new(opts)
             .map(SqlConnection::MySql)
-            .map_err(|e| format!("mysql connect failed: {}", e));
+            .map_err(|e| format!("mysql connect failed: {e}"));
     }
     if uri.starts_with("sqlserver://") || uri.starts_with("mssql://") {
         return Err("unsupported sql provider: sqlserver".to_string());
     }
 
-    Err(format!(
-        "unsupported or unrecognised sql uri scheme: {}",
-        uri
-    ))
+    Err(format!("unsupported or unrecognised sql uri scheme: {uri}"))
 }
 
 fn sqlite_execute(
@@ -576,7 +572,7 @@ fn sqlite_execute(
     let sqlite_params: Vec<SqliteValue> = params.iter().map(sql_param_to_sqlite).collect();
     let affected = connection
         .execute(sql, params_from_iter(sqlite_params.iter()))
-        .map_err(|e| format!("sql execute failed: {}", e))?;
+        .map_err(|e| format!("sql execute failed: {e}"))?;
     i64::try_from(affected).map_err(|_| "affected row count overflowed int".to_string())
 }
 
@@ -589,7 +585,7 @@ fn sqlite_query(
     let sqlite_params: Vec<SqliteValue> = params.iter().map(sql_param_to_sqlite).collect();
     let mut statement = connection
         .prepare(sql)
-        .map_err(|e| format!("sql query prepare failed: {}", e))?;
+        .map_err(|e| format!("sql query prepare failed: {e}"))?;
     let columns: Vec<String> = statement
         .column_names()
         .iter()
@@ -598,22 +594,19 @@ fn sqlite_query(
     let column_count = columns.len();
     let mut rows = statement
         .query(params_from_iter(sqlite_params.iter()))
-        .map_err(|e| format!("sql query failed: {}", e))?;
+        .map_err(|e| format!("sql query failed: {e}"))?;
 
     let mut out_rows = Vec::new();
-    while let Some(row) = rows
-        .next()
-        .map_err(|e| format!("sql query failed: {}", e))?
-    {
+    while let Some(row) = rows.next().map_err(|e| format!("sql query failed: {e}"))? {
         let mut map = crate::ordered::OrderedMap::new();
         for idx in 0..column_count {
             let col_name = columns
                 .get(idx)
                 .cloned()
-                .unwrap_or_else(|| format!("column_{}", idx));
+                .unwrap_or_else(|| format!("column_{idx}"));
             let value_ref = row
                 .get_ref(idx)
-                .map_err(|e| format!("sql row read failed: {}", e))?;
+                .map_err(|e| format!("sql row read failed: {e}"))?;
             map.insert(Value::String(col_name), sql_value_from_ref(value_ref));
         }
         out_rows.push(Value::Map(map));
@@ -654,7 +647,7 @@ fn postgres_query_value(
         PgType::BYTEA => {
             let value: Option<Vec<u8>> = row
                 .try_get(idx)
-                .map_err(|e| format!("postgres row read failed: {}", e))?;
+                .map_err(|e| format!("postgres row read failed: {e}"))?;
             Ok(value.map_or(Value::Unit, |bytes| {
                 Value::List(
                     bytes
@@ -676,7 +669,7 @@ fn postgres_query(
 ) -> Result<SqlResultSet, String> {
     let stmt = client
         .prepare(sql)
-        .map_err(|e| format!("postgres query prepare failed: {}", e))?;
+        .map_err(|e| format!("postgres query prepare failed: {e}"))?;
     let param_storage: Vec<Box<dyn ToSql + Sync>> =
         params.iter().map(sql_param_to_postgres).collect();
     let refs: Vec<&(dyn ToSql + Sync)> = param_storage
@@ -685,7 +678,7 @@ fn postgres_query(
         .collect();
     let rows = client
         .query(&stmt, &refs)
-        .map_err(|e| format!("postgres query failed: {}", e))?;
+        .map_err(|e| format!("postgres query failed: {e}"))?;
 
     let columns: Vec<String> = stmt
         .columns()
@@ -716,7 +709,7 @@ fn postgres_execute(
 ) -> Result<i64, String> {
     let stmt = client
         .prepare(sql)
-        .map_err(|e| format!("postgres execute prepare failed: {}", e))?;
+        .map_err(|e| format!("postgres execute prepare failed: {e}"))?;
     let param_storage: Vec<Box<dyn ToSql + Sync>> =
         params.iter().map(sql_param_to_postgres).collect();
     let refs: Vec<&(dyn ToSql + Sync)> = param_storage
@@ -725,7 +718,7 @@ fn postgres_execute(
         .collect();
     let affected = client
         .execute(&stmt, &refs)
-        .map_err(|e| format!("postgres execute failed: {}", e))?;
+        .map_err(|e| format!("postgres execute failed: {e}"))?;
     i64::try_from(affected).map_err(|_| "affected row count overflowed int".to_string())
 }
 
@@ -748,14 +741,12 @@ fn mysql_value_to_mux(value: MySqlValue) -> Value {
             ),
         },
         MySqlValue::Date(year, month, day, hour, min, sec, micros) => Value::String(format!(
-            "{:04}-{:02}-{:02} {:02}:{:02}:{:02}.{:06}",
-            year, month, day, hour, min, sec, micros
+            "{year:04}-{month:02}-{day:02} {hour:02}:{min:02}:{sec:02}.{micros:06}"
         )),
         MySqlValue::Time(is_neg, days, hours, mins, secs, micros) => {
             let sign = if is_neg { "-" } else { "" };
             Value::String(format!(
-                "{}{} {:02}:{:02}:{:02}.{:06}",
-                sign, days, hours, mins, secs, micros
+                "{sign}{days} {hours:02}:{mins:02}:{secs:02}.{micros:06}"
             ))
         }
     }
@@ -770,7 +761,7 @@ fn mysql_query(
     let mysql_params = MySqlParams::Positional(params.iter().map(sql_param_to_mysql).collect());
     let result = conn
         .exec_iter(sql, mysql_params)
-        .map_err(|e| format!("mysql query failed: {}", e))?;
+        .map_err(|e| format!("mysql query failed: {e}"))?;
     let columns: Vec<String> = result
         .columns()
         .as_ref()
@@ -780,7 +771,7 @@ fn mysql_query(
 
     let mut out_rows = Vec::new();
     for row in result {
-        let mut row = row.map_err(|e| format!("mysql row read failed: {}", e))?;
+        let mut row = row.map_err(|e| format!("mysql row read failed: {e}"))?;
         let values: Vec<MySqlValue> = (0..columns.len())
             .map(|idx| row.take(idx).unwrap_or(MySqlValue::NULL))
             .collect();
@@ -789,7 +780,7 @@ fn mysql_query(
             let col_name = columns
                 .get(idx)
                 .cloned()
-                .unwrap_or_else(|| format!("column_{}", idx));
+                .unwrap_or_else(|| format!("column_{idx}"));
             map.insert(Value::String(col_name), mysql_value_to_mux(raw));
         }
         out_rows.push(Value::Map(map));
@@ -809,7 +800,7 @@ fn mysql_execute(
 ) -> Result<i64, String> {
     let mysql_params = MySqlParams::Positional(params.iter().map(sql_param_to_mysql).collect());
     conn.exec_drop(sql, mysql_params)
-        .map_err(|e| format!("mysql execute failed: {}", e))?;
+        .map_err(|e| format!("mysql execute failed: {e}"))?;
     i64::try_from(conn.affected_rows()).map_err(|_| "affected row count overflowed int".to_string())
 }
 
@@ -817,13 +808,13 @@ fn begin_transaction_on_connection(connection: &mut SqlConnection) -> Result<(),
     match connection {
         SqlConnection::Sqlite(conn) => conn
             .execute_batch("BEGIN TRANSACTION")
-            .map_err(|e| format!("begin transaction failed: {}", e)),
+            .map_err(|e| format!("begin transaction failed: {e}")),
         SqlConnection::Postgres(client) => client
             .batch_execute("BEGIN")
-            .map_err(|e| format!("begin transaction failed: {}", e)),
+            .map_err(|e| format!("begin transaction failed: {e}")),
         SqlConnection::MySql(conn) => conn
             .query_drop("START TRANSACTION")
-            .map_err(|e| format!("begin transaction failed: {}", e)),
+            .map_err(|e| format!("begin transaction failed: {e}")),
     }
 }
 
@@ -831,13 +822,13 @@ fn commit_connection(connection: &mut SqlConnection) -> Result<(), String> {
     match connection {
         SqlConnection::Sqlite(conn) => conn
             .execute_batch("COMMIT")
-            .map_err(|e| format!("commit failed: {}", e)),
+            .map_err(|e| format!("commit failed: {e}")),
         SqlConnection::Postgres(client) => client
             .batch_execute("COMMIT")
-            .map_err(|e| format!("commit failed: {}", e)),
+            .map_err(|e| format!("commit failed: {e}")),
         SqlConnection::MySql(conn) => conn
             .query_drop("COMMIT")
-            .map_err(|e| format!("commit failed: {}", e)),
+            .map_err(|e| format!("commit failed: {e}")),
     }
 }
 
@@ -845,13 +836,13 @@ fn rollback_connection(connection: &mut SqlConnection) -> Result<(), String> {
     match connection {
         SqlConnection::Sqlite(conn) => conn
             .execute_batch("ROLLBACK")
-            .map_err(|e| format!("rollback failed: {}", e)),
+            .map_err(|e| format!("rollback failed: {e}")),
         SqlConnection::Postgres(client) => client
             .batch_execute("ROLLBACK")
-            .map_err(|e| format!("rollback failed: {}", e)),
+            .map_err(|e| format!("rollback failed: {e}")),
         SqlConnection::MySql(conn) => conn
             .query_drop("ROLLBACK")
-            .map_err(|e| format!("rollback failed: {}", e)),
+            .map_err(|e| format!("rollback failed: {e}")),
     }
 }
 

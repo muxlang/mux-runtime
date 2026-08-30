@@ -9,10 +9,12 @@ pub enum Optional {
 }
 
 impl Optional {
+    #[must_use]
     pub fn some(val: Value) -> Optional {
         Optional::Some(Box::new(val))
     }
 
+    #[must_use]
     pub fn none() -> Optional {
         Optional::None
     }
@@ -21,7 +23,7 @@ impl Optional {
 impl fmt::Display for Optional {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Optional::Some(v) => write!(f, "Some({})", v),
+            Optional::Some(v) => write!(f, "Some({v})"),
             Optional::None => write!(f, "None"),
         }
     }
@@ -125,7 +127,7 @@ pub extern "C" fn mux_optional_to_string(val: *const Value) -> *mut std::ffi::c_
     }
     unsafe {
         let s = match &*val {
-            Value::Optional(Some(v)) => format!("Some({})", v),
+            Value::Optional(Some(v)) => format!("Some({v})"),
             Value::Optional(None) => "None".to_string(),
             other => other.to_string(),
         };

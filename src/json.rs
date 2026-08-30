@@ -32,10 +32,11 @@ impl Json {
     pub fn parse(input: &str) -> Result<Json, String> {
         match serde_json::from_str::<serde_json::Value>(input) {
             Ok(v) => Ok(convert_serde_value(&v)),
-            Err(e) => Err(format!("{}", e)),
+            Err(e) => Err(format!("{e}")),
         }
     }
 
+    #[must_use]
     pub fn stringify(&self, indent: Option<usize>) -> String {
         let v = convert_to_serde_value(self);
         if let Some(n) = indent {

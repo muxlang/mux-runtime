@@ -121,7 +121,7 @@ fn value_boxed_enum_structural_eq_ord_hash_display() {
         "payload should participate in the hash"
     );
 
-    assert_eq!(format!("{}", a), "<enum 8 bytes>");
+    assert_eq!(format!("{a}"), "<enum 8 bytes>");
     assert_eq!(a.type_tag(), 12);
     assert_ne!(a.cmp(&Value::Int(0)), std::cmp::Ordering::Equal);
 }

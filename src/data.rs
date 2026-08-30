@@ -10,7 +10,7 @@ fn err_result(message: &str) -> *mut Value {
 }
 
 fn csv_parse_error_result(error: impl std::fmt::Display) -> *mut Value {
-    err_result(&format!("CSV parse error: {}", error))
+    err_result(&format!("CSV parse error: {error}"))
 }
 
 fn read_input_string(input: *const c_char) -> Result<String, *mut Value> {

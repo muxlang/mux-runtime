@@ -64,6 +64,7 @@ impl ObjectType {
     }
 }
 
+#[must_use]
 pub fn register_object_type(
     name: &str,
     size: usize,
@@ -124,7 +125,7 @@ pub fn alloc_object(type_id: TypeId) -> *mut Value {
     }
 
     // Create ObjectRef with size for proper cleanup
-    let obj_ref = ObjectRef::new(ptr as *mut c_void, type_id, size);
+    let obj_ref = ObjectRef::new(ptr.cast::<c_void>(), type_id, size);
 
     // Create Value::Object
     let value = Value::Object(obj_ref);
@@ -147,6 +148,7 @@ pub unsafe fn free_object(obj: *mut Value) {
 
 /// # Safety
 /// The `obj` pointer must be valid and point to a `Value::Object`.
+#[must_use]
 pub unsafe fn get_object_ptr(obj: *const Value) -> *mut c_void {
     if obj.is_null() {
         return std::ptr::null_mut();
@@ -162,6 +164,7 @@ pub unsafe fn get_object_ptr(obj: *const Value) -> *mut c_void {
 
 /// # Safety
 /// The `obj` pointer must be valid and point to a `Value::Object`.
+#[must_use]
 pub unsafe fn get_object_type_id(obj: *const Value) -> TypeId {
     if obj.is_null() {
         return 0;

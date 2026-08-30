@@ -239,7 +239,7 @@ fn http_client_against_local_server() {
         serve_one(&listener); // POST
     });
 
-    let url = format!("http://{}/", server_addr);
+    let url = format!("http://{server_addr}/");
 
     // GET
     let mut get = mux_runtime::ordered::OrderedMap::new();

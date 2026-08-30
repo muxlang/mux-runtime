@@ -13,7 +13,7 @@ extern "C" fn noop_destructor(_p: *mut c_void) {}
 
 extern "C" fn copy_u64(src: *mut c_void, dst: *mut c_void) {
     unsafe {
-        *(dst as *mut u64) = *(src as *const u64);
+        *dst.cast::<u64>() = *(src as *const u64);
     }
 }
 
@@ -28,7 +28,7 @@ fn register_alloc_access_copy_free() {
     assert!(!obj.is_null());
     assert_eq!(mux_get_object_type_id(obj), tid);
 
-    let ptr = mux_get_object_ptr(obj) as *mut u64;
+    let ptr = mux_get_object_ptr(obj).cast::<u64>();
     assert!(!ptr.is_null());
     unsafe {
         *ptr = 0xDEAD_BEEF;
@@ -97,7 +97,7 @@ fn alloc_u64_object(tid: TypeId, contents: u64) -> *mut mux_runtime::Value {
     let obj = mux_alloc_object(tid);
     assert!(!obj.is_null());
     unsafe {
-        *(mux_get_object_ptr(obj) as *mut u64) = contents;
+        *mux_get_object_ptr(obj).cast::<u64>() = contents;
     }
     obj
 }
