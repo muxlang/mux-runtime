@@ -59,7 +59,7 @@ fn assert_panicked(out: &Output, expected: &[&str]) {
 fn index_oob_panics() {
     if in_child() {
         let loc = cstr("main.mux:9:7");
-        mux_panic_index_oob(5, 3, loc.as_ptr());
+        unsafe { mux_panic_index_oob(5, 3, loc.as_ptr()) };
     }
     let out = run_child("index_oob_panics");
     assert_panicked(
@@ -76,7 +76,7 @@ fn key_not_found_panics() {
     if in_child() {
         let loc = cstr("lookup.mux:12:12");
         let key = mux_int_value(42);
-        mux_panic_key_not_found(key.cast_const(), loc.as_ptr());
+        unsafe { mux_panic_key_not_found(key.cast_const(), loc.as_ptr()) };
     }
     let out = run_child("key_not_found_panics");
     assert_panicked(
@@ -93,7 +93,7 @@ fn cstr_with_location_panics() {
     if in_child() {
         let msg = cstr("division by zero");
         let loc = cstr("math.mux:4:16");
-        mux_panic_cstr(msg.as_ptr(), loc.as_ptr());
+        unsafe { mux_panic_cstr(msg.as_ptr(), loc.as_ptr()) };
     }
     let out = run_child("cstr_with_location_panics");
     assert_panicked(
@@ -106,7 +106,7 @@ fn cstr_with_location_panics() {
 fn cstr_without_location_omits_locator() {
     if in_child() {
         let msg = cstr("boom");
-        mux_panic_cstr(msg.as_ptr(), std::ptr::null());
+        unsafe { mux_panic_cstr(msg.as_ptr(), std::ptr::null()) };
     }
     let out = run_child("cstr_without_location_omits_locator");
     assert_panicked(&out, &["panic[E0699]: boom"]);
@@ -134,11 +134,13 @@ fn typed_cstr_uses_registry_code() {
     if in_child() {
         let msg = cstr("where constraint violated");
         let loc = cstr("model.mux:3:9");
-        mux_panic_cstr_code(
-            RuntimeErrorCode::WhereConstraintViolation as i32,
-            msg.as_ptr(),
-            loc.as_ptr(),
-        );
+        unsafe {
+            mux_panic_cstr_code(
+                RuntimeErrorCode::WhereConstraintViolation as i32,
+                msg.as_ptr(),
+                loc.as_ptr(),
+            )
+        };
     }
     let out = run_child("typed_cstr_uses_registry_code");
     assert_panicked(
@@ -154,7 +156,7 @@ fn typed_cstr_uses_registry_code() {
 fn unknown_ffi_code_is_internal() {
     if in_child() {
         let msg = cstr("future failure");
-        mux_panic_cstr_code(9999, msg.as_ptr(), std::ptr::null());
+        unsafe { mux_panic_cstr_code(9999, msg.as_ptr(), std::ptr::null()) };
     }
     let out = run_child("unknown_ffi_code_is_internal");
     assert_panicked(&out, &["panic[E0699]: future failure"]);
