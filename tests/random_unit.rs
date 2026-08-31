@@ -26,6 +26,27 @@ fn range_bounds() {
     }
 }
 
+#[test]
+fn range_handles_i64_domain_boundaries() {
+    mux_rand_init(29);
+
+    for (min, max) in [
+        (i64::MIN, i64::MAX),
+        (i64::MIN, 0),
+        (0, i64::MAX),
+        (i64::MIN, i64::MIN + 1),
+        (i64::MAX - 1, i64::MAX),
+    ] {
+        for _ in 0..32 {
+            let value = mux_rand_range(min, max);
+            assert!(
+                (min..max).contains(&value),
+                "value {value} escaped range [{min}, {max})"
+            );
+        }
+    }
+}
+
 /// A containment assertion cannot catch a range that is too NARROW: `[10, 15)`
 /// sits happily inside `[10, 20)`, which is why `range_bounds` above passed
 /// while `mux_rand_range` returned only the lower half of every range.

@@ -26,7 +26,7 @@ fn lcg_next(state: u64) -> u64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn mux_rand_init(seed: i64) {
     INIT.call_once(|| {
-        *lock_state() = seed as u64;
+        *lock_state() = seed.cast_unsigned();
     });
 }
 
@@ -41,7 +41,7 @@ pub extern "C" fn mux_rand_int() -> i64 {
     });
     let mut state = lock_state();
     *state = lcg_next(*state);
-    ((*state >> 33) as i64) & RAND_MAX
+    ((*state >> 33).cast_signed()) & RAND_MAX
 }
 
 #[unsafe(no_mangle)]
@@ -49,13 +49,27 @@ pub extern "C" fn mux_rand_range(min: i64, max: i64) -> i64 {
     if min >= max {
         return min;
     }
-    let range_size = max - min;
+    // Widen before subtracting: the valid i64 domain is wider than the
+    // positive half of i64, so subtracting in i64 would overflow for ranges
+    // that cross the sign boundary (including the full integer domain).
+    let Ok(range_size) = u128::try_from(i128::from(max) - i128::from(min)) else {
+        return min;
+    };
     // Fixed-point multiply: scale a random fraction by the range and take the
     // integer part. The shift must match the generator's WIDTH, not a machine
     // word - `mux_rand_int` masks with RAND_MAX and so yields 31 bits, and
     // shifting by 32 capped every result at half the requested range.
-    let scaled = ((mux_rand_int() as u128) * (range_size as u128)) >> RAND_BITS;
-    min + (scaled as i64)
+    let scaled = (u128::from(mux_rand_int().cast_unsigned()) * range_size) >> RAND_BITS;
+    // `scaled < range_size <= 2^64 - 1`, so this addition is in the i64
+    // interval by construction. Keep the conversion checked at the ABI
+    // boundary rather than relying on a potentially wrapping cast.
+    let Ok(scaled) = i128::try_from(scaled) else {
+        return min;
+    };
+    match i64::try_from(i128::from(min) + scaled) {
+        Ok(value) => value,
+        Err(_) => min,
+    }
 }
 
 #[unsafe(no_mangle)]
