@@ -99,9 +99,14 @@ pub extern "C" fn mux_datetime_weekday(timestamp: i64) -> *mut Value {
     })
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_datetime_format(timestamp: i64, pattern: *const c_char) -> *mut Value {
+/// Formats a UTC timestamp with a C-string pattern.
+///
+/// # Safety
+///
+/// `pattern` may be null, which returns a result error; otherwise it must be a
+/// valid NUL-terminated C string readable for the duration of this call.
+pub unsafe extern "C" fn mux_datetime_format(timestamp: i64, pattern: *const c_char) -> *mut Value {
     let pattern = match read_pattern(pattern) {
         Ok(p) => p,
         Err(msg) => return dt_err(msg),
@@ -116,9 +121,17 @@ pub extern "C" fn mux_datetime_format(timestamp: i64, pattern: *const c_char) ->
     }
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_datetime_format_local(timestamp: i64, pattern: *const c_char) -> *mut Value {
+/// Formats a timestamp in the local timezone with a C-string pattern.
+///
+/// # Safety
+///
+/// `pattern` may be null, which returns a result error; otherwise it must be a
+/// valid NUL-terminated C string readable for the duration of this call.
+pub unsafe extern "C" fn mux_datetime_format_local(
+    timestamp: i64,
+    pattern: *const c_char,
+) -> *mut Value {
     let pattern = match read_pattern(pattern) {
         Ok(p) => p,
         Err(msg) => return dt_err(msg),

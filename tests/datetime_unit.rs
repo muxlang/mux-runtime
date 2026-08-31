@@ -27,12 +27,12 @@ fn fields_at_epoch() {
 fn format_utc() {
     let date = CString::new("%Y-%m-%d").unwrap();
     assert_eq!(
-        ok_string(mux_datetime_format(EPOCH, date.as_ptr())),
+        ok_string(unsafe { mux_datetime_format(EPOCH, date.as_ptr()) }),
         "1970-01-01"
     );
     let time = CString::new("%H:%M:%S").unwrap();
     assert_eq!(
-        ok_string(mux_datetime_format(EPOCH, time.as_ptr())),
+        ok_string(unsafe { mux_datetime_format(EPOCH, time.as_ptr()) }),
         "00:00:00"
     );
 }
@@ -49,5 +49,5 @@ fn now_and_sleep_validation() {
 #[test]
 fn invalid_inputs_are_errors() {
     assert_err(mux_datetime_year(i64::MAX)); // out-of-range timestamp
-    assert_err(mux_datetime_format(EPOCH, std::ptr::null())); // null pattern
+    assert_err(unsafe { mux_datetime_format(EPOCH, std::ptr::null()) }); // null pattern
 }
