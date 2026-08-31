@@ -56,11 +56,11 @@ fn optional_extern_roundtrip() {
 #[test]
 fn result_extern_roundtrip() {
     let ok = result::mux_result_ok_int(7);
-    assert!(result::mux_result_is_ok(ok));
-    assert!(!result::mux_result_is_err(ok));
-    assert_eq!(result::mux_value_result_discriminant(ok), 0);
+    assert!(unsafe { result::mux_result_is_ok(ok) });
+    assert!(!unsafe { result::mux_result_is_err(ok) });
+    assert_eq!(unsafe { result::mux_value_result_discriminant(ok) }, 0);
 
-    let data = result::mux_result_data(ok);
+    let data = unsafe { result::mux_result_data(ok) };
     assert!(!data.is_null());
     unsafe {
         assert!(matches!(&*data, Value::Int(7)));

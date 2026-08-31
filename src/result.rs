@@ -50,15 +50,25 @@ pub extern "C" fn mux_result_ok_char(val: i64) -> *mut Value {
     mux_rc_alloc(Value::Result(Ok(Box::new(Value::Int(val)))))
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_result_ok_string(val: *mut Value) -> *mut Value {
-    mux_result_ok_value(val)
+/// Wrap a borrowed value in an `Ok` result.
+///
+/// # Safety
+/// A null `val` returns null. Otherwise it must point to a live, initialized
+/// `Value` readable for the duration of this call. The value is cloned and
+/// remains caller-owned.
+pub unsafe extern "C" fn mux_result_ok_string(val: *mut Value) -> *mut Value {
+    unsafe { mux_result_ok_value(val) }
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_result_ok_value(val: *mut Value) -> *mut Value {
+/// Wrap a borrowed value in an `Ok` result.
+///
+/// # Safety
+/// A null `val` returns null. Otherwise it must point to a live, initialized
+/// `Value` readable for the duration of this call. The value is cloned and
+/// remains caller-owned.
+pub unsafe extern "C" fn mux_result_ok_value(val: *mut Value) -> *mut Value {
     if val.is_null() {
         return std::ptr::null_mut();
     }
@@ -77,9 +87,14 @@ pub unsafe extern "C" fn mux_result_err_str(msg: *const std::os::raw::c_char) ->
     mux_rc_alloc(Value::Result(Err(Box::new(Value::String(msg_str)))))
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_result_err_value(val: *mut Value) -> *mut Value {
+/// Wrap a borrowed value in an `Err` result.
+///
+/// # Safety
+/// A null `val` returns null. Otherwise it must point to a live, initialized
+/// `Value` readable for the duration of this call. The value is cloned and
+/// remains caller-owned.
+pub unsafe extern "C" fn mux_result_err_value(val: *mut Value) -> *mut Value {
     if val.is_null() {
         return std::ptr::null_mut();
     }
@@ -89,18 +104,26 @@ pub extern "C" fn mux_result_err_value(val: *mut Value) -> *mut Value {
     }
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_result_is_ok(val: *mut Value) -> bool {
+/// Test whether a value is an `Ok` result; null returns false.
+///
+/// # Safety
+/// A null `val` is accepted. Otherwise it must point to a live, initialized
+/// `Value` readable for the duration of this call.
+pub unsafe extern "C" fn mux_result_is_ok(val: *mut Value) -> bool {
     if val.is_null() {
         return false;
     }
     unsafe { matches!(&*val, Value::Result(Ok(_))) }
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_result_is_err(val: *mut Value) -> bool {
+/// Test whether a value is an `Err` result; null returns false.
+///
+/// # Safety
+/// A null `val` is accepted. Otherwise it must point to a live, initialized
+/// `Value` readable for the duration of this call.
+pub unsafe extern "C" fn mux_result_is_err(val: *mut Value) -> bool {
     if val.is_null() {
         return false;
     }
@@ -108,9 +131,14 @@ pub extern "C" fn mux_result_is_err(val: *mut Value) -> bool {
 }
 
 /// Returns the inner value from a `Value::Result`, for both Ok and Err variants.
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_result_data(val: *mut Value) -> *mut Value {
+/// Clone and return the payload of an `Ok` or `Err` result.
+///
+/// # Safety
+/// A null `val` returns null. Otherwise it must point to a live, initialized
+/// `Value` readable for the duration of this call. The result remains
+/// caller-owned and the returned payload is a new managed value.
+pub unsafe extern "C" fn mux_result_data(val: *mut Value) -> *mut Value {
     if val.is_null() {
         return std::ptr::null_mut();
     }
@@ -123,9 +151,13 @@ pub extern "C" fn mux_result_data(val: *mut Value) -> *mut Value {
     }
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_value_result_discriminant(val: *mut Value) -> i32 {
+/// Return `0` for `Ok`, `1` for `Err`, and `-1` otherwise.
+///
+/// # Safety
+/// A null `val` is accepted. Otherwise it must point to a live, initialized
+/// `Value` readable for the duration of this call.
+pub unsafe extern "C" fn mux_value_result_discriminant(val: *mut Value) -> i32 {
     if val.is_null() {
         return -1;
     }

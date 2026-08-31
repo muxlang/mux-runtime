@@ -11,8 +11,10 @@ use mux_runtime::Value;
 
 /// The `ok` payload of a result, asserting it is one.
 fn ok_data(result: *mut Value) -> *mut Value {
-    assert!(mux_result_is_ok(result), "expected an ok result");
-    let data = mux_result_data(result);
+    let data = unsafe {
+        assert!(mux_result_is_ok(result), "expected an ok result");
+        mux_result_data(result)
+    };
     assert!(!data.is_null());
     assert!(unsafe { mux_rc_dec(result) });
     data
@@ -22,7 +24,7 @@ fn ok_data(result: *mut Value) -> *mut Value {
 fn parse_plain_csv() {
     let input = CString::new("a,b\n1,2\n").unwrap();
     let res = unsafe { mux_csv_parse(input.as_ptr()) };
-    assert!(mux_result_is_ok(res));
+    assert!(unsafe { mux_result_is_ok(res) });
     assert!(unsafe { mux_rc_dec(res) });
 }
 
@@ -30,14 +32,14 @@ fn parse_plain_csv() {
 fn parse_with_headers() {
     let input = CString::new("name,age\nAlice,30\nBob,25\n").unwrap();
     let res = unsafe { mux_csv_parse_with_headers(input.as_ptr()) };
-    assert!(mux_result_is_ok(res));
+    assert!(unsafe { mux_result_is_ok(res) });
     assert!(unsafe { mux_rc_dec(res) });
 }
 
 #[test]
 fn parse_null_is_error() {
     let res = unsafe { mux_csv_parse(std::ptr::null()) };
-    assert!(mux_result_is_err(res));
+    assert!(unsafe { mux_result_is_err(res) });
     assert!(unsafe { mux_rc_dec(res) });
 }
 
@@ -62,7 +64,7 @@ fn to_string_roundtrip() {
     let csv_val = mux_rc_alloc(Value::Map(map));
 
     let res = unsafe { mux_csv_to_string(csv_val) };
-    assert!(mux_result_is_ok(res));
+    assert!(unsafe { mux_result_is_ok(res) });
 
     assert!(unsafe { mux_rc_dec(res) });
     assert!(unsafe { mux_rc_dec(csv_val) });
@@ -72,7 +74,7 @@ fn to_string_roundtrip() {
 fn to_string_rejects_non_map() {
     let bad = mux_rc_alloc(Value::Int(1));
     let res = unsafe { mux_csv_to_string(bad) };
-    assert!(mux_result_is_err(res));
+    assert!(unsafe { mux_result_is_err(res) });
     assert!(unsafe { mux_rc_dec(res) });
     assert!(unsafe { mux_rc_dec(bad) });
 }
@@ -133,7 +135,7 @@ fn a_ragged_row_is_rejected_by_the_parser() {
     let text = CString::new("sku,qty\nwidget\n").expect("no interior nul");
     let parsed = unsafe { mux_csv_parse_with_headers(text.as_ptr()) };
     assert!(
-        mux_result_is_err(parsed),
+        unsafe { mux_result_is_err(parsed) },
         "a row shorter than the header must not parse"
     );
     assert!(unsafe { mux_rc_dec(parsed) });
@@ -154,10 +156,10 @@ fn a_repeated_header_is_rejected() {
     let got = unsafe { mux_csv_rows_as_maps(table) };
 
     assert!(
-        mux_result_is_err(got),
+        unsafe { mux_result_is_err(got) },
         "a repeated header must not pair silently"
     );
-    let detail = mux_result_data(got);
+    let detail = unsafe { mux_result_data(got) };
     match unsafe { &*detail } {
         Value::String(message) => assert!(
             message.contains("duplicate column 'sku'"),
@@ -178,11 +180,11 @@ fn rows_as_maps_rejects_other_shapes() {
 
     for input in [Value::Int(1), Value::String("csv".into())] {
         let got = unsafe { mux_csv_rows_as_maps(&raw const input) };
-        assert!(mux_result_is_err(got));
+        assert!(unsafe { mux_result_is_err(got) });
         assert!(unsafe { mux_rc_dec(got) });
     }
 
     let got = unsafe { mux_csv_rows_as_maps(std::ptr::null()) };
-    assert!(mux_result_is_err(got));
+    assert!(unsafe { mux_result_is_err(got) });
     assert!(unsafe { mux_rc_dec(got) });
 }

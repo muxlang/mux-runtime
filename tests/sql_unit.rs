@@ -19,8 +19,8 @@ fn sval(s: &str) -> *mut Value {
 
 /// Assert Ok and return the inner value (caller frees it). Frees the result.
 fn ok_data(r: *mut Value) -> *mut Value {
-    assert!(mux_result_is_ok(r), "expected Ok result");
-    let data = mux_result_data(r);
+    assert!(unsafe { mux_result_is_ok(r) }, "expected Ok result");
+    let data = unsafe { mux_result_data(r) };
     assert!(!data.is_null());
     assert!(unsafe { mux_rc_dec(r) });
     data

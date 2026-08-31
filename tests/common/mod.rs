@@ -10,20 +10,20 @@ use mux_runtime::Value;
 
 /// Assert a `Result` value is Ok and free it.
 pub fn assert_ok(r: *mut Value) {
-    assert!(mux_result_is_ok(r), "expected Ok result");
+    assert!(unsafe { mux_result_is_ok(r) }, "expected Ok result");
     assert!(unsafe { mux_rc_dec(r) });
 }
 
 /// Assert a `Result` value is Err and free it.
 pub fn assert_err(r: *mut Value) {
-    assert!(mux_result_is_err(r), "expected Err result");
+    assert!(unsafe { mux_result_is_err(r) }, "expected Err result");
     assert!(unsafe { mux_rc_dec(r) });
 }
 
 /// Extract the inner `i64` from a `Result(Ok(Int))`, freeing everything.
 pub fn ok_int(r: *mut Value) -> i64 {
-    assert!(mux_result_is_ok(r), "expected Ok result");
-    let data = mux_result_data(r);
+    assert!(unsafe { mux_result_is_ok(r) }, "expected Ok result");
+    let data = unsafe { mux_result_data(r) };
     let out = unsafe {
         match &*data {
             Value::Int(i) => *i,
@@ -37,8 +37,8 @@ pub fn ok_int(r: *mut Value) -> i64 {
 
 /// Extract the inner `bool` from a `Result(Ok(Bool))`, freeing everything.
 pub fn ok_bool(r: *mut Value) -> bool {
-    assert!(mux_result_is_ok(r), "expected Ok result");
-    let data = mux_result_data(r);
+    assert!(unsafe { mux_result_is_ok(r) }, "expected Ok result");
+    let data = unsafe { mux_result_data(r) };
     let out = unsafe {
         match &*data {
             Value::Bool(b) => *b,
@@ -52,8 +52,8 @@ pub fn ok_bool(r: *mut Value) -> bool {
 
 /// Extract the inner `String` from a `Result(Ok(String))`, freeing everything.
 pub fn ok_string(r: *mut Value) -> String {
-    assert!(mux_result_is_ok(r), "expected Ok result");
-    let data = mux_result_data(r);
+    assert!(unsafe { mux_result_is_ok(r) }, "expected Ok result");
+    let data = unsafe { mux_result_data(r) };
     let out = unsafe {
         match &*data {
             Value::String(s) => s.clone(),
@@ -67,8 +67,8 @@ pub fn ok_string(r: *mut Value) -> String {
 
 /// Extract the inner list length from a `Result(Ok(List))`, freeing everything.
 pub fn ok_list_len(r: *mut Value) -> usize {
-    assert!(mux_result_is_ok(r), "expected Ok result");
-    let data = mux_result_data(r);
+    assert!(unsafe { mux_result_is_ok(r) }, "expected Ok result");
+    let data = unsafe { mux_result_data(r) };
     let out = unsafe {
         match &*data {
             Value::List(items) => items.len(),
