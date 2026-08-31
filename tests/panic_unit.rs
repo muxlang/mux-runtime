@@ -122,7 +122,7 @@ fn assert_failure_panics() {
     if in_child() {
         // 1 != 2 routes through panic_assert -> the unified panic. If it ever
         // failed to diverge, return rather than re-exec (avoids a fork loop).
-        mux_assert_eq(mux_int_value(1), mux_int_value(2));
+        unsafe { mux_assert_eq(mux_int_value(1), mux_int_value(2)) };
         return;
     }
     let out = run_child("assert_failure_panics");
