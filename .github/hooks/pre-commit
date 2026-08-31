@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Mirrors mux-runtime CI (.github/workflows/ci.yml) rust_checks, minus the heavy
-# legs (coverage, valgrind, benchmarks) which stay CI-only. Same spirit as the
-# mux-compiler pre-commit: run the fast fmt/clippy/test gate locally, and report
-# every failure in one pass instead of stopping at the first.
+# Mirrors the fast source and test gates, minus coverage, Valgrind, and
+# benchmarks, which stay CI-only. Same spirit as the mux-compiler pre-commit:
+# run fmt/clippy/test locally, and report every failure in one pass instead of
+# stopping at the first.
 
 HAS_RUST=false
 # Read staged paths NUL-delimited (-z) so paths with spaces, tabs, quotes,
