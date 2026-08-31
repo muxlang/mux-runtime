@@ -103,16 +103,15 @@ references, so a program that does not touch `sql` carries no SQLite.
 
 ## Versioning
 
-The compiler identifies this repo by commit, not by version: `mux version`
-reports the locked commit as semver build metadata, e.g.
-`runtime v0.5.0+g4e2dc14`. A coupled change is one PR here and one in
-`mux-compiler` - no publish step between them.
+The compiler identifies this repo by commit, not by a runtime release number.
+`mux version` reports the locked commit as build metadata, for example
+`runtime v0.6.1+g4e2dc14`. A coupled change is one PR here and one in
+`mux-compiler`; there is no publish step between them.
 
-Record changes under a numbered, dated changelog heading as part of the change
-itself. A rolling `Unreleased` heading gives no way to say which changes a given
-compiler pin contains, which is why it is no longer used. The `version` field is
-not published while crates.io is frozen, but it moves with the heading so the
-two do not drift.
+Record user-visible changes under a dated changelog heading as part of the
+change itself. Do not create an empty runtime release. Cargo still requires the
+`version` field in this manifest, but it is technical metadata for the private
+git dependency, not a public compatibility promise.
 
 Full release steps:
 [muxlang/mux-context release process](https://github.com/muxlang/mux-context/blob/main/docs/release-process.md#mux-runtime).

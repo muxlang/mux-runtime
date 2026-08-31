@@ -14,7 +14,7 @@ Changes are still recorded under a numbered heading rather than a rolling
 changes a given compiler pin actually contains, and it is what let three
 compiler PRs land with no release notes at all.
 
-## [0.6.2] - 2026-08-29
+## 2026-08-29
 
 ### Changed
 - **The supported Rust toolchain is now declared in the repository.** Local
