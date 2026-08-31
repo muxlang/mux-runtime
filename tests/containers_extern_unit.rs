@@ -184,20 +184,20 @@ fn set_box_layer() {
     let set = mux_new_set();
     let v = int(5);
 
-    mux_set_add(set, v);
-    assert!(mux_set_contains(set, v));
+    unsafe { mux_set_add(set, v) };
+    assert!(unsafe { mux_set_contains(set, v) });
     assert_eq!(unsafe { mux_set_size(set) }, 1);
     assert!(!unsafe { mux_set_is_empty(set) });
 
-    let as_list = mux_set_to_list(set);
+    let as_list = unsafe { mux_set_to_list(set) };
     assert!(unsafe { mux_rc_dec(as_list) });
-    assert!(!read_cstr(mux_set_to_string(set)).is_empty());
+    assert!(!read_cstr(unsafe { mux_set_to_string(set) }).is_empty());
 
-    assert!(mux_set_remove(set, v));
-    assert!(!mux_set_remove(set, v));
+    assert!(unsafe { mux_set_remove(set, v) });
+    assert!(!unsafe { mux_set_remove(set, v) });
 
     let other = mux_new_set();
-    let unioned = mux_set_union(set, other);
+    let unioned = unsafe { mux_set_union(set, other) };
     assert!(!unioned.is_null());
     mux_free_set(unioned);
 
@@ -208,11 +208,11 @@ fn set_box_layer() {
 
 #[test]
 fn set_value_layer() {
-    let sv = mux_set_value(mux_new_set());
+    let sv = unsafe { mux_set_value(mux_new_set()) };
     let v = int(8);
-    mux_set_add_value(sv, v);
-    assert!(mux_set_remove_value(sv, v));
-    assert!(!mux_set_remove_value(sv, v));
+    unsafe { mux_set_add_value(sv, v) };
+    assert!(unsafe { mux_set_remove_value(sv, v) });
+    assert!(!unsafe { mux_set_remove_value(sv, v) });
     assert!(unsafe { mux_rc_dec(sv) });
     assert!(unsafe { mux_rc_dec(v) });
 }
