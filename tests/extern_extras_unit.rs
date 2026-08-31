@@ -64,27 +64,30 @@ fn optional_extern_remainder() {
         mux_optional_some_bool(1),
         mux_optional_some_char('a' as i64),
     ] {
-        assert!(mux_optional_is_some(ctor));
+        assert!(unsafe { mux_optional_is_some(ctor) });
         assert!(unsafe { mux_rc_dec(ctor) });
     }
 
     let inner = mux_int_value(3);
-    let some = mux_optional_some_value(inner);
-    assert!(mux_optional_is_some(some));
-    let data = mux_optional_data(some);
+    let some = unsafe { mux_optional_some_value(inner) };
+    assert!(unsafe { mux_optional_is_some(some) });
+    let data = unsafe { mux_optional_data(some) };
     assert!(!data.is_null());
     assert!(unsafe { mux_rc_dec(data) });
     // identity pass-through
     assert_eq!(mux_optional_into_value(some), some);
-    assert_eq!(read_cstr(mux_optional_to_string(some)), "Some(3)");
+    assert_eq!(
+        read_cstr(unsafe { mux_optional_to_string(some) }),
+        "Some(3)"
+    );
     assert!(unsafe { mux_rc_dec(some) });
     assert!(unsafe { mux_rc_dec(inner) });
 
     // some_value(null) yields None; get_value(None) yields null
-    let none = mux_optional_some_value(std::ptr::null_mut());
-    assert!(mux_optional_is_none(none));
-    assert!(mux_optional_get_value(none).is_null());
-    assert_eq!(read_cstr(mux_optional_to_string(none)), "None");
+    let none = unsafe { mux_optional_some_value(std::ptr::null_mut()) };
+    assert!(unsafe { mux_optional_is_none(none) });
+    assert!(unsafe { mux_optional_get_value(none) }.is_null());
+    assert_eq!(read_cstr(unsafe { mux_optional_to_string(none) }), "None");
     assert!(unsafe { mux_rc_dec(none) });
 }
 

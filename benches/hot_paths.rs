@@ -318,7 +318,7 @@ fn bench_wrappers(c: &mut Criterion) {
     let some = mux_optional_some_int(7);
     let ok = mux_result_ok_int(7);
     group.bench_function("optional_is_some", |b| {
-        b.iter(|| black_box(mux_optional_is_some(some)));
+        b.iter(|| black_box(unsafe { mux_optional_is_some(some) }));
     });
     group.bench_function("result_is_ok", |b| {
         b.iter(|| black_box(mux_result_is_ok(ok)));

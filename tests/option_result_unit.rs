@@ -28,11 +28,13 @@ fn result_core() {
 #[test]
 fn optional_extern_roundtrip() {
     let some = optional::mux_optional_some_int(5);
-    assert!(optional::mux_optional_is_some(some));
-    assert!(!optional::mux_optional_is_none(some));
-    assert_eq!(optional::mux_value_optional_discriminant(some), 0);
+    unsafe {
+        assert!(optional::mux_optional_is_some(some));
+        assert!(!optional::mux_optional_is_none(some));
+        assert_eq!(optional::mux_value_optional_discriminant(some), 0);
+    }
 
-    let inner = optional::mux_optional_get_value(some);
+    let inner = unsafe { optional::mux_optional_get_value(some) };
     assert!(!inner.is_null());
     unsafe {
         assert!(matches!(&*inner, Value::Int(5)));
@@ -40,8 +42,10 @@ fn optional_extern_roundtrip() {
     assert!(unsafe { mux_rc_dec(inner) });
 
     let none = optional::mux_optional_none();
-    assert!(optional::mux_optional_is_none(none));
-    assert_eq!(optional::mux_value_optional_discriminant(none), 1);
+    unsafe {
+        assert!(optional::mux_optional_is_none(none));
+        assert_eq!(optional::mux_value_optional_discriminant(none), 1);
+    }
 
     assert!(unsafe { mux_rc_dec(some) });
     assert!(unsafe { mux_rc_dec(none) });
