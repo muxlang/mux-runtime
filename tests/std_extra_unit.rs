@@ -116,6 +116,11 @@ fn list_index_and_slice() {
     assert_eq!(mux_value_list_length(slice), 2);
     assert!(unsafe { mux_rc_dec(slice) });
 
+    // A negative end is an empty range, not a wrapped usize index.
+    let empty = mux_value_list_slice(list_val, 0, -1);
+    assert_eq!(mux_value_list_length(empty), 0);
+    assert!(unsafe { mux_rc_dec(empty) });
+
     // out-of-range index yields null
     assert!(mux_value_list_get_value(list_val, 99).is_null());
 
