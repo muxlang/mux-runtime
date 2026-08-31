@@ -122,7 +122,7 @@ fn null_handles_error() {
 #[test]
 fn mismatched_handle_types_are_rejected() {
     let name = CString::new("NotAMutex").unwrap();
-    let type_id = mux_register_object_type(name.as_ptr(), std::mem::size_of::<i64>());
+    let type_id = unsafe { mux_register_object_type(name.as_ptr(), std::mem::size_of::<i64>()) };
     let wrong_type = mux_alloc_object(type_id);
     assert!(!wrong_type.is_null());
 

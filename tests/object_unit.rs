@@ -20,47 +20,47 @@ extern "C" fn copy_u64(src: *mut c_void, dst: *mut c_void) {
 #[test]
 fn register_alloc_access_copy_free() {
     let name = CString::new("Probe").unwrap();
-    let tid = mux_register_object_type(name.as_ptr(), std::mem::size_of::<u64>());
+    let tid = unsafe { mux_register_object_type(name.as_ptr(), std::mem::size_of::<u64>()) };
     mux_register_object_destructor(tid, noop_destructor);
     mux_register_object_copy(tid, copy_u64);
 
     let obj = mux_alloc_object(tid);
     assert!(!obj.is_null());
-    assert_eq!(mux_get_object_type_id(obj), tid);
+    assert_eq!(unsafe { mux_get_object_type_id(obj) }, tid);
 
-    let ptr = mux_get_object_ptr(obj).cast::<u64>();
+    let ptr = unsafe { mux_get_object_ptr(obj) }.cast::<u64>();
     assert!(!ptr.is_null());
     unsafe {
         *ptr = 0xDEAD_BEEF;
     }
 
-    let copy = mux_copy_object(obj);
+    let copy = unsafe { mux_copy_object(obj) };
     assert!(!copy.is_null());
-    let copy_ptr = mux_get_object_ptr(copy) as *const u64;
+    let copy_ptr = unsafe { mux_get_object_ptr(copy) } as *const u64;
     unsafe {
         assert_eq!(*copy_ptr, 0xDEAD_BEEF);
     }
 
-    mux_free_object(copy);
-    mux_free_object(obj);
+    unsafe { mux_free_object(copy) };
+    unsafe { mux_free_object(obj) };
 }
 
 #[test]
 fn copy_without_callback_returns_null() {
     let name = CString::new("NoCopy").unwrap();
-    let tid = mux_register_object_type(name.as_ptr(), std::mem::size_of::<u64>());
+    let tid = unsafe { mux_register_object_type(name.as_ptr(), std::mem::size_of::<u64>()) };
     let obj = mux_alloc_object(tid);
     assert!(!obj.is_null());
-    assert!(mux_copy_object(obj).is_null());
-    mux_free_object(obj);
+    assert!(unsafe { mux_copy_object(obj) }.is_null());
+    unsafe { mux_free_object(obj) };
 }
 
 #[test]
 fn invalid_inputs() {
     assert!(mux_alloc_object(999_999).is_null());
-    assert!(mux_get_object_ptr(std::ptr::null()).is_null());
-    assert_eq!(mux_get_object_type_id(std::ptr::null()), 0);
-    assert!(mux_copy_object(std::ptr::null()).is_null());
+    assert!(unsafe { mux_get_object_ptr(std::ptr::null()) }.is_null());
+    assert_eq!(unsafe { mux_get_object_type_id(std::ptr::null()) }, 0);
+    assert!(unsafe { mux_copy_object(std::ptr::null()) }.is_null());
 }
 
 // A class whose contents are one u64. These stand in for the class methods the
@@ -105,7 +105,7 @@ fn alloc_u64_object(tid: TypeId, contents: u64) -> *mut mux_runtime::Value {
 #[test]
 fn registered_compare_and_hash_make_objects_structural() {
     let name = CString::new("Keyed").unwrap();
-    let tid = mux_register_object_type(name.as_ptr(), std::mem::size_of::<u64>());
+    let tid = unsafe { mux_register_object_type(name.as_ptr(), std::mem::size_of::<u64>()) };
     // Content keying requires copyability: a key has to be snapshotted away
     // from the caller's handle. A class always registers this.
     mux_register_object_copy(tid, copy_u64);
@@ -127,9 +127,9 @@ fn registered_compare_and_hash_make_objects_structural() {
         assert_ne!(hash_of(&*a), hash_of(&*c));
     }
 
-    mux_free_object(c);
-    mux_free_object(b);
-    mux_free_object(a);
+    unsafe { mux_free_object(c) };
+    unsafe { mux_free_object(b) };
+    unsafe { mux_free_object(a) };
 }
 
 #[test]
@@ -137,7 +137,7 @@ fn objects_are_map_keys_by_contents() {
     use std::collections::HashMap;
 
     let name = CString::new("MapKey").unwrap();
-    let tid = mux_register_object_type(name.as_ptr(), std::mem::size_of::<u64>());
+    let tid = unsafe { mux_register_object_type(name.as_ptr(), std::mem::size_of::<u64>()) };
     mux_register_object_copy(tid, copy_u64);
     mux_register_object_equals(tid, equals_u64);
     mux_register_object_hash(tid, hash_u64);
@@ -155,14 +155,14 @@ fn objects_are_map_keys_by_contents() {
         assert_eq!(map.len(), 1);
     }
 
-    mux_free_object(b);
-    mux_free_object(a);
+    unsafe { mux_free_object(b) };
+    unsafe { mux_free_object(a) };
 }
 
 #[test]
 fn objects_without_registration_stay_identities() {
     let name = CString::new("Unkeyed").unwrap();
-    let tid = mux_register_object_type(name.as_ptr(), std::mem::size_of::<u64>());
+    let tid = unsafe { mux_register_object_type(name.as_ptr(), std::mem::size_of::<u64>()) };
 
     let a = alloc_u64_object(tid, 5);
     let b = alloc_u64_object(tid, 5);
@@ -175,16 +175,16 @@ fn objects_without_registration_stay_identities() {
         assert_eq!(hash_of(&*a), hash_of(&*a));
     }
 
-    mux_free_object(b);
-    mux_free_object(a);
+    unsafe { mux_free_object(b) };
+    unsafe { mux_free_object(a) };
 }
 
 #[test]
 fn compare_does_not_cross_types() {
     let left = CString::new("LeftType").unwrap();
     let right = CString::new("RightType").unwrap();
-    let left_tid = mux_register_object_type(left.as_ptr(), std::mem::size_of::<u64>());
-    let right_tid = mux_register_object_type(right.as_ptr(), std::mem::size_of::<u64>());
+    let left_tid = unsafe { mux_register_object_type(left.as_ptr(), std::mem::size_of::<u64>()) };
+    let right_tid = unsafe { mux_register_object_type(right.as_ptr(), std::mem::size_of::<u64>()) };
     mux_register_object_copy(left_tid, copy_u64);
     mux_register_object_compare(left_tid, compare_u64);
     mux_register_object_equals(left_tid, equals_u64);
@@ -199,14 +199,14 @@ fn compare_does_not_cross_types() {
         assert_ne!(&*a, &*b);
     }
 
-    mux_free_object(b);
-    mux_free_object(a);
+    unsafe { mux_free_object(b) };
+    unsafe { mux_free_object(a) };
 }
 
 #[test]
 fn equality_without_a_hash_still_hashes_consistently() {
     let name = CString::new("EqOnly").unwrap();
-    let tid = mux_register_object_type(name.as_ptr(), std::mem::size_of::<u64>());
+    let tid = unsafe { mux_register_object_type(name.as_ptr(), std::mem::size_of::<u64>()) };
     mux_register_object_copy(tid, copy_u64);
     mux_register_object_equals(tid, equals_u64);
 
@@ -228,15 +228,15 @@ fn equality_without_a_hash_still_hashes_consistently() {
         assert_eq!((*a).cmp(&*c), std::cmp::Ordering::Equal);
     }
 
-    mux_free_object(c);
-    mux_free_object(b);
-    mux_free_object(a);
+    unsafe { mux_free_object(c) };
+    unsafe { mux_free_object(b) };
+    unsafe { mux_free_object(a) };
 }
 
 #[test]
 fn a_registered_hash_keeps_unequal_instances_apart() {
     let name = CString::new("EqAndHash").unwrap();
-    let tid = mux_register_object_type(name.as_ptr(), std::mem::size_of::<u64>());
+    let tid = unsafe { mux_register_object_type(name.as_ptr(), std::mem::size_of::<u64>()) };
     mux_register_object_copy(tid, copy_u64);
     mux_register_object_equals(tid, equals_u64);
     mux_register_object_hash(tid, hash_u64);
@@ -252,15 +252,15 @@ fn a_registered_hash_keeps_unequal_instances_apart() {
         assert_ne!((*a).cmp(&*c), std::cmp::Ordering::Equal);
     }
 
-    mux_free_object(c);
-    mux_free_object(b);
-    mux_free_object(a);
+    unsafe { mux_free_object(c) };
+    unsafe { mux_free_object(b) };
+    unsafe { mux_free_object(a) };
 }
 
 #[test]
 fn content_keying_without_a_copy_callback_falls_back_to_identity() {
     let name = CString::new("NoCopyKeyed").unwrap();
-    let tid = mux_register_object_type(name.as_ptr(), std::mem::size_of::<u64>());
+    let tid = unsafe { mux_register_object_type(name.as_ptr(), std::mem::size_of::<u64>()) };
     // Equality and a hash, but nothing to snapshot with. A key is stored at a
     // position derived from its contents, so without a copy the caller keeps a
     // handle to the very object the table is keyed on and could move the key
@@ -278,14 +278,14 @@ fn content_keying_without_a_copy_callback_falls_back_to_identity() {
         assert_ne!(hash_of(&*a), hash_of(&*b));
     }
 
-    mux_free_object(b);
-    mux_free_object(a);
+    unsafe { mux_free_object(b) };
+    unsafe { mux_free_object(a) };
 }
 
 #[test]
 fn a_hash_without_an_equality_falls_back_to_identity() {
     let name = CString::new("HashOnly").unwrap();
-    let tid = mux_register_object_type(name.as_ptr(), std::mem::size_of::<u64>());
+    let tid = unsafe { mux_register_object_type(name.as_ptr(), std::mem::size_of::<u64>()) };
     mux_register_object_copy(tid, copy_u64);
     // A hash but nothing to tell two entries in one bucket apart. Equality
     // would stay pointer identity while the key came from the contents, so two
@@ -306,14 +306,14 @@ fn a_hash_without_an_equality_falls_back_to_identity() {
         assert_ne!(hash_of(&*a), hash_of(&*b));
     }
 
-    mux_free_object(b);
-    mux_free_object(a);
+    unsafe { mux_free_object(b) };
+    unsafe { mux_free_object(a) };
 }
 
 #[test]
 fn ordering_agrees_with_equality_for_a_fully_declared_class() {
     let name = CString::new("FullyDeclared").unwrap();
-    let tid = mux_register_object_type(name.as_ptr(), std::mem::size_of::<u64>());
+    let tid = unsafe { mux_register_object_type(name.as_ptr(), std::mem::size_of::<u64>()) };
     mux_register_object_copy(tid, copy_u64);
     mux_register_object_compare(tid, compare_u64);
     mux_register_object_equals(tid, equals_u64);
@@ -335,7 +335,7 @@ fn ordering_agrees_with_equality_for_a_fully_declared_class() {
         }
     }
 
-    mux_free_object(c);
-    mux_free_object(b);
-    mux_free_object(a);
+    unsafe { mux_free_object(c) };
+    unsafe { mux_free_object(b) };
+    unsafe { mux_free_object(a) };
 }
