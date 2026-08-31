@@ -100,6 +100,7 @@ fn string_containment() {
     assert!(mux_string_contains(hay, needle));
     assert!(mux_string_contains_char(hay, 'o' as i64));
     assert!(!mux_string_contains_char(hay, 'z' as i64));
+    assert!(!mux_string_contains_char(hay, -4_294_967_296));
     assert!(unsafe { mux_rc_dec(hay) });
     assert!(unsafe { mux_rc_dec(needle) });
 }
@@ -110,7 +111,9 @@ fn char_conversions() {
     assert_err(mux_string_to_char(cs("ab").as_ptr()));
     assert_eq!(ok_int(mux_char_to_int('5' as i64)), 5);
     assert_err(mux_char_to_int('a' as i64));
+    assert_err(mux_char_to_int(-4_294_967_296));
     assert_eq!(read_cstr(mux_char_to_string('A' as i64)), "A");
+    assert_eq!(read_cstr(mux_char_to_string(-4_294_967_296)), "");
 }
 
 #[test]
@@ -261,6 +264,7 @@ fn string_slice_bounds() {
     assert_eq!(read_cstr(mux_string_slice(s.as_ptr(), 4, 2)), "");
     assert_eq!(read_cstr(mux_string_slice(s.as_ptr(), 99, 100)), "");
     assert_eq!(read_cstr(mux_string_slice(s.as_ptr(), -99, 2)), "ab");
+    assert_eq!(read_cstr(mux_string_slice(s.as_ptr(), i64::MIN, 2)), "ab");
 }
 
 #[test]

@@ -230,10 +230,16 @@ pub extern "C" fn mux_string_contains_char(haystack: *const Value, needle: i64) 
             _ => return false,
         }
     };
-    let Some(ch) = char::from_u32(needle as u32) else {
+    let Some(ch) = char_from_int(needle) else {
         return false;
     };
     haystack_str.contains(ch)
+}
+
+/// Convert Mux's integer representation of a character without allowing a
+/// negative value to wrap into an unrelated Unicode scalar value.
+fn char_from_int(value: i64) -> Option<char> {
+    u32::try_from(value).ok().and_then(char::from_u32)
 }
 
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
@@ -337,7 +343,7 @@ pub extern "C" fn mux_string_to_char(s: *const c_char) -> *mut Value {
 /// Returns Result<int, str>
 #[unsafe(no_mangle)]
 pub extern "C" fn mux_char_to_int(c: i64) -> *mut Value {
-    if let Some(ch) = char::from_u32(c as u32) {
+    if let Some(ch) = char_from_int(c) {
         if ch.is_ascii_digit() {
             let digit = (ch as u8 - b'0') as i64;
             mux_rc_alloc(Value::Result(Ok(Box::new(Value::Int(digit)))))
@@ -356,7 +362,7 @@ pub extern "C" fn mux_char_to_int(c: i64) -> *mut Value {
 /// Convert a character (i64) to a string
 #[unsafe(no_mangle)]
 pub extern "C" fn mux_char_to_string(c: i64) -> *mut c_char {
-    if let Some(ch) = char::from_u32(c as u32) {
+    if let Some(ch) = char_from_int(c) {
         let s = ch.to_string();
         match CString::new(s) {
             Ok(c) => c.into_raw(),
@@ -387,12 +393,17 @@ pub extern "C" fn mux_char_to_string(c: i64) -> *mut c_char {
 /// and returns an OWNED optional the caller releases with `mux_rc_dec`; a null
 /// input yields `none` rather than being dereferenced.
 fn char_at_index(s: &str, index: i64) -> Option<char> {
-    let count = s.chars().count() as i64;
-    let wrapped = if index < 0 { count + index } else { index };
-    if wrapped < 0 || wrapped >= count {
-        return None;
-    }
-    s.chars().nth(wrapped as usize)
+    let index = normalized_char_index(index, s.chars().count())?;
+    s.chars().nth(index)
+}
+
+fn normalized_char_index(index: i64, count: usize) -> Option<usize> {
+    let index = if index < 0 {
+        count.checked_sub(usize::try_from(index.unsigned_abs()).ok()?)?
+    } else {
+        usize::try_from(index).ok()?
+    };
+    (index < count).then_some(index)
 }
 
 /// Resolve a half-open slice range to character offsets.
@@ -401,18 +412,17 @@ fn char_at_index(s: &str, index: i64) -> Option<char> {
 /// lead people to expect: negative counts from the end, out-of-range clamps
 /// rather than failing, and a start past the end yields empty rather than
 /// reversing.
-fn slice_bounds(count: i64, start: i64, end: i64) -> (usize, usize) {
-    let resolve = |i: i64| -> i64 {
-        let wrapped = if i < 0 { count + i } else { i };
-        wrapped.clamp(0, count)
+fn slice_bounds(count: usize, start: i64, end: i64) -> (usize, usize) {
+    let resolve = |index: i64| -> usize {
+        if index < 0 {
+            count.saturating_sub(usize::try_from(index.unsigned_abs()).unwrap_or(usize::MAX))
+        } else {
+            usize::try_from(index).unwrap_or(usize::MAX).min(count)
+        }
     };
     let from = resolve(start);
     let to = resolve(end);
-    if to <= from {
-        (from as usize, from as usize)
-    } else {
-        (from as usize, to as usize)
-    }
+    (from, to.max(from))
 }
 
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
@@ -444,7 +454,7 @@ pub extern "C" fn mux_string_slice(s: *const c_char, start: i64, end: i64) -> *m
     } else {
         unsafe { CStr::from_ptr(s) }.to_string_lossy().into_owned()
     };
-    let count = text.chars().count() as i64;
+    let count = text.chars().count();
     let (from, to) = slice_bounds(count, start, end);
     let out: String = text.chars().skip(from).take(to - from).collect();
     owned_cstr(out)
