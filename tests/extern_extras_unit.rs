@@ -104,18 +104,18 @@ fn result_extern_remainder() {
         mux_result_ok_bool(1),
         mux_result_ok_char('z' as i64),
     ] {
-        assert!(mux_result_is_ok(ctor));
+        assert!(unsafe { mux_result_is_ok(ctor) });
         assert!(unsafe { mux_rc_dec(ctor) });
     }
 
     let inner = mux_int_value(5);
-    let ok = mux_result_ok_value(inner);
-    assert!(mux_result_is_ok(ok));
+    let ok = unsafe { mux_result_ok_value(inner) };
+    assert!(unsafe { mux_result_is_ok(ok) });
     assert!(unsafe { mux_rc_dec(ok) });
 
-    let err = mux_result_err_value(inner);
-    assert!(mux_result_is_err(err));
-    let data = mux_result_data(err); // Err branch
+    let err = unsafe { mux_result_err_value(inner) };
+    assert!(unsafe { mux_result_is_err(err) });
+    let data = unsafe { mux_result_data(err) }; // Err branch
     assert!(!data.is_null());
     assert!(unsafe { mux_rc_dec(data) });
     assert!(unsafe { mux_rc_dec(err) });
@@ -123,9 +123,9 @@ fn result_extern_remainder() {
 
     let msg = CString::new("boom").unwrap();
     let err2 = unsafe { mux_result_err_str(msg.as_ptr()) };
-    assert!(mux_result_is_err(err2));
+    assert!(unsafe { mux_result_is_err(err2) });
     assert!(unsafe { mux_rc_dec(err2) });
 
     // null inputs
-    assert!(mux_result_ok_value(std::ptr::null_mut()).is_null());
+    assert!(unsafe { mux_result_ok_value(std::ptr::null_mut()) }.is_null());
 }

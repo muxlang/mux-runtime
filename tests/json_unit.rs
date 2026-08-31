@@ -5,8 +5,8 @@ fn ok_payload(result: *mut mux_runtime::Value) -> mux_runtime::Value {
     use mux_runtime::refcount::mux_rc_dec;
     use mux_runtime::result::{mux_result_data, mux_result_is_ok};
 
-    assert!(mux_result_is_ok(result), "expected ok");
-    let data = mux_result_data(result);
+    assert!(unsafe { mux_result_is_ok(result) }, "expected ok");
+    let data = unsafe { mux_result_data(result) };
     let value = unsafe { &*data }.clone();
     assert!(unsafe { mux_rc_dec(data) });
     assert!(unsafe { mux_rc_dec(result) });
@@ -18,8 +18,8 @@ fn err_message(result: *mut mux_runtime::Value) -> String {
     use mux_runtime::refcount::mux_rc_dec;
     use mux_runtime::result::{mux_result_data, mux_result_is_err};
 
-    assert!(mux_result_is_err(result), "expected err");
-    let data = mux_result_data(result);
+    assert!(unsafe { mux_result_is_err(result) }, "expected err");
+    let data = unsafe { mux_result_data(result) };
     let message = match unsafe { &*data } {
         mux_runtime::Value::String(s) => s.clone(),
         other => panic!("an error must carry a message, got {other:?}"),
