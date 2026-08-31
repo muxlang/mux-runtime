@@ -353,8 +353,8 @@ fn string_to_bool_is_deliberately_narrow() {
     let parse = |text: &str| {
         let c = CString::new(text).expect("no interior nul");
         let result = unsafe { mux_string_to_bool(c.as_ptr()) };
-        let ok = mux_result_is_ok(result);
-        let data = mux_result_data(result);
+        let ok = unsafe { mux_result_is_ok(result) };
+        let data = unsafe { mux_result_data(result) };
         let value = unsafe { &*data }.clone();
         assert!(unsafe { mux_rc_dec(data) });
         assert!(unsafe { mux_rc_dec(result) });
@@ -373,6 +373,6 @@ fn string_to_bool_is_deliberately_narrow() {
     }
 
     let result = unsafe { mux_string_to_bool(std::ptr::null()) };
-    assert!(mux_runtime::result::mux_result_is_err(result));
+    assert!(unsafe { mux_runtime::result::mux_result_is_err(result) });
     assert!(unsafe { mux_rc_dec(result) });
 }

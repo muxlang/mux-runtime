@@ -321,7 +321,7 @@ fn bench_wrappers(c: &mut Criterion) {
         b.iter(|| black_box(unsafe { mux_optional_is_some(some) }));
     });
     group.bench_function("result_is_ok", |b| {
-        b.iter(|| black_box(mux_result_is_ok(ok)));
+        b.iter(|| black_box(unsafe { mux_result_is_ok(ok) }));
     });
     group.finish();
 
@@ -344,14 +344,20 @@ fn bench_json(c: &mut Criterion) {
     group.bench_function("parse_small", |b| {
         b.iter(|| {
             let v = unsafe { mux_json_parse(black_box(small.as_ptr())) };
-            assert!(mux_result_is_ok(v), "benchmark JSON payload should parse");
+            assert!(
+                unsafe { mux_result_is_ok(v) },
+                "benchmark JSON payload should parse"
+            );
             unsafe { mux_rc_dec(v) };
         });
     });
     group.bench_function("parse_medium", |b| {
         b.iter(|| {
             let v = unsafe { mux_json_parse(black_box(medium.as_ptr())) };
-            assert!(mux_result_is_ok(v), "benchmark JSON payload should parse");
+            assert!(
+                unsafe { mux_result_is_ok(v) },
+                "benchmark JSON payload should parse"
+            );
             unsafe { mux_rc_dec(v) };
         });
     });

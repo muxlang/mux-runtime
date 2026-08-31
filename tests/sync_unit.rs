@@ -75,9 +75,9 @@ fn spawn_and_join() {
     // which frees the closure.
     let closure = unsafe { make_capture_free_closure(thread_body) };
     let spawn_res = unsafe { mux_sync_spawn(closure) };
-    assert!(mux_result_is_ok(spawn_res));
+    assert!(unsafe { mux_result_is_ok(spawn_res) });
 
-    let thread_obj = mux_result_data(spawn_res);
+    let thread_obj = unsafe { mux_result_data(spawn_res) };
     assert!(!thread_obj.is_null());
     assert_ok(unsafe { mux_thread_join(thread_obj) });
 
@@ -93,8 +93,8 @@ fn spawn_and_detach() {
     // frees the closure, regardless of ordering.
     let closure = unsafe { make_capture_free_closure(thread_body) };
     let spawn_res = unsafe { mux_sync_spawn(closure) };
-    assert!(mux_result_is_ok(spawn_res));
-    let thread_obj = mux_result_data(spawn_res);
+    assert!(unsafe { mux_result_is_ok(spawn_res) });
+    let thread_obj = unsafe { mux_result_data(spawn_res) };
     assert_ok(unsafe { mux_thread_detach(thread_obj) });
     unsafe { mux_closure_release(closure) };
     assert!(unsafe { mux_rc_dec(thread_obj) });
@@ -112,10 +112,10 @@ fn sleep_is_noop_for_nonpositive() {
 fn null_handles_error() {
     // Each call returns an owned error result that must be released.
     let lock_err = unsafe { mux_mutex_lock(std::ptr::null_mut()) };
-    assert!(!mux_result_is_ok(lock_err));
+    assert!(!unsafe { mux_result_is_ok(lock_err) });
     assert!(unsafe { mux_rc_dec(lock_err) });
     let join_err = unsafe { mux_thread_join(std::ptr::null_mut()) };
-    assert!(!mux_result_is_ok(join_err));
+    assert!(!unsafe { mux_result_is_ok(join_err) });
     assert!(unsafe { mux_rc_dec(join_err) });
 }
 
@@ -127,7 +127,7 @@ fn mismatched_handle_types_are_rejected() {
     assert!(!wrong_type.is_null());
 
     let result = unsafe { mux_mutex_lock(wrong_type) };
-    assert!(!mux_result_is_ok(result));
+    assert!(!unsafe { mux_result_is_ok(result) });
     assert!(unsafe { mux_rc_dec(result) });
     assert!(unsafe { mux_rc_dec(wrong_type) });
 }

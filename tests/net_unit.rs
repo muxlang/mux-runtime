@@ -27,8 +27,10 @@ fn bytes_val(bytes: &[u8]) -> *mut Value {
 }
 
 fn ok_data(r: *mut Value) -> *mut Value {
-    assert!(mux_result_is_ok(r), "expected Ok result");
-    let data = mux_result_data(r);
+    let data = unsafe {
+        assert!(mux_result_is_ok(r), "expected Ok result");
+        mux_result_data(r)
+    };
     assert!(!data.is_null());
     assert!(unsafe { mux_rc_dec(r) });
     data
