@@ -93,11 +93,13 @@ fn udp_roundtrip() {
     assert!(mux_result_is_ok(sent));
     assert!(unsafe { mux_rc_dec(sent) });
 
-    let recv = mux_net_udp_recv_from(b, 16);
+    let max_size = 16 * 1024 * 1024;
+    let recv = mux_net_udp_recv_from(b, max_size);
     assert!(mux_result_is_ok(recv));
     assert!(unsafe { mux_rc_dec(recv) });
     assert_err(mux_net_udp_recv_from(b, -1));
     assert_err(mux_net_udp_recv_from(b, i64::MAX));
+    assert_err(mux_net_udp_recv_from(b, max_size + 1));
 
     assert!(unsafe { mux_rc_dec(payload) });
     assert!(unsafe { mux_rc_dec(dest) });
@@ -380,14 +382,29 @@ fn invalid_read_size_errors() {
     let connect_addr = addr_val(&addr);
     let client = ok_data(mux_net_tcp_connect(connect_addr));
     assert!(unsafe { mux_rc_dec(connect_addr) });
+    let server = ok_data(mux_net_tcp_listener_accept(listener));
 
     assert_err(mux_net_tcp_read(client, 0));
     assert_err(mux_net_tcp_read(client, -1));
     assert_err(mux_net_tcp_read(client, i64::MAX));
 
+    let payload = bytes_val(b"boundary");
+    let written = mux_net_tcp_write(server, payload);
+    assert!(mux_result_is_ok(written));
+    assert!(unsafe { mux_rc_dec(written) });
+    assert!(unsafe { mux_rc_dec(payload) });
+
+    let max_size = 16 * 1024 * 1024;
+    let at_limit = mux_net_tcp_read(client, max_size);
+    assert!(mux_result_is_ok(at_limit));
+    assert!(unsafe { mux_rc_dec(at_limit) });
+    assert_err(mux_net_tcp_read(client, max_size + 1));
+
     mux_net_tcp_close(client);
+    mux_net_tcp_close(server);
     mux_net_tcp_listener_close(listener);
     assert!(unsafe { mux_rc_dec(client) });
+    assert!(unsafe { mux_rc_dec(server) });
     assert!(unsafe { mux_rc_dec(listener) });
 }
 
