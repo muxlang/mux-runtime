@@ -14,45 +14,49 @@ use ordered_float::OrderedFloat;
 fn read_cstr(p: *mut c_char) -> String {
     assert!(!p.is_null());
     let s = unsafe { CStr::from_ptr(p) }.to_string_lossy().into_owned();
-    mux_free_string(p);
+    unsafe { mux_free_string(p) };
     s
 }
 
 #[test]
 fn int_extern_remainder() {
-    use mux_runtime::int::*;
-    assert_eq!(read_cstr(mux_int_to_string(-7)), "-7");
+    unsafe {
+        use mux_runtime::int::*;
+        assert_eq!(read_cstr(mux_int_to_string(-7)), "-7");
 
-    let v = mux_int_value(9);
-    assert_eq!(unsafe { mux_int_from_value(v) }, 9);
-    assert!(unsafe { mux_rc_dec(v) });
+        let v = mux_int_value(9);
+        assert_eq!(mux_int_from_value(v), 9);
+        assert!(mux_rc_dec(v));
 
-    assert_ok(mux_int_div(10, 2));
-    assert_err(mux_int_div(1, 0));
+        assert_ok(mux_int_div(10, 2));
+        assert_err(mux_int_div(1, 0));
+    }
 }
 
 #[test]
 fn float_extern_remainder() {
-    use mux_runtime::float::*;
-    use mux_runtime::std::mux_int_value;
+    unsafe {
+        use mux_runtime::float::*;
+        use mux_runtime::std::mux_int_value;
 
-    assert!(read_cstr(mux_float_to_string(2.5)).starts_with("2.5"));
-    assert_ok(mux_float_div(6.0, 2.0));
-    assert_err(mux_float_div(1.0, 0.0));
+        assert!(read_cstr(mux_float_to_string(2.5)).starts_with("2.5"));
+        assert_ok(mux_float_div(6.0, 2.0));
+        assert_err(mux_float_div(1.0, 0.0));
 
-    // Value-based conversions
-    let i = mux_int_value(4);
-    let as_float = unsafe { mux_int_to_float(i) };
-    assert!((mux_value_get_float(as_float) - 4.0).abs() < 1e-9);
-    let back = unsafe { mux_float_to_int(as_float) };
-    assert_eq!(mux_value_get_int(back), 4);
-    assert_eq!(
-        OrderedFloat(unsafe { mux_float_from_value(as_float) }),
-        OrderedFloat(4.0)
-    );
-    assert!(unsafe { mux_rc_dec(back) });
-    assert!(unsafe { mux_rc_dec(as_float) });
-    assert!(unsafe { mux_rc_dec(i) });
+        // Value-based conversions
+        let i = mux_int_value(4);
+        let as_float = mux_int_to_float(i);
+        assert!((mux_value_get_float(as_float) - 4.0).abs() < 1e-9);
+        let back = mux_float_to_int(as_float);
+        assert_eq!(mux_value_get_int(back), 4);
+        assert_eq!(
+            OrderedFloat(mux_float_from_value(as_float)),
+            OrderedFloat(4.0)
+        );
+        assert!(mux_rc_dec(back));
+        assert!(mux_rc_dec(as_float));
+        assert!(mux_rc_dec(i));
+    }
 }
 
 #[test]

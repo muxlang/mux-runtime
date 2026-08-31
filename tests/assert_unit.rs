@@ -21,33 +21,39 @@ fn boolean_asserts_pass() {
 
 #[test]
 fn eq_ne_asserts_pass() {
-    let a = mux_int_value(5);
-    let b = mux_int_value(5);
-    let c = mux_int_value(6);
-    unsafe { mux_assert_eq(a, b) };
-    unsafe { mux_assert_ne(a, c) };
-    assert!(unsafe { mux_rc_dec(a) });
-    assert!(unsafe { mux_rc_dec(b) });
-    assert!(unsafe { mux_rc_dec(c) });
+    unsafe {
+        let a = mux_int_value(5);
+        let b = mux_int_value(5);
+        let c = mux_int_value(6);
+        mux_assert_eq(a, b);
+        mux_assert_ne(a, c);
+        assert!(mux_rc_dec(a));
+        assert!(mux_rc_dec(b));
+        assert!(mux_rc_dec(c));
+    }
 }
 
 #[test]
 fn optional_asserts_pass() {
-    let some = mux_optional_some_int(1);
-    let none = mux_optional_none();
-    unsafe { mux_assert_some(some) };
-    unsafe { mux_assert_none(none) };
-    assert!(unsafe { mux_rc_dec(some) });
-    assert!(unsafe { mux_rc_dec(none) });
+    unsafe {
+        let some = mux_optional_some_int(1);
+        let none = mux_optional_none();
+        mux_assert_some(some);
+        mux_assert_none(none);
+        assert!(mux_rc_dec(some));
+        assert!(mux_rc_dec(none));
+    }
 }
 
 #[test]
 fn result_asserts_pass() {
-    let ok = mux_result_ok_int(1);
-    let err = mux_err(CString::new("boom").unwrap().as_ptr());
-    assert_eq!(mux_value_result_discriminant(err), 1);
-    unsafe { mux_assert_ok(ok) };
-    unsafe { mux_assert_err(err) };
-    assert!(unsafe { mux_rc_dec(ok) });
-    assert!(unsafe { mux_rc_dec(err) });
+    unsafe {
+        let ok = mux_result_ok_int(1);
+        let err = mux_err(CString::new("boom").unwrap().as_ptr());
+        assert_eq!(mux_value_result_discriminant(err), 1);
+        mux_assert_ok(ok);
+        mux_assert_err(err);
+        assert!(mux_rc_dec(ok));
+        assert!(mux_rc_dec(err));
+    }
 }

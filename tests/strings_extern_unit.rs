@@ -20,7 +20,7 @@ fn cs(s: &str) -> CString {
 fn read_cstr(p: *mut c_char) -> String {
     assert!(!p.is_null());
     let s = unsafe { CStr::from_ptr(p) }.to_string_lossy().into_owned();
-    mux_free_string(p);
+    unsafe { mux_free_string(p) };
     s
 }
 
@@ -101,8 +101,8 @@ fn string_comparison() {
 
 #[test]
 fn string_containment() {
-    let hay = mux_string_value(cs("hello world").as_ptr());
-    let needle = mux_string_value(cs("world").as_ptr());
+    let hay = unsafe { mux_string_value(cs("hello world").as_ptr()) };
+    let needle = unsafe { mux_string_value(cs("world").as_ptr()) };
     unsafe {
         assert!(mux_string_contains(hay, needle));
         assert!(mux_string_contains_char(hay, 'o' as i64));
@@ -155,7 +155,7 @@ fn bool_extern() {
     let bv = mux_bool_value(1);
     assert_eq!(unsafe { mux_bool_from_value(bv) }, 1);
     let as_int = unsafe { mux_bool_to_int(bv) };
-    assert_eq!(mux_value_get_int(as_int), 1);
+    assert_eq!(unsafe { mux_value_get_int(as_int) }, 1);
     assert!(unsafe { mux_rc_dec(as_int) });
     let as_float = unsafe { mux_bool_to_float(bv) };
     assert!(!as_float.is_null());
@@ -166,7 +166,7 @@ fn bool_extern() {
 #[test]
 fn boxing_roundtrips() {
     let i = mux_box_int(5);
-    assert_eq!(mux_value_get_int(i), 5);
+    assert_eq!(unsafe { mux_value_get_int(i) }, 5);
     assert!(unsafe { mux_rc_dec(i) });
 
     let f = mux_box_float(1.5);
@@ -177,7 +177,7 @@ fn boxing_roundtrips() {
     assert!(!b.is_null());
     assert!(unsafe { mux_rc_dec(b) });
 
-    let s = mux_box_str(cs("hi").as_ptr());
+    let s = unsafe { mux_box_str(cs("hi").as_ptr()) };
     assert!(!s.is_null());
     assert!(unsafe { mux_rc_dec(s) });
 }

@@ -21,6 +21,11 @@ pub extern "C" fn mux_box_bool(v: i32) -> *mut Value {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_box_str(v: *const c_char) -> *mut Value {
-    crate::std::mux_string_value(v)
+/// Construct a managed string value by copying a NUL-terminated C string.
+///
+/// # Safety
+/// `v` must point to a valid NUL-terminated C string readable for the
+/// duration of this call. The string is copied and remains caller-owned.
+pub unsafe extern "C" fn mux_box_str(v: *const c_char) -> *mut Value {
+    unsafe { crate::std::mux_string_value(v) }
 }

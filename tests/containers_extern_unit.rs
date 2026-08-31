@@ -29,7 +29,7 @@ fn int(n: i64) -> *mut mux_runtime::Value {
 fn read_cstr(p: *mut c_char) -> String {
     assert!(!p.is_null());
     let s = unsafe { CStr::from_ptr(p) }.to_string_lossy().into_owned();
-    mux_free_string(p);
+    unsafe { mux_free_string(p) };
     s
 }
 
@@ -68,10 +68,10 @@ fn list_box_layer() {
     unsafe { mux_list_push_back(other, a) };
     let joined = unsafe { mux_list_concat(list, other) };
     assert!(!joined.is_null());
-    mux_free_list(joined);
+    unsafe { mux_free_list(joined) };
 
-    mux_free_list(list);
-    mux_free_list(other);
+    unsafe { mux_free_list(list) };
+    unsafe { mux_free_list(other) };
     assert!(unsafe { mux_rc_dec(a) });
     assert!(unsafe { mux_rc_dec(b) });
     assert!(unsafe { mux_rc_dec(c) });
@@ -81,7 +81,7 @@ fn list_box_layer() {
 
 #[test]
 fn list_value_layer() {
-    let lv = mux_list_value(mux_new_list());
+    let lv = unsafe { mux_list_value(mux_new_list()) };
     let v = int(7);
     unsafe { mux_list_push_back_value(lv, v) };
     unsafe { mux_list_push_value(lv, v) }; // push to front
@@ -119,7 +119,7 @@ fn list_box_pop_front_and_empty() {
     assert!(unsafe { mux_rc_dec(empty) });
     assert!(unsafe { mux_list_is_empty(list) });
 
-    mux_free_list(list);
+    unsafe { mux_free_list(list) };
     assert!(unsafe { mux_rc_dec(a) });
     assert!(unsafe { mux_rc_dec(b) });
 }
@@ -129,7 +129,7 @@ fn list_box_pop_front_and_empty() {
 #[test]
 fn map_box_layer() {
     let map = mux_new_map();
-    let k = mux_string_value(CString::new("k").unwrap().as_ptr());
+    let k = unsafe { mux_string_value(CString::new("k").unwrap().as_ptr()) };
     let v = int(42);
 
     unsafe { mux_map_put(map, k, v) };
@@ -156,10 +156,10 @@ fn map_box_layer() {
     let other = mux_new_map();
     let merged = unsafe { mux_map_merge(map, other) };
     assert!(!merged.is_null());
-    mux_free_map(merged);
+    unsafe { mux_free_map(merged) };
 
-    mux_free_map(map);
-    mux_free_map(other);
+    unsafe { mux_free_map(map) };
+    unsafe { mux_free_map(other) };
     assert!(unsafe { mux_rc_dec(k) });
     assert!(unsafe { mux_rc_dec(v) });
 }
@@ -167,7 +167,7 @@ fn map_box_layer() {
 #[test]
 fn map_value_layer() {
     let mv = unsafe { mux_map_value(mux_new_map()) };
-    let k = mux_string_value(CString::new("x").unwrap().as_ptr());
+    let k = unsafe { mux_string_value(CString::new("x").unwrap().as_ptr()) };
     let v = int(1);
     unsafe { mux_map_put_value(mv, k, v) };
     let removed = unsafe { mux_map_remove_value(mv, k) };
@@ -199,10 +199,10 @@ fn set_box_layer() {
     let other = mux_new_set();
     let unioned = unsafe { mux_set_union(set, other) };
     assert!(!unioned.is_null());
-    mux_free_set(unioned);
+    unsafe { mux_free_set(unioned) };
 
-    mux_free_set(set);
-    mux_free_set(other);
+    unsafe { mux_free_set(set) };
+    unsafe { mux_free_set(other) };
     assert!(unsafe { mux_rc_dec(v) });
 }
 

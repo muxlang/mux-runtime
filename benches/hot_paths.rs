@@ -141,7 +141,7 @@ fn bench_primitive(c: &mut Criterion) {
     group.bench_function("int_to_string", |b| {
         b.iter(|| {
             let s = mux_int_to_string(black_box(1_234_567_890));
-            mux_free_string(s);
+            unsafe { mux_free_string(s) };
         });
     });
     group.finish();
@@ -176,20 +176,20 @@ fn bench_list(c: &mut Criterion) {
     group.bench_function("concat", |b| {
         b.iter(|| {
             let joined = unsafe { mux_list_concat(list, list2) };
-            mux_free_list(joined);
+            unsafe { mux_free_list(joined) };
         });
     });
     group.bench_function("to_string", |b| {
         b.iter(|| {
             let s = unsafe { mux_list_to_string(list) };
-            mux_free_string(s);
+            unsafe { mux_free_string(s) };
         });
     });
     group.finish();
 
     unsafe { mux_rc_dec(needle) };
-    mux_free_list(list);
-    mux_free_list(list2);
+    unsafe { mux_free_list(list) };
+    unsafe { mux_free_list(list2) };
 }
 
 fn bench_map(c: &mut Criterion) {
@@ -222,7 +222,7 @@ fn bench_map(c: &mut Criterion) {
     group.finish();
 
     unsafe { mux_rc_dec(key) };
-    mux_free_map(map);
+    unsafe { mux_free_map(map) };
 }
 
 fn bench_set(c: &mut Criterion) {
@@ -248,14 +248,14 @@ fn bench_set(c: &mut Criterion) {
     group.bench_function("union", |b| {
         b.iter(|| {
             let u = unsafe { mux_set_union(set, set2) };
-            mux_free_set(u);
+            unsafe { mux_free_set(u) };
         });
     });
     group.finish();
 
     unsafe { mux_rc_dec(member) };
-    mux_free_set(set);
-    mux_free_set(set2);
+    unsafe { mux_free_set(set) };
+    unsafe { mux_free_set(set2) };
 }
 
 fn bench_string(c: &mut Criterion) {
@@ -274,7 +274,7 @@ fn bench_string(c: &mut Criterion) {
         b.iter(|| {
             let s =
                 unsafe { mux_string_concat(black_box(text.as_ptr()), black_box(other.as_ptr())) };
-            mux_free_string(s);
+            unsafe { mux_free_string(s) };
         });
     });
     group.bench_function("length", |b| {
@@ -358,7 +358,7 @@ fn bench_json(c: &mut Criterion) {
 
     // Serialize a real 256-element list value (not a Result wrapper) so the
     // stringify path does meaningful work.
-    let doc = mux_list_value(build_list(N));
+    let doc = unsafe { mux_list_value(build_list(N)) };
     group.bench_function("stringify", |b| {
         b.iter(|| {
             let s = unsafe { mux_json_stringify(doc, ptr::null_mut()) };

@@ -46,25 +46,27 @@ fn boxed_value(bytes: &[u8]) -> Value {
 
 #[test]
 fn box_enum_managed_roundtrips_and_tags_as_opaque() {
-    let mut bytes = [9u8, 0, 0, 0, 1, 2, 3, 4];
-    let val = mux_box_enum_managed(
-        bytes.as_mut_ptr(),
-        bytes.len(),
-        noop_glue,
-        noop_glue,
-        cmp_bytes,
-        hash_bytes,
-    );
-    assert!(!val.is_null());
-    // A BoxedEnum is indistinguishable from an Opaque to the language (tag 12).
-    assert_eq!(mux_value_get_type_tag(val), 12);
+    unsafe {
+        let mut bytes = [9u8, 0, 0, 0, 1, 2, 3, 4];
+        let val = mux_box_enum_managed(
+            bytes.as_mut_ptr(),
+            bytes.len(),
+            noop_glue,
+            noop_glue,
+            cmp_bytes,
+            hash_bytes,
+        );
+        assert!(!val.is_null());
+        // A BoxedEnum is indistinguishable from an Opaque to the language (tag 12).
+        assert_eq!(mux_value_get_type_tag(val), 12);
 
-    let payload = mux_value_unbox_enum(val);
-    assert!(!payload.is_null());
-    let view = unsafe { std::slice::from_raw_parts(payload, bytes.len()) };
-    assert_eq!(view, &bytes);
+        let payload = mux_value_unbox_enum(val);
+        assert!(!payload.is_null());
+        let view = std::slice::from_raw_parts(payload, bytes.len());
+        assert_eq!(view, &bytes);
 
-    assert!(unsafe { mux_rc_dec(val) });
+        assert!(mux_rc_dec(val));
+    }
 }
 
 // Per-test counters keep the parallel test runner from racing shared state.
@@ -133,40 +135,44 @@ extern "C" fn clone_b(_bytes: *mut u8) {
 
 #[test]
 fn deep_clone_runs_the_clone_glue() {
-    let mut bytes = [1u8, 2, 3, 4];
-    // Boxing deep-clones once so the box is independent of the source.
-    let val = mux_box_enum_managed(
-        bytes.as_mut_ptr(),
-        bytes.len(),
-        clone_b,
-        noop_glue,
-        cmp_bytes,
-        hash_bytes,
-    );
-    assert_eq!(CLONE_B.load(Ordering::SeqCst), 1, "boxing deep-clones once");
+    unsafe {
+        let mut bytes = [1u8, 2, 3, 4];
+        // Boxing deep-clones once so the box is independent of the source.
+        let val = mux_box_enum_managed(
+            bytes.as_mut_ptr(),
+            bytes.len(),
+            clone_b,
+            noop_glue,
+            cmp_bytes,
+            hash_bytes,
+        );
+        assert_eq!(CLONE_B.load(Ordering::SeqCst), 1, "boxing deep-clones once");
 
-    let cloned = unsafe { mux_value_deep_clone(val) };
-    assert!(!cloned.is_null());
-    assert_eq!(
-        CLONE_B.load(Ordering::SeqCst),
-        2,
-        "deep clone runs the glue again"
-    );
+        let cloned = mux_value_deep_clone(val);
+        assert!(!cloned.is_null());
+        assert_eq!(
+            CLONE_B.load(Ordering::SeqCst),
+            2,
+            "deep clone runs the glue again"
+        );
 
-    assert!(unsafe { mux_rc_dec(cloned) });
-    assert!(unsafe { mux_rc_dec(val) });
+        assert!(mux_rc_dec(cloned));
+        assert!(mux_rc_dec(val));
+    }
 }
 
 #[test]
 fn value_compare_ffi_orders_and_handles_null() {
-    let one = mux_int_value(1);
-    let two = mux_int_value(2);
-    assert!(mux_value_compare(one, two) < 0);
-    assert!(mux_value_compare(two, one) > 0);
-    assert_eq!(mux_value_compare(one, one), 0);
-    assert_eq!(mux_value_compare(std::ptr::null(), std::ptr::null()), 0);
-    assert!(mux_value_compare(std::ptr::null(), one) < 0);
-    assert!(mux_value_compare(one, std::ptr::null()) > 0);
-    assert!(unsafe { mux_rc_dec(one) });
-    assert!(unsafe { mux_rc_dec(two) });
+    unsafe {
+        let one = mux_int_value(1);
+        let two = mux_int_value(2);
+        assert!(mux_value_compare(one, two) < 0);
+        assert!(mux_value_compare(two, one) > 0);
+        assert_eq!(mux_value_compare(one, one), 0);
+        assert_eq!(mux_value_compare(std::ptr::null(), std::ptr::null()), 0);
+        assert!(mux_value_compare(std::ptr::null(), one) < 0);
+        assert!(mux_value_compare(one, std::ptr::null()) > 0);
+        assert!(mux_rc_dec(one));
+        assert!(mux_rc_dec(two));
+    }
 }

@@ -3,7 +3,6 @@ use std::env as sys_env;
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
 pub extern "C" fn mux_range(start: i64, end: i64) -> *mut List {
     let mut vec = Vec::new();
@@ -13,9 +12,14 @@ pub extern "C" fn mux_range(start: i64, end: i64) -> *mut List {
     Box::into_raw(Box::new(List(vec)))
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_some(val: *mut Value) -> *mut Value {
+/// Wrap a cloned value in `Some`.
+///
+/// # Safety
+/// `val` must be a non-null pointer to a live, initialized `Value` for the
+/// duration of this call. The pointed-to value is borrowed and remains
+/// caller-owned.
+pub unsafe extern "C" fn mux_some(val: *mut Value) -> *mut Value {
     let value = unsafe { (*val).clone() };
     mux_rc_alloc(Value::Optional(Some(Box::new(value))))
 }
@@ -31,9 +35,14 @@ pub extern "C" fn mux_bool_value(b: i32) -> *mut Value {
     mux_rc_alloc(Value::Bool(b != 0))
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_string_value(s: *const c_char) -> *mut Value {
+/// Construct a string value by copying a NUL-terminated C string.
+///
+/// # Safety
+/// `s` must point to a valid NUL-terminated C string that is readable for the
+/// duration of this call. The string is copied and the caller retains
+/// ownership of its storage.
+pub unsafe extern "C" fn mux_string_value(s: *const c_char) -> *mut Value {
     let c_str = unsafe { CStr::from_ptr(s) };
     let string = c_str.to_string_lossy().into_owned();
     mux_rc_alloc(Value::String(string))
@@ -44,16 +53,24 @@ pub extern "C" fn mux_none() -> *mut Value {
     mux_rc_alloc(Value::Optional(None))
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_ok(val: *mut Value) -> *mut Value {
+/// Wrap a cloned value in an `Ok` result.
+///
+/// # Safety
+/// `val` must point to a live, initialized `Value` for the duration of this
+/// call. The pointed-to value is borrowed and remains caller-owned.
+pub unsafe extern "C" fn mux_ok(val: *mut Value) -> *mut Value {
     let value = unsafe { (*val).clone() };
     mux_rc_alloc(Value::Result(Ok(Box::new(value))))
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_err(msg: *const c_char) -> *mut Value {
+/// Construct an error result by copying a NUL-terminated C string.
+///
+/// # Safety
+/// `msg` must point to a valid NUL-terminated C string that is readable for
+/// the duration of this call. The string is copied and remains caller-owned.
+pub unsafe extern "C" fn mux_err(msg: *const c_char) -> *mut Value {
     let c_str = unsafe { CStr::from_ptr(msg) };
     let msg_str = c_str.to_string_lossy().to_string();
     mux_rc_alloc(Value::Result(Err(Box::new(Value::String(msg_str)))))
@@ -74,9 +91,14 @@ pub extern "C" fn mux_new_set() -> *mut Set {
     Box::into_raw(Box::new(Set(crate::ordered::OrderedSet::new())))
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_value_add(a: *mut Value, b: *mut Value) -> *mut Value {
+/// Add two values using Mux's value addition rules.
+///
+/// # Safety
+/// Each non-null pointer must point to a live, initialized `Value` readable
+/// for the duration of this call. The values are borrowed and remain
+/// caller-owned. Null pointers are not valid operands.
+pub unsafe extern "C" fn mux_value_add(a: *mut Value, b: *mut Value) -> *mut Value {
     let a = unsafe { &*a };
     let b = unsafe { &*b };
     let result = match (a, b) {
@@ -94,16 +116,26 @@ pub extern "C" fn mux_value_add(a: *mut Value, b: *mut Value) -> *mut Value {
     mux_rc_alloc(result)
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_list_value(list: *mut List) -> *mut Value {
+/// Consume an owned list allocation and wrap it in a managed value.
+///
+/// # Safety
+/// `list` must be a non-null pointer returned by `mux_new_list` or another
+/// runtime list-producing function, and ownership must not have been consumed
+/// previously. The allocation is consumed exactly once by this call.
+pub unsafe extern "C" fn mux_list_value(list: *mut List) -> *mut Value {
     let owned = unsafe { Box::from_raw(list) };
     mux_rc_alloc(Value::List(owned.0))
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_value_get_list(val: *mut Value) -> *mut List {
+/// Clone a list value into an owned raw list allocation.
+///
+/// # Safety
+/// `val` may be null (which returns null); otherwise it must point to a live,
+/// initialized `Value` readable for the duration of this call. The value is
+/// borrowed and remains caller-owned.
+pub unsafe extern "C" fn mux_value_get_list(val: *mut Value) -> *mut List {
     if val.is_null() {
         return std::ptr::null_mut();
     }
@@ -119,9 +151,17 @@ pub extern "C" fn mux_value_get_list(val: *mut Value) -> *mut List {
 /// the live map without cloning it. Mirrors `mux_map_get` but takes the map
 /// `Value` directly, so indexing a map in a loop stays O(log n) per read instead
 /// of the O(n) whole-map clone that `mux_value_get_map` + `mux_map_get` incurs.
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_value_map_get_value(val: *const Value, key: *const Value) -> *mut Value {
+/// Look up a key in a map value and return an owned optional value.
+///
+/// # Safety
+/// Null `val` or `key` is accepted and returns `None`. Any non-null pointer
+/// must point to a live, initialized `Value` readable for the duration of
+/// this call. Both values are borrowed and remain caller-owned.
+pub unsafe extern "C" fn mux_value_map_get_value(
+    val: *const Value,
+    key: *const Value,
+) -> *mut Value {
     if val.is_null() || key.is_null() {
         return mux_rc_alloc(Value::Optional(None));
     }
@@ -137,9 +177,14 @@ pub extern "C" fn mux_value_map_get_value(val: *const Value, key: *const Value) 
     }
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_value_get_map(val: *mut Value) -> *mut Map {
+/// Clone a map value into an owned raw map allocation.
+///
+/// # Safety
+/// `val` may be null (which returns null); otherwise it must point to a live,
+/// initialized `Value` readable for the duration of this call. The value is
+/// borrowed and remains caller-owned.
+pub unsafe extern "C" fn mux_value_get_map(val: *mut Value) -> *mut Map {
     if val.is_null() {
         return std::ptr::null_mut();
     }
@@ -151,9 +196,14 @@ pub extern "C" fn mux_value_get_map(val: *mut Value) -> *mut Map {
     }
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_value_get_set(val: *mut Value) -> *mut Set {
+/// Clone a set value into an owned raw set allocation.
+///
+/// # Safety
+/// `val` may be null (which returns null); otherwise it must point to a live,
+/// initialized `Value` readable for the duration of this call. The value is
+/// borrowed and remains caller-owned.
+pub unsafe extern "C" fn mux_value_get_set(val: *mut Value) -> *mut Set {
     if val.is_null() {
         return std::ptr::null_mut();
     }
@@ -165,9 +215,14 @@ pub extern "C" fn mux_value_get_set(val: *mut Value) -> *mut Set {
     }
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_value_to_string(val: *mut Value) -> *mut c_char {
+/// Render a value as an owned NUL-terminated C string.
+///
+/// # Safety
+/// `val` must be a non-null pointer to a live, initialized `Value` readable
+/// for the duration of this call. The returned string must be released with
+/// `mux_free_string`.
+pub unsafe extern "C" fn mux_value_to_string(val: *mut Value) -> *mut c_char {
     let value = unsafe { &*val };
     let s = value.to_string();
     match CString::new(s) {
@@ -176,9 +231,13 @@ pub extern "C" fn mux_value_to_string(val: *mut Value) -> *mut c_char {
     }
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_value_list_length(val: *const Value) -> i64 {
+/// Return the length of a list value, or zero for another value.
+///
+/// # Safety
+/// `val` must be a non-null pointer to a live, initialized `Value` readable
+/// for the duration of this call.
+pub unsafe extern "C" fn mux_value_list_length(val: *const Value) -> i64 {
     let val = unsafe { &*val };
     if let Value::List(vec) = val {
         vec.len() as i64
@@ -187,9 +246,14 @@ pub extern "C" fn mux_value_list_length(val: *const Value) -> i64 {
     }
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_value_list_get_value(val: *const Value, index: i64) -> *mut Value {
+/// Clone one list element into a managed value.
+///
+/// # Safety
+/// `val` must be a non-null pointer to a live, initialized `Value` readable
+/// for the duration of this call. The value is borrowed and remains
+/// caller-owned.
+pub unsafe extern "C" fn mux_value_list_get_value(val: *const Value, index: i64) -> *mut Value {
     let val = unsafe { &*val };
     if let Value::List(vec) = val {
         if index >= 0 && (index as usize) < vec.len() {
@@ -203,14 +267,29 @@ pub extern "C" fn mux_value_list_get_value(val: *const Value, index: i64) -> *mu
     }
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_value_list_slice(val: *const Value, start: i64, end: i64) -> *mut Value {
+/// Clone a list range into a managed list value.
+///
+/// # Safety
+/// `val` must be a non-null pointer to a live, initialized `Value` readable
+/// for the duration of this call. The value is borrowed and remains
+/// caller-owned.
+pub unsafe extern "C" fn mux_value_list_slice(
+    val: *const Value,
+    start: i64,
+    end: i64,
+) -> *mut Value {
     let val = unsafe { &*val };
     if let Value::List(vec) = val {
-        let len = vec.len() as i64;
-        let s = start.max(0) as usize;
-        let e = end.min(len) as usize;
+        // Convert and clamp in `usize` so negative bounds cannot wrap to a
+        // huge index, and large positive i64 values cannot truncate on 32-bit
+        // targets.
+        let s = usize::try_from(start.max(0))
+            .unwrap_or(usize::MAX)
+            .min(vec.len());
+        let e = usize::try_from(end.max(0))
+            .unwrap_or(usize::MAX)
+            .min(vec.len());
         let sliced = if s < e {
             vec[s..e].to_vec()
         } else {
@@ -222,8 +301,13 @@ pub extern "C" fn mux_value_list_slice(val: *const Value, start: i64, end: i64) 
     }
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
-pub extern "C" fn mux_value_to_list(val: *mut Value) -> *mut crate::list::List {
+/// Clone a list value into an owned raw list allocation.
+///
+/// # Safety
+/// `val` may be null (which returns null); otherwise it must point to a live,
+/// initialized `Value` readable for the duration of this call. The value is
+/// borrowed and remains caller-owned.
+pub unsafe extern "C" fn mux_value_to_list(val: *mut Value) -> *mut crate::list::List {
     if val.is_null() {
         return std::ptr::null_mut();
     }
@@ -237,9 +321,8 @@ pub extern "C" fn mux_value_to_list(val: *mut Value) -> *mut crate::list::List {
 
 /// # Safety
 /// `s` must be a valid pointer returned by a mux-runtime string function.
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_free_string(s: *mut c_char) {
+pub unsafe extern "C" fn mux_free_string(s: *mut c_char) {
     if !s.is_null() {
         unsafe { drop(CString::from_raw(s)) };
     }
@@ -247,9 +330,8 @@ pub extern "C" fn mux_free_string(s: *mut c_char) {
 
 /// # Safety
 /// `list` must be a valid pointer returned by a mux-runtime list function.
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_free_list(list: *mut List) {
+pub unsafe extern "C" fn mux_free_list(list: *mut List) {
     if !list.is_null() {
         unsafe { drop(Box::from_raw(list)) };
     }
@@ -257,9 +339,8 @@ pub extern "C" fn mux_free_list(list: *mut List) {
 
 /// # Safety
 /// `map` must be a valid pointer returned by a mux-runtime map function.
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_free_map(map: *mut Map) {
+pub unsafe extern "C" fn mux_free_map(map: *mut Map) {
     if !map.is_null() {
         unsafe { drop(Box::from_raw(map)) };
     }
@@ -267,21 +348,25 @@ pub extern "C" fn mux_free_map(map: *mut Map) {
 
 /// # Safety
 /// `set` must be a valid pointer returned by a mux-runtime set function.
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_free_set(set: *mut Set) {
+pub unsafe extern "C" fn mux_free_set(set: *mut Set) {
     if !set.is_null() {
         unsafe { drop(Box::from_raw(set)) };
     }
 }
 
 /// No-op: optional values are now *mut Value managed by reference counting.
+/// The pointer is intentionally ignored; use `mux_rc_dec` to release a value.
 #[unsafe(no_mangle)]
 pub extern "C" fn mux_free_optional(_val: *mut Value) {}
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_env_get(key: *const c_char) -> *mut Value {
+/// Read an environment variable and return an owned optional string value.
+///
+/// # Safety
+/// A null `key` is accepted and returns `None`. Otherwise `key` must point to
+/// a valid NUL-terminated C string readable for the duration of this call.
+pub unsafe extern "C" fn mux_env_get(key: *const c_char) -> *mut Value {
     if key.is_null() {
         return crate::optional::mux_optional_none();
     }
@@ -294,7 +379,7 @@ pub extern "C" fn mux_env_get(key: *const c_char) -> *mut Value {
             // If value contains interior NULs, CString::new will fail. Treat as None.
             if let Ok(cstr) = CString::new(val) {
                 // mux_string_value clones the string, so passing as_ptr is safe while cstr is alive
-                let vptr = mux_string_value(cstr.as_ptr());
+                let vptr = unsafe { mux_string_value(cstr.as_ptr()) };
                 // mux_optional_some_value clones vptr's inner value without
                 // consuming vptr, so release the intermediate to avoid a leak.
                 let some = unsafe { crate::optional::mux_optional_some_value(vptr) };
@@ -312,10 +397,14 @@ pub extern "C" fn mux_env_get(key: *const c_char) -> *mut Value {
 #[unsafe(no_mangle)]
 pub extern "C" fn mux_free_result(_val: *mut Value) {}
 
-// Safe value extraction functions - don't take ownership
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
+// Value extraction functions - don't take ownership
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_value_get_int(val: *const Value) -> i64 {
+/// Extract an integer, returning zero for null or a value of another type.
+///
+/// # Safety
+/// A null `val` is accepted. Otherwise it must point to a live, initialized
+/// `Value` readable for the duration of this call.
+pub unsafe extern "C" fn mux_value_get_int(val: *const Value) -> i64 {
     if val.is_null() {
         return 0;
     }
@@ -327,9 +416,13 @@ pub extern "C" fn mux_value_get_int(val: *const Value) -> i64 {
     }
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_value_get_float(val: *const Value) -> f64 {
+/// Extract a float, returning zero for null or a value of another type.
+///
+/// # Safety
+/// A null `val` is accepted. Otherwise it must point to a live, initialized
+/// `Value` readable for the duration of this call.
+pub unsafe extern "C" fn mux_value_get_float(val: *const Value) -> f64 {
     if val.is_null() {
         return 0.0;
     }
@@ -341,9 +434,13 @@ pub extern "C" fn mux_value_get_float(val: *const Value) -> f64 {
     }
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_value_get_bool(val: *const Value) -> i32 {
+/// Extract a boolean as `0` or `1`, returning zero for null or another type.
+///
+/// # Safety
+/// A null `val` is accepted. Otherwise it must point to a live, initialized
+/// `Value` readable for the duration of this call.
+pub unsafe extern "C" fn mux_value_get_bool(val: *const Value) -> i32 {
     if val.is_null() {
         return 0;
     }
@@ -355,9 +452,13 @@ pub extern "C" fn mux_value_get_bool(val: *const Value) -> i32 {
     }
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_value_get_type_tag(val: *const Value) -> i32 {
+/// Return a value's type tag, or `-1` for null.
+///
+/// # Safety
+/// A null `val` is accepted. Otherwise it must point to a live, initialized
+/// `Value` readable for the duration of this call.
+pub unsafe extern "C" fn mux_value_get_type_tag(val: *const Value) -> i32 {
     if val.is_null() {
         return -1;
     }
@@ -365,23 +466,29 @@ pub extern "C" fn mux_value_get_type_tag(val: *const Value) -> i32 {
     value.type_tag()
 }
 
-/// Compare two Value pointers for equality
-/// Returns 1 if equal, 0 if not equal
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_value_equal(a: *const Value, b: *const Value) -> i32 {
+/// Compare two values for equality; null pointers compare equal only to null.
+/// Returns `1` when equal and `0` otherwise.
+///
+/// # Safety
+/// Null pointers are accepted. Every non-null pointer must point to a live,
+/// initialized `Value` readable for the duration of this call.
+pub unsafe extern "C" fn mux_value_equal(a: *const Value, b: *const Value) -> i32 {
     if a.is_null() || b.is_null() {
         return i32::from(a == b);
     }
     unsafe { i32::from(*a == *b) }
 }
 
-/// Three-way compare two Value pointers, returning -1, 0, or 1 like `Ord::cmp`.
-/// Used by the compiler's enum comparison glue to order payload fields by value
-/// (issue #309). A null pointer orders before any non-null value.
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_value_compare(a: *const Value, b: *const Value) -> i32 {
+/// Compare two values, ordering null before non-null.
+/// Returns `-1`, `0`, or `1`, like `Ord::cmp`. Used by the compiler's enum
+/// comparison glue to order payload fields by value (issue #309).
+///
+/// # Safety
+/// Null pointers are accepted. Every non-null pointer must point to a live,
+/// initialized `Value` readable for the duration of this call.
+pub unsafe extern "C" fn mux_value_compare(a: *const Value, b: *const Value) -> i32 {
     match (a.is_null(), b.is_null()) {
         (true, true) => 0,
         (true, false) => -1,
@@ -394,33 +501,42 @@ pub extern "C" fn mux_value_compare(a: *const Value, b: *const Value) -> i32 {
     }
 }
 
-/// Compare two Value pointers for inequality
-/// Returns 1 if not equal, 0 if equal
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_value_not_equal(a: *const Value, b: *const Value) -> i32 {
-    i32::from(mux_value_equal(a, b) != 1)
+/// Compare two values for inequality; null pointers compare equal only to null.
+/// Returns `1` when unequal and `0` otherwise.
+///
+/// # Safety
+/// Null pointers are accepted. Every non-null pointer must point to a live,
+/// initialized `Value` readable for the duration of this call.
+pub unsafe extern "C" fn mux_value_not_equal(a: *const Value, b: *const Value) -> i32 {
+    i32::from(unsafe { mux_value_equal(a, b) } != 1)
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_box_enum(ptr: *mut u8, size: usize) -> *mut Value {
+/// Copy an enum payload into an opaque managed value.
+///
+/// # Safety
+/// `ptr` must be non-null and point to at least `size` readable bytes. The
+/// bytes are copied before this function returns; the caller retains ownership
+/// of the source allocation.
+pub unsafe extern "C" fn mux_box_enum(ptr: *mut u8, size: usize) -> *mut Value {
     let slice = unsafe { std::slice::from_raw_parts(ptr, size) };
     let boxed: Box<[u8]> = slice.to_vec().into_boxed_slice();
     mux_rc_alloc(Value::Opaque(boxed))
 }
 
-/// Returns a borrowed, read-only view into the payload of a boxed enum
-/// (`Value::Opaque`), or null for null/non-opaque input.
-///
-/// The pointer aliases the buffer owned by `val`: it is valid only while
-/// `val` is alive and must not be written through. Generated code upholds
-/// this by loading the enum struct immediately after the call, before any
-/// release of `val`. The `*mut` return type is C-ABI convention only,
-/// mirroring `mux_box_enum`.
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_value_unbox_enum(val: *mut Value) -> *mut u8 {
+/// Return a borrowed pointer to an opaque or boxed-enum payload.
+/// The pointer aliases the buffer owned by `val` and is valid only while `val`
+/// is alive. It must not be written through; the `*mut` return type is a C-ABI
+/// convention. Generated code loads the enum struct immediately, before
+/// releasing `val`.
+///
+/// # Safety
+/// A null `val` is accepted and returns null. Otherwise `val` must point to a
+/// live, initialized `Value`. The returned pointer is borrowed and must not be
+/// used after `val` is released or moved, nor written through.
+pub unsafe extern "C" fn mux_value_unbox_enum(val: *mut Value) -> *mut u8 {
     if val.is_null() {
         return std::ptr::null_mut();
     }
@@ -436,16 +552,21 @@ pub extern "C" fn mux_value_unbox_enum(val: *mut Value) -> *mut u8 {
     }
 }
 
-/// Box an enum that owns reference-counted payloads into a managed `BoxedEnum`
-/// Value (issue #309). `clone_glue` / `drop_glue` are the compiler-emitted
-/// in-place deep-clone and drop glue for this enum. The `size` bytes at `ptr`
-/// are copied and then deep-cloned via `clone_glue`, so the returned value owns
-/// payloads independent of the source (which the caller still releases); from
-/// then on `Clone` and `Drop` keep the enum's payloads correct wherever the
-/// runtime manages it - notably inside collections.
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_box_enum_managed(
+/// Copy and deep-clone an enum payload into a managed boxed-enum value.
+/// The `size` bytes at `ptr` are copied and then deep-cloned via `clone_glue`,
+/// so the returned value owns payloads independent of the source (which the
+/// caller still releases). `clone_glue`, `drop_glue`, `cmp_glue`, and
+/// `hash_glue` are retained by the returned value and must remain valid for
+/// its entire lifetime.
+///
+/// # Safety
+/// `ptr` must be non-null and point to at least `size` readable bytes laid out
+/// as the enum expected by `clone_glue`, `drop_glue`, `cmp_glue`, and
+/// `hash_glue`. Each callback must be valid for that layout and callable for
+/// the duration of this call and for every operation on the returned value.
+/// The source remains caller-owned.
+pub unsafe extern "C" fn mux_box_enum_managed(
     ptr: *mut u8,
     size: usize,
     clone_glue: crate::EnumGlueFn,
