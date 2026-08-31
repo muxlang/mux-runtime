@@ -140,6 +140,28 @@ fn env_access() {
 }
 
 #[test]
+fn nullable_value_reads_preserve_their_sentinel_results() {
+    assert!(unsafe { mux_value_get_list(std::ptr::null_mut()) }.is_null());
+    assert!(unsafe { mux_value_get_map(std::ptr::null_mut()) }.is_null());
+    assert!(unsafe { mux_value_get_set(std::ptr::null_mut()) }.is_null());
+    assert!(unsafe { mux_value_to_list(std::ptr::null_mut()) }.is_null());
+
+    assert_eq!(unsafe { mux_value_get_int(std::ptr::null()) }, 0);
+    assert!(unsafe { mux_value_get_float(std::ptr::null()) }.abs() < f64::EPSILON);
+    assert_eq!(unsafe { mux_value_get_bool(std::ptr::null()) }, 0);
+    assert_eq!(unsafe { mux_value_get_type_tag(std::ptr::null()) }, -1);
+
+    let none = unsafe { mux_value_map_get_value(std::ptr::null(), std::ptr::null()) };
+    assert!(unsafe { mux_optional_is_none(none) });
+    assert!(unsafe { mux_rc_dec(none) });
+
+    assert_eq!(unsafe { mux_value_equal(std::ptr::null(), std::ptr::null()) }, 1);
+    assert_eq!(unsafe { mux_value_not_equal(std::ptr::null(), std::ptr::null()) }, 0);
+    assert_eq!(unsafe { mux_value_compare(std::ptr::null(), std::ptr::null()) }, 0);
+    assert_eq!(unsafe { mux_value_hash(std::ptr::null()) }, 0);
+}
+
+#[test]
 fn box_enum_and_noop_frees() {
     let mut bytes = [1u8, 2, 3, 4];
     let boxed = mux_box_enum(bytes.as_mut_ptr(), bytes.len());

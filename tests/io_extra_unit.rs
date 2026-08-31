@@ -33,7 +33,7 @@ fn open_read_close_file() {
     let contents = unsafe { CStr::from_ptr(contents_ptr) }
         .to_string_lossy()
         .into_owned();
-    mux_free_string(contents_ptr);
+    unsafe { mux_free_string(contents_ptr) };
     assert_eq!(contents, "file contents");
     unsafe { mux_close_file(file) };
 
