@@ -111,9 +111,13 @@ pub fn panic_with_code(code: RuntimeErrorCode, msg: &str) -> ! {
 
 /// FFI entry point for a panic with a C-string message and an optional
 /// `file:line:col` location.
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
+///
+/// # Safety
+/// Each non-null pointer must point to a valid NUL-terminated C string that
+/// remains readable for the duration of this call. Null pointers are accepted
+/// and produce the default message or omit the location.
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_panic_cstr(msg: *const c_char, loc: *const c_char) -> ! {
+pub unsafe extern "C" fn mux_panic_cstr(msg: *const c_char, loc: *const c_char) -> ! {
     let message = decode_cstr(msg).unwrap_or_else(|| "(no message)".to_string());
     emit_panic(
         RuntimeErrorCode::InternalRuntime,
@@ -125,16 +129,30 @@ pub extern "C" fn mux_panic_cstr(msg: *const c_char, loc: *const c_char) -> ! {
 /// FFI entry point for a typed runtime failure. Unknown values intentionally
 /// collapse to `E0699` so a newer code generator cannot make an older runtime
 /// print an unstable or misleading code.
+///
+/// # Safety
+/// Each non-null pointer must point to a valid NUL-terminated C string that
+/// remains readable for the duration of this call. Null pointers are accepted
+/// and produce the default message or omit the location.
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_panic_cstr_code(code: i32, msg: *const c_char, loc: *const c_char) -> ! {
+pub unsafe extern "C" fn mux_panic_cstr_code(
+    code: i32,
+    msg: *const c_char,
+    loc: *const c_char,
+) -> ! {
     let message = decode_cstr(msg).unwrap_or_else(|| "(no message)".to_string());
     emit_panic(RuntimeErrorCode::from_ffi(code), &message, decode_cstr(loc));
 }
 
 /// FFI: panic for a list index outside `[0, length)`. `length` is a list size,
 /// so it is `u64` to keep the non-negative invariant in the type.
+///
+/// # Safety
+/// A null `loc` is accepted and omits the source location. Otherwise `loc`
+/// must point to a valid NUL-terminated C string readable for the duration of
+/// this call.
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_panic_index_oob(index: i64, length: u64, loc: *const c_char) -> ! {
+pub unsafe extern "C" fn mux_panic_index_oob(index: i64, length: u64, loc: *const c_char) -> ! {
     emit_panic(
         RuntimeErrorCode::IndexOutOfBounds,
         &format!("list index out of bounds: index {index}, length {length}"),
@@ -143,9 +161,15 @@ pub extern "C" fn mux_panic_index_oob(index: i64, length: u64, loc: *const c_cha
 }
 
 /// FFI: panic for a map lookup on a missing key.
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
+///
+/// # Safety
+/// A null `key` is accepted and is rendered as unknown. Otherwise `key` must
+/// point to a live, initialized `Value` readable for the duration of this
+/// call. A null `loc` is accepted and omits the source location; otherwise it
+/// must point to a valid NUL-terminated C string readable for the duration of
+/// this call.
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_panic_key_not_found(key: *const Value, loc: *const c_char) -> ! {
+pub unsafe extern "C" fn mux_panic_key_not_found(key: *const Value, loc: *const c_char) -> ! {
     let key_text = if key.is_null() {
         "(unknown)".to_string()
     } else {
