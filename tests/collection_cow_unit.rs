@@ -218,16 +218,22 @@ fn map_put_on_shared_value_is_in_place() {
 fn set_add_and_remove_uniquely_owned() {
     let set_val = mux_rc_alloc(Value::Set(mux_runtime::ordered::OrderedSet::new()));
     for i in 0..500 {
-        with_scalar(Value::Int(i % 250), |v| mux_set_add_value(set_val, v));
+        with_scalar(Value::Int(i % 250), |v| unsafe {
+            mux_set_add_value(set_val, v);
+        });
     }
     let Value::Set(s) = (unsafe { &*set_val }) else {
         panic!("expected set");
     };
     assert_eq!(s.len(), 250, "duplicates must be de-duplicated");
 
-    let removed = with_scalar_ret_bool(Value::Int(0), |v| mux_set_remove_value(set_val, v));
+    let removed = with_scalar_ret_bool(Value::Int(0), |v| unsafe {
+        mux_set_remove_value(set_val, v)
+    });
     assert!(removed);
-    let missing = with_scalar_ret_bool(Value::Int(9999), |v| mux_set_remove_value(set_val, v));
+    let missing = with_scalar_ret_bool(Value::Int(9999), |v| unsafe {
+        mux_set_remove_value(set_val, v)
+    });
     assert!(!missing);
     unsafe { mux_rc_dec(set_val) };
 }
@@ -236,7 +242,9 @@ fn set_add_and_remove_uniquely_owned() {
 fn set_add_on_shared_value_is_in_place() {
     let shared = mux_rc_alloc(Value::Set(mux_runtime::ordered::OrderedSet::new()));
     unsafe { mux_rc_inc(shared) };
-    with_scalar(Value::Int(7), |v| mux_set_add_value(shared, v));
+    with_scalar(Value::Int(7), |v| unsafe {
+        mux_set_add_value(shared, v);
+    });
     let Value::Set(s) = (unsafe { &*shared }) else {
         panic!("expected set");
     };

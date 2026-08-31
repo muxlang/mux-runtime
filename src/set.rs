@@ -59,25 +59,42 @@ impl fmt::Display for Set {
     }
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_set_value(set: *mut Set) -> *mut Value {
+/// Converts an owned set allocation into a reference-counted value.
+///
+/// # Safety
+///
+/// `set` must be a non-null pointer returned by a set constructor or another
+/// function that transfers ownership of a `Box<Set>`. The allocation is
+/// consumed by this call and must not be used or freed afterward.
+pub unsafe extern "C" fn mux_set_value(set: *mut Set) -> *mut Value {
     let owned = unsafe { Box::from_raw(set) };
     mux_rc_alloc(Value::Set(owned.0))
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_set_add(set: *mut Set, val: *mut Value) {
+/// Inserts a snapshot of a value into a set.
+///
+/// # Safety
+///
+/// `set` and `val` must be non-null pointers to live values created by the
+/// runtime. Both remain owned by the caller.
+pub unsafe extern "C" fn mux_set_add(set: *mut Set, val: *mut Value) {
     let set = unsafe { &mut *set };
     let val = unsafe { crate::refcount::snapshot_key(&*val) };
     set.add(val);
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[allow(clippy::mutable_key_type)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_set_add_value(set_val: *mut Value, val: *mut Value) {
+/// Inserts a snapshot into a set value in place.
+///
+/// # Safety
+///
+/// `val` must be a non-null pointer to a live runtime value. `set_val` may be
+/// null, which preserves the no-op behavior; otherwise it must point to a live
+/// `Value` allocation and contain a set.
+pub unsafe extern "C" fn mux_set_add_value(set_val: *mut Value, val: *mut Value) {
     let value = unsafe { crate::refcount::snapshot_key(&*val) };
     unsafe {
         with_set_mut(set_val, |set_data| {
@@ -86,31 +103,46 @@ pub extern "C" fn mux_set_add_value(set_val: *mut Value, val: *mut Value) {
     }
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_set_contains(set: *const Set, val: *const Value) -> bool {
+/// Tests whether a set contains a value.
+///
+/// # Safety
+///
+/// `set` and `val` must be non-null pointers to live values created by the
+/// runtime.
+pub unsafe extern "C" fn mux_set_contains(set: *const Set, val: *const Value) -> bool {
     unsafe { (*set).contains(&*val) }
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_set_remove(set: *mut Set, val: *mut Value) -> bool {
+/// Removes a value from a set.
+///
+/// # Safety
+///
+/// `set` and `val` must be non-null pointers to live values created by the
+/// runtime. Both remain owned by the caller.
+pub unsafe extern "C" fn mux_set_remove(set: *mut Set, val: *mut Value) -> bool {
     let set = unsafe { &mut *set };
     let val = unsafe { (*val).clone() };
     set.remove(&val)
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[allow(clippy::mutable_key_type)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_set_remove_value(set_val: *mut Value, val: *mut Value) -> bool {
+/// Removes a value from a set value in place.
+///
+/// # Safety
+///
+/// `val` must be a non-null pointer to a live runtime value. `set_val` may be
+/// null, which returns `false`; otherwise it must point to a live `Value`
+/// allocation.
+pub unsafe extern "C" fn mux_set_remove_value(set_val: *mut Value, val: *mut Value) -> bool {
     let value = unsafe { (*val).clone() };
     unsafe { with_set_mut(set_val, |set_data| set_data.remove(&value)).unwrap_or(false) }
 }
 
 /// # Safety
 /// `set` must be a valid, non-null pointer to a `Set` created by this runtime.
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn mux_set_size(set: *const Set) -> i64 {
     unsafe { (*set).0.len() as i64 }
@@ -118,15 +150,18 @@ pub unsafe extern "C" fn mux_set_size(set: *const Set) -> i64 {
 
 /// # Safety
 /// `set` must be a valid, non-null pointer to a `Set` created by this runtime.
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn mux_set_is_empty(set: *const Set) -> bool {
     unsafe { (*set).0.is_empty() }
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_set_to_string(set: *const Set) -> *mut std::ffi::c_char {
+/// Formats a set as a newly allocated C string.
+///
+/// # Safety
+///
+/// `set` must be a non-null pointer to a live set created by the runtime.
+pub unsafe extern "C" fn mux_set_to_string(set: *const Set) -> *mut std::ffi::c_char {
     let set = unsafe { &*set };
     let s = set.to_string();
     match CString::new(s) {
@@ -136,10 +171,15 @@ pub extern "C" fn mux_set_to_string(set: *const Set) -> *mut std::ffi::c_char {
 }
 
 /// Convert a set to a list containing all of its elements.
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[allow(clippy::mutable_key_type)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_set_to_list(set: *const Set) -> *mut Value {
+/// Returns all set elements as a new list value.
+///
+/// # Safety
+///
+/// `set` may be null, which returns an empty list; otherwise it must be a live
+/// set created by the runtime.
+pub unsafe extern "C" fn mux_set_to_list(set: *const Set) -> *mut Value {
     if set.is_null() {
         return mux_rc_alloc(Value::List(Vec::new()));
     }
@@ -147,10 +187,15 @@ pub extern "C" fn mux_set_to_list(set: *const Set) -> *mut Value {
     mux_rc_alloc(Value::List(items))
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[allow(clippy::mutable_key_type)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_set_union(a: *const Set, b: *const Set) -> *mut Set {
+/// Unions two sets into a new set allocation.
+///
+/// # Safety
+///
+/// Each argument may be null, which returns null; otherwise it must point to a
+/// live set created by the runtime.
+pub unsafe extern "C" fn mux_set_union(a: *const Set, b: *const Set) -> *mut Set {
     if a.is_null() || b.is_null() {
         return std::ptr::null_mut();
     }

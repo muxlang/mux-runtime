@@ -93,7 +93,7 @@ fn build_set(n: i64) -> *mut Set {
     let set = mux_new_set();
     for i in 0..n {
         let e = mux_box_int(i);
-        mux_set_add(set, e);
+        unsafe { mux_set_add(set, e) };
         unsafe { mux_rc_dec(e) };
     }
     set
@@ -232,7 +232,7 @@ fn bench_set(c: &mut Criterion) {
             let set = mux_new_set();
             for i in 0..N {
                 let e = mux_box_int(i);
-                mux_set_add(set, e);
+                unsafe { mux_set_add(set, e) };
                 unsafe { mux_rc_dec(e) };
             }
             unsafe { mux_rc_dec(mux_set_value(set)) };
@@ -243,11 +243,11 @@ fn bench_set(c: &mut Criterion) {
     let set2 = build_set(N);
     let member = mux_box_int(N / 2);
     group.bench_function("contains", |b| {
-        b.iter(|| black_box(mux_set_contains(set, member)));
+        b.iter(|| black_box(unsafe { mux_set_contains(set, member) }));
     });
     group.bench_function("union", |b| {
         b.iter(|| {
-            let u = mux_set_union(set, set2);
+            let u = unsafe { mux_set_union(set, set2) };
             mux_free_set(u);
         });
     });
