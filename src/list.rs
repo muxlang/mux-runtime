@@ -58,16 +58,25 @@ impl fmt::Display for List {
     }
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_list_push_back(list: *mut List, val: *mut Value) {
+/// Appends a clone of `val` to a list.
+///
+/// # Safety
+///
+/// `list` and `val` must be non-null pointers to live values created by the
+/// runtime. Both remain owned by the caller.
+pub unsafe extern "C" fn mux_list_push_back(list: *mut List, val: *mut Value) {
     let value = unsafe { (*val).clone() };
     unsafe { (*list).push_back(value) }
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_list_pop_back(list: *mut List) -> *mut Value {
+/// Removes and returns the last list item as an optional value.
+///
+/// # Safety
+///
+/// `list` must be a non-null pointer to a live list created by the runtime.
+pub unsafe extern "C" fn mux_list_pop_back(list: *mut List) -> *mut Value {
     let opt = unsafe { (*list).pop_back() };
     match opt {
         Some(v) => mux_rc_alloc(Value::Optional(Some(Box::new(v)))),
@@ -75,16 +84,25 @@ pub extern "C" fn mux_list_pop_back(list: *mut List) -> *mut Value {
     }
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_list_push(list: *mut List, val: *mut Value) {
+/// Prepends a clone of `val` to a list.
+///
+/// # Safety
+///
+/// `list` and `val` must be non-null pointers to live values created by the
+/// runtime. Both remain owned by the caller.
+pub unsafe extern "C" fn mux_list_push(list: *mut List, val: *mut Value) {
     let value = unsafe { (*val).clone() };
     unsafe { (*list).push_back(value) }
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_list_pop(list: *mut List) -> *mut Value {
+/// Removes and returns the first list item as an optional value.
+///
+/// # Safety
+///
+/// `list` must be a non-null pointer to a live list created by the runtime.
+pub unsafe extern "C" fn mux_list_pop(list: *mut List) -> *mut Value {
     let val = if unsafe { (*list).0.is_empty() } {
         None
     } else {
@@ -98,7 +116,6 @@ pub extern "C" fn mux_list_pop(list: *mut List) -> *mut Value {
 
 /// # Safety
 /// `list` must be a valid, non-null pointer to a `List` created by this runtime.
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn mux_list_is_empty(list: *const List) -> bool {
     if list.is_null() {
@@ -109,33 +126,49 @@ pub unsafe extern "C" fn mux_list_is_empty(list: *const List) -> bool {
 
 /// # Safety
 /// `list` must be a valid, non-null pointer to a `List` created by this runtime.
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn mux_list_length(list: *const List) -> i64 {
     unsafe { (*list).length() }
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_list_push_back_value(list_val: *mut Value, val: *mut Value) {
+/// Appends a clone of `val` to a list value.
+///
+/// # Safety
+///
+/// `val` must be a non-null pointer to a live runtime value. `list_val` may be
+/// null, which preserves the no-op behavior; otherwise it must point to a live
+/// `Value` allocation and contain a list.
+pub unsafe extern "C" fn mux_list_push_back_value(list_val: *mut Value, val: *mut Value) {
     let value = unsafe { (*val).clone() };
     unsafe {
         with_list_mut(list_val, |list_data| list_data.push(value));
     }
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_list_push_value(list_val: *mut Value, val: *mut Value) {
+/// Prepends a clone of `val` to a list value.
+///
+/// # Safety
+///
+/// `val` must be a non-null pointer to a live runtime value. `list_val` may be
+/// null, which preserves the no-op behavior; otherwise it must point to a live
+/// `Value` allocation and contain a list.
+pub unsafe extern "C" fn mux_list_push_value(list_val: *mut Value, val: *mut Value) {
     let value = unsafe { (*val).clone() };
     unsafe {
         with_list_mut(list_val, |list_data| list_data.insert(0, value)); // Add to front
     }
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_list_pop_back_value(list_val: *mut Value) -> *mut Value {
+/// Removes and returns the last item from a list value as an optional value.
+///
+/// # Safety
+///
+/// `list_val` may be null, which returns an empty optional; otherwise it must
+/// point to a live `Value` allocation.
+pub unsafe extern "C" fn mux_list_pop_back_value(list_val: *mut Value) -> *mut Value {
     let opt = unsafe { with_list_mut(list_val, Vec::pop).flatten() };
     match opt {
         Some(v) => mux_rc_alloc(Value::Optional(Some(Box::new(v)))),
@@ -143,9 +176,14 @@ pub extern "C" fn mux_list_pop_back_value(list_val: *mut Value) -> *mut Value {
     }
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_list_pop_value(list_val: *mut Value) -> *mut Value {
+/// Removes and returns the first item from a list value as an optional value.
+///
+/// # Safety
+///
+/// `list_val` may be null, which returns an empty optional; otherwise it must
+/// point to a live `Value` allocation.
+pub unsafe extern "C" fn mux_list_pop_value(list_val: *mut Value) -> *mut Value {
     let opt = unsafe {
         with_list_mut(list_val, |list_data| {
             if list_data.is_empty() {
@@ -162,9 +200,13 @@ pub extern "C" fn mux_list_pop_value(list_val: *mut Value) -> *mut Value {
     }
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_list_get(list: *const List, index: i64) -> *mut Value {
+/// Returns a list item as an optional value.
+///
+/// # Safety
+///
+/// `list` must be a non-null pointer to a live list created by the runtime.
+pub unsafe extern "C" fn mux_list_get(list: *const List, index: i64) -> *mut Value {
     let len = unsafe { (*list).length() };
     if index < 0 || index >= len {
         mux_rc_alloc(Value::Optional(None))
@@ -174,9 +216,14 @@ pub extern "C" fn mux_list_get(list: *const List, index: i64) -> *mut Value {
     }
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_list_get_value(list: *const List, index: i64) -> *mut Value {
+/// Returns a cloned list item, or null when the list or index is invalid.
+///
+/// # Safety
+///
+/// `list` may be null, which returns null; otherwise it must be a live list
+/// created by the runtime.
+pub unsafe extern "C" fn mux_list_get_value(list: *const List, index: i64) -> *mut Value {
     if list.is_null() {
         return std::ptr::null_mut();
     }
@@ -189,9 +236,14 @@ pub extern "C" fn mux_list_get_value(list: *const List, index: i64) -> *mut Valu
     }
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_list_set(list: *mut List, index: i64, val: *mut Value) {
+/// Replaces a list item with a clone of `val` when the index is in range.
+///
+/// # Safety
+///
+/// `list` and `val` must be non-null pointers to live values created by the
+/// runtime. Both remain owned by the caller.
+pub unsafe extern "C" fn mux_list_set(list: *mut List, index: i64, val: *mut Value) {
     let value = unsafe { (*val).clone() };
     let len = unsafe { (*list).length() };
     if index >= 0 && index < len {
@@ -202,9 +254,15 @@ pub extern "C" fn mux_list_set(list: *mut List, index: i64, val: *mut Value) {
     // else do nothing
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_list_set_value(list_val: *mut Value, index: i64, val: *mut Value) {
+/// Replaces a list-value item with a clone of `val`, extending as needed.
+///
+/// # Safety
+///
+/// Null `list_val` or `val` preserves the no-op behavior. Non-null pointers
+/// must point to live runtime `Value` allocations; `list_val` must contain a
+/// list and `val` remains owned by the caller.
+pub unsafe extern "C" fn mux_list_set_value(list_val: *mut Value, index: i64, val: *mut Value) {
     if list_val.is_null() || val.is_null() {
         return;
     }
@@ -251,9 +309,14 @@ fn default_fill_value(list: &[Value]) -> Value {
     }
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_list_insert(list: *mut List, index: i64, val: *mut Value) {
+/// Inserts a clone of `val` into a list.
+///
+/// # Safety
+///
+/// `list` and `val` must be non-null pointers to live values created by the
+/// runtime. Both remain owned by the caller.
+pub unsafe extern "C" fn mux_list_insert(list: *mut List, index: i64, val: *mut Value) {
     let value = unsafe { (*val).clone() };
     let len = unsafe { (*list).length() as usize };
     let idx = if index < 0 {
@@ -268,9 +331,13 @@ pub extern "C" fn mux_list_insert(list: *mut List, index: i64, val: *mut Value) 
     }
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_list_to_string(list: *const List) -> *mut std::ffi::c_char {
+/// Formats a list as a newly allocated C string.
+///
+/// # Safety
+///
+/// `list` must be a non-null pointer to a live list created by the runtime.
+pub unsafe extern "C" fn mux_list_to_string(list: *const List) -> *mut std::ffi::c_char {
     let list = unsafe { &*list };
     let s = list.to_string();
     match CString::new(s) {
@@ -279,9 +346,14 @@ pub extern "C" fn mux_list_to_string(list: *const List) -> *mut std::ffi::c_char
     }
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_list_concat(a: *const List, b: *const List) -> *mut List {
+/// Concatenates two lists into a new list allocation.
+///
+/// # Safety
+///
+/// Each argument may be null, which returns null; otherwise it must point to a
+/// live list created by the runtime.
+pub unsafe extern "C" fn mux_list_concat(a: *const List, b: *const List) -> *mut List {
     if a.is_null() || b.is_null() {
         return std::ptr::null_mut();
     }
@@ -291,9 +363,14 @@ pub extern "C" fn mux_list_concat(a: *const List, b: *const List) -> *mut List {
     Box::into_raw(Box::new(List(result)))
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_list_contains(list: *const List, val: *const Value) -> bool {
+/// Tests whether a list contains a value.
+///
+/// # Safety
+///
+/// `list` and `val` must be non-null pointers to live values created by the
+/// runtime.
+pub unsafe extern "C" fn mux_list_contains(list: *const List, val: *const Value) -> bool {
     unsafe { (*list).0.iter().any(|item| item == &*val) }
 }
 
@@ -308,9 +385,18 @@ pub extern "C" fn mux_list_contains(list: *const List, val: *const Value) -> boo
 ///
 /// The elements are cloned: Mux is value-semantic, so a slice must not alias
 /// the list it came from.
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_list_slice_value(list_val: *const Value, start: i64, end: i64) -> *mut Value {
+/// Returns a cloned slice of a list value.
+///
+/// # Safety
+///
+/// `list_val` may be null or point to a non-list, which returns an empty list;
+/// otherwise it must point to a live `Value` allocation.
+pub unsafe extern "C" fn mux_list_slice_value(
+    list_val: *const Value,
+    start: i64,
+    end: i64,
+) -> *mut Value {
     let items: &Vec<Value> = match unsafe { list_val.as_ref() } {
         Some(Value::List(items)) => items,
         _ => return mux_rc_alloc(Value::List(Vec::new())),
