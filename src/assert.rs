@@ -9,9 +9,15 @@ fn panic_assert(msg: &str) -> ! {
     );
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_assert_assert(condition: i32, message: *const c_char) {
+/// Asserts a condition, including an optional diagnostic C string.
+///
+/// # Safety
+///
+/// `message` may be null; otherwise it must be a valid NUL-terminated C string
+/// readable for the duration of this call. A false condition terminates through
+/// the runtime assertion failure path.
+pub unsafe extern "C" fn mux_assert_assert(condition: i32, message: *const c_char) {
     if condition == 0 {
         let msg = if message.is_null() {
             "assert condition was false".to_string()
@@ -25,7 +31,13 @@ pub extern "C" fn mux_assert_assert(condition: i32, message: *const c_char) {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_assert_eq(actual: *mut Value, expected: *mut Value) {
+/// Asserts that two runtime values are equal.
+///
+/// # Safety
+///
+/// `actual` and `expected` must be non-null pointers to live runtime values
+/// for the duration of this call.
+pub unsafe extern "C" fn mux_assert_eq(actual: *mut Value, expected: *mut Value) {
     if actual.is_null() {
         panic_assert("assert_eq received null pointer for actual");
     }
@@ -40,7 +52,13 @@ pub extern "C" fn mux_assert_eq(actual: *mut Value, expected: *mut Value) {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_assert_ne(actual: *mut Value, expected: *mut Value) {
+/// Asserts that two runtime values differ.
+///
+/// # Safety
+///
+/// `actual` and `expected` must be non-null pointers to live runtime values
+/// for the duration of this call.
+pub unsafe extern "C" fn mux_assert_ne(actual: *mut Value, expected: *mut Value) {
     if actual.is_null() {
         panic_assert("assert_ne received null pointer for actual");
     }
@@ -71,7 +89,13 @@ pub extern "C" fn mux_assert_false(condition: i32) {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_assert_some(val: *mut Value) {
+/// Asserts that a runtime value is an `Optional::Some`.
+///
+/// # Safety
+///
+/// `val` must be a non-null pointer to a live runtime value for the duration
+/// of this call.
+pub unsafe extern "C" fn mux_assert_some(val: *mut Value) {
     if val.is_null() {
         panic_assert("assert_some received null pointer");
     }
@@ -84,7 +108,13 @@ pub extern "C" fn mux_assert_some(val: *mut Value) {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_assert_none(val: *mut Value) {
+/// Asserts that a runtime value is an `Optional::None`.
+///
+/// # Safety
+///
+/// `val` must be a non-null pointer to a live runtime value for the duration
+/// of this call.
+pub unsafe extern "C" fn mux_assert_none(val: *mut Value) {
     if val.is_null() {
         panic_assert("assert_none received null pointer");
     }
@@ -97,7 +127,13 @@ pub extern "C" fn mux_assert_none(val: *mut Value) {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_assert_ok(val: *mut Value) {
+/// Asserts that a runtime value is a successful result.
+///
+/// # Safety
+///
+/// `val` must be a non-null pointer to a live runtime value for the duration
+/// of this call.
+pub unsafe extern "C" fn mux_assert_ok(val: *mut Value) {
     if val.is_null() {
         panic_assert("assert_ok received null pointer");
     }
@@ -110,7 +146,13 @@ pub extern "C" fn mux_assert_ok(val: *mut Value) {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_assert_err(val: *mut Value) {
+/// Asserts that a runtime value is an error result.
+///
+/// # Safety
+///
+/// `val` must be a non-null pointer to a live runtime value for the duration
+/// of this call.
+pub unsafe extern "C" fn mux_assert_err(val: *mut Value) {
     if val.is_null() {
         panic_assert("assert_err received null pointer");
     }
