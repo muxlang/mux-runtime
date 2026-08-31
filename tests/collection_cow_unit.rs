@@ -168,7 +168,9 @@ fn map_put_and_remove_uniquely_owned() {
     let map_val = mux_rc_alloc(Value::Map(mux_runtime::ordered::OrderedMap::new()));
     for i in 0..500 {
         with_scalar(Value::Int(i), |k| {
-            with_scalar(Value::Int(i * 10), |v| mux_map_put_value(map_val, k, v));
+            with_scalar(Value::Int(i * 10), |v| unsafe {
+                mux_map_put_value(map_val, k, v);
+            });
         });
     }
     let Value::Map(m) = (unsafe { &*map_val }) else {
@@ -178,7 +180,9 @@ fn map_put_and_remove_uniquely_owned() {
     assert_eq!(m.get(&Value::Int(499)), Some(&Value::Int(4990)));
 
     // Remove returns the previous value wrapped in an optional.
-    let removed = with_scalar_ret(Value::Int(499), |k| mux_map_remove_value(map_val, k));
+    let removed = with_scalar_ret(Value::Int(499), |k| unsafe {
+        mux_map_remove_value(map_val, k)
+    });
     assert_eq!(
         unsafe { &*removed },
         &Value::Optional(Some(Box::new(Value::Int(4990))))
@@ -196,7 +200,9 @@ fn map_put_on_shared_value_is_in_place() {
     let shared = mux_rc_alloc(Value::Map(mux_runtime::ordered::OrderedMap::new()));
     unsafe { mux_rc_inc(shared) };
     with_scalar(Value::Int(1), |k| {
-        with_scalar(Value::Int(2), |v| mux_map_put_value(shared, k, v));
+        with_scalar(Value::Int(2), |v| unsafe {
+            mux_map_put_value(shared, k, v);
+        });
     });
     let Value::Map(m) = (unsafe { &*shared }) else {
         panic!("expected map");

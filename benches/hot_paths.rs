@@ -82,7 +82,7 @@ fn build_map(n: i64) -> *mut Map {
     for i in 0..n {
         let k = mux_box_int(i);
         let v = mux_box_int(i * 2);
-        mux_map_put(map, k, v);
+        unsafe { mux_map_put(map, k, v) };
         unsafe { mux_rc_dec(k) };
         unsafe { mux_rc_dec(v) };
     }
@@ -200,7 +200,7 @@ fn bench_map(c: &mut Criterion) {
             for i in 0..N {
                 let k = mux_box_int(i);
                 let v = mux_box_int(i * 2);
-                mux_map_put(map, k, v);
+                unsafe { mux_map_put(map, k, v) };
                 unsafe { mux_rc_dec(k) };
                 unsafe { mux_rc_dec(v) };
             }
@@ -212,12 +212,12 @@ fn bench_map(c: &mut Criterion) {
     let key = mux_box_int(N / 2);
     group.bench_function("get", |b| {
         b.iter(|| {
-            let v = mux_map_get(map, key);
+            let v = unsafe { mux_map_get(map, key) };
             unsafe { mux_rc_dec(v) };
         });
     });
     group.bench_function("contains", |b| {
-        b.iter(|| black_box(mux_map_contains(map, key)));
+        b.iter(|| black_box(unsafe { mux_map_contains(map, key) }));
     });
     group.finish();
 

@@ -66,16 +66,27 @@ impl fmt::Display for Map {
     }
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_map_value(map: *mut Map) -> *mut Value {
+/// Converts an owned map allocation into a reference-counted value.
+///
+/// # Safety
+///
+/// `map` must be a non-null pointer returned by a map constructor or another
+/// function that transfers ownership of a `Box<Map>`. The allocation is
+/// consumed by this call and must not be used or freed afterward.
+pub unsafe extern "C" fn mux_map_value(map: *mut Map) -> *mut Value {
     let owned = unsafe { Box::from_raw(map) };
     mux_rc_alloc(Value::Map(owned.0))
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_map_get(map: *const Map, key: *const Value) -> *mut Value {
+/// Returns a map value as an optional value.
+///
+/// # Safety
+///
+/// `map` and `key` must be non-null pointers to live values created by the
+/// runtime. Both remain owned by the caller.
+pub unsafe extern "C" fn mux_map_get(map: *const Map, key: *const Value) -> *mut Value {
     let opt = unsafe { (*map).get(&*key).cloned() };
     match opt {
         Some(v) => mux_rc_alloc(Value::Optional(Some(Box::new(v)))),
@@ -83,19 +94,30 @@ pub extern "C" fn mux_map_get(map: *const Map, key: *const Value) -> *mut Value 
     }
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_map_put(map: *mut Map, key: *mut Value, val: *mut Value) {
+/// Inserts a cloned key and value into a map.
+///
+/// # Safety
+///
+/// `map`, `key`, and `val` must be non-null pointers to live values created by
+/// the runtime. They remain owned by the caller.
+pub unsafe extern "C" fn mux_map_put(map: *mut Map, key: *mut Value, val: *mut Value) {
     let map = unsafe { &mut *map };
     let key = unsafe { crate::refcount::snapshot_key(&*key) };
     let val = unsafe { (*val).clone() };
     map.insert(key, val);
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[allow(clippy::mutable_key_type)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_map_put_value(map_val: *mut Value, key: *mut Value, val: *mut Value) {
+/// Inserts clones into a map value in place.
+///
+/// # Safety
+///
+/// A null `map_val`, `key`, or `val` preserves the no-op behavior. Non-null
+/// pointers must be live runtime `Value` allocations; `map_val` must contain a
+/// map, and all pointers remain owned by the caller.
+pub unsafe extern "C" fn mux_map_put_value(map_val: *mut Value, key: *mut Value, val: *mut Value) {
     if map_val.is_null() || key.is_null() || val.is_null() {
         return;
     }
@@ -108,9 +130,14 @@ pub extern "C" fn mux_map_put_value(map_val: *mut Value, key: *mut Value, val: *
     }
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_map_remove(map: *mut Map, key: *const Value) -> *mut Value {
+/// Removes and returns a map value as an optional value.
+///
+/// # Safety
+///
+/// `map` and `key` must be non-null pointers to live values created by the
+/// runtime. Both remain owned by the caller.
+pub unsafe extern "C" fn mux_map_remove(map: *mut Map, key: *const Value) -> *mut Value {
     let opt = unsafe { (*map).remove(&*key) };
     match opt {
         Some(v) => mux_rc_alloc(Value::Optional(Some(Box::new(v)))),
@@ -118,10 +145,16 @@ pub extern "C" fn mux_map_remove(map: *mut Map, key: *const Value) -> *mut Value
     }
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[allow(clippy::mutable_key_type)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_map_remove_value(map_val: *mut Value, key: *mut Value) -> *mut Value {
+/// Removes and returns a map value as an optional value in place.
+///
+/// # Safety
+///
+/// `key` must be a non-null pointer to a live runtime `Value`. `map_val` may
+/// be null, which returns an empty optional; otherwise it must point to a live
+/// `Value` allocation.
+pub unsafe extern "C" fn mux_map_remove_value(map_val: *mut Value, key: *mut Value) -> *mut Value {
     let key = unsafe { (*key).clone() };
     let opt = unsafe { with_map_mut(map_val, |map_data| map_data.remove(&key)).flatten() };
     match opt {
@@ -130,9 +163,14 @@ pub extern "C" fn mux_map_remove_value(map_val: *mut Value, key: *mut Value) -> 
     }
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_map_contains(map: *const Map, key: *const Value) -> bool {
+/// Tests whether a map contains a key.
+///
+/// # Safety
+///
+/// Null `map` or `key` returns `false`; otherwise both must be live runtime
+/// allocations and remain valid for the duration of this call.
+pub unsafe extern "C" fn mux_map_contains(map: *const Map, key: *const Value) -> bool {
     if map.is_null() || key.is_null() {
         return false;
     }
@@ -141,7 +179,6 @@ pub extern "C" fn mux_map_contains(map: *const Map, key: *const Value) -> bool {
 
 /// # Safety
 /// `map` must be a valid, non-null pointer to a `Map` created by this runtime.
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn mux_map_size(map: *const Map) -> i64 {
     unsafe { (*map).0.len() as i64 }
@@ -149,15 +186,18 @@ pub unsafe extern "C" fn mux_map_size(map: *const Map) -> i64 {
 
 /// # Safety
 /// `map` must be a valid, non-null pointer to a `Map` created by this runtime.
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn mux_map_is_empty(map: *const Map) -> bool {
     unsafe { (*map).0.is_empty() }
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_map_to_string(map: *const Map) -> *mut c_char {
+/// Formats a map as a newly allocated C string.
+///
+/// # Safety
+///
+/// `map` must be a non-null pointer to a live map created by the runtime.
+pub unsafe extern "C" fn mux_map_to_string(map: *const Map) -> *mut c_char {
     let map = unsafe { &*map };
     let s = map.to_string();
     match CString::new(s) {
@@ -166,9 +206,14 @@ pub extern "C" fn mux_map_to_string(map: *const Map) -> *mut c_char {
     }
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_map_keys(map: *const Map) -> *mut Value {
+/// Returns all map keys as a new list value.
+///
+/// # Safety
+///
+/// `map` may be null, which returns an empty list; otherwise it must be a live
+/// map created by the runtime.
+pub unsafe extern "C" fn mux_map_keys(map: *const Map) -> *mut Value {
     if map.is_null() {
         return mux_rc_alloc(Value::List(Vec::new()));
     }
@@ -176,9 +221,14 @@ pub extern "C" fn mux_map_keys(map: *const Map) -> *mut Value {
     mux_rc_alloc(Value::List(keys))
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_map_values(map: *const Map) -> *mut Value {
+/// Returns all map values as a new list value.
+///
+/// # Safety
+///
+/// `map` may be null, which returns an empty list; otherwise it must be a live
+/// map created by the runtime.
+pub unsafe extern "C" fn mux_map_values(map: *const Map) -> *mut Value {
     if map.is_null() {
         return mux_rc_alloc(Value::List(Vec::new()));
     }
@@ -186,9 +236,14 @@ pub extern "C" fn mux_map_values(map: *const Map) -> *mut Value {
     mux_rc_alloc(Value::List(values))
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_map_pairs(map: *const Map) -> *mut Value {
+/// Returns all map entries as tuple values in a new list.
+///
+/// # Safety
+///
+/// `map` may be null, which returns an empty list; otherwise it must be a live
+/// map created by the runtime.
+pub unsafe extern "C" fn mux_map_pairs(map: *const Map) -> *mut Value {
     if map.is_null() {
         return mux_rc_alloc(Value::List(Vec::new()));
     }
@@ -202,10 +257,15 @@ pub extern "C" fn mux_map_pairs(map: *const Map) -> *mut Value {
     mux_rc_alloc(Value::List(pairs))
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[allow(clippy::mutable_key_type)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_map_merge(a: *const Map, b: *const Map) -> *mut Map {
+/// Merges two maps into a new map allocation.
+///
+/// # Safety
+///
+/// Each argument may be null, which returns null; otherwise it must point to a
+/// live map created by the runtime.
+pub unsafe extern "C" fn mux_map_merge(a: *const Map, b: *const Map) -> *mut Map {
     if a.is_null() || b.is_null() {
         return std::ptr::null_mut();
     }
