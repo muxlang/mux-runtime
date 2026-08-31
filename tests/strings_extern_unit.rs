@@ -26,31 +26,37 @@ fn read_cstr(p: *mut c_char) -> String {
 
 #[test]
 fn string_scalar_ops() {
-    assert_eq!(
-        read_cstr(mux_string_concat(cs("foo").as_ptr(), cs("bar").as_ptr())),
-        "foobar"
-    );
-    assert_eq!(mux_string_length(cs("hello").as_ptr()), 5);
-    assert_eq!(
-        mux_string_hash(cs("x").as_ptr()),
-        mux_string_hash(cs("x").as_ptr())
-    );
-    assert_eq!(read_cstr(mux_string_to_string(cs("hi").as_ptr())), "hi");
+    unsafe {
+        assert_eq!(
+            read_cstr(mux_string_concat(cs("foo").as_ptr(), cs("bar").as_ptr())),
+            "foobar"
+        );
+        assert_eq!(mux_string_length(cs("hello").as_ptr()), 5);
+        assert_eq!(
+            mux_string_hash(cs("x").as_ptr()),
+            mux_string_hash(cs("x").as_ptr())
+        );
+        assert_eq!(read_cstr(mux_string_to_string(cs("hi").as_ptr())), "hi");
+    }
 }
 
 #[test]
 fn string_parsing() {
-    assert_eq!(ok_int(mux_string_to_int(cs("42").as_ptr())), 42);
-    assert_err(mux_string_to_int(cs("nope").as_ptr()));
-    assert_ok(mux_string_to_float(cs("3.5").as_ptr()));
-    assert_err(mux_string_to_float(cs("nope").as_ptr()));
+    unsafe {
+        assert_eq!(ok_int(mux_string_to_int(cs("42").as_ptr())), 42);
+        assert_err(mux_string_to_int(cs("nope").as_ptr()));
+        assert_ok(mux_string_to_float(cs("3.5").as_ptr()));
+        assert_err(mux_string_to_float(cs("nope").as_ptr()));
+    }
 }
 
 #[test]
 fn string_equality() {
-    assert_eq!(mux_string_equal(cs("a").as_ptr(), cs("a").as_ptr()), 1);
-    assert_eq!(mux_string_equal(cs("a").as_ptr(), cs("b").as_ptr()), 0);
-    assert_eq!(mux_string_not_equal(cs("a").as_ptr(), cs("b").as_ptr()), 1);
+    unsafe {
+        assert_eq!(mux_string_equal(cs("a").as_ptr(), cs("a").as_ptr()), 1);
+        assert_eq!(mux_string_equal(cs("a").as_ptr(), cs("b").as_ptr()), 0);
+        assert_eq!(mux_string_not_equal(cs("a").as_ptr(), cs("b").as_ptr()), 1);
+    }
 }
 
 /// Lexicographic ordering, negative / zero / positive like strcmp.
@@ -97,18 +103,22 @@ fn string_comparison() {
 fn string_containment() {
     let hay = mux_string_value(cs("hello world").as_ptr());
     let needle = mux_string_value(cs("world").as_ptr());
-    assert!(mux_string_contains(hay, needle));
-    assert!(mux_string_contains_char(hay, 'o' as i64));
-    assert!(!mux_string_contains_char(hay, 'z' as i64));
-    assert!(!mux_string_contains_char(hay, -4_294_967_296));
+    unsafe {
+        assert!(mux_string_contains(hay, needle));
+        assert!(mux_string_contains_char(hay, 'o' as i64));
+        assert!(!mux_string_contains_char(hay, 'z' as i64));
+        assert!(!mux_string_contains_char(hay, -4_294_967_296));
+    }
     assert!(unsafe { mux_rc_dec(hay) });
     assert!(unsafe { mux_rc_dec(needle) });
 }
 
 #[test]
 fn char_conversions() {
-    assert_eq!(ok_int(mux_string_to_char(cs("a").as_ptr())), 'a' as i64);
-    assert_err(mux_string_to_char(cs("ab").as_ptr()));
+    unsafe {
+        assert_eq!(ok_int(mux_string_to_char(cs("a").as_ptr())), 'a' as i64);
+        assert_err(mux_string_to_char(cs("ab").as_ptr()));
+    }
     assert_eq!(ok_int(mux_char_to_int('5' as i64)), 5);
     assert_err(mux_char_to_int('a' as i64));
     assert_err(mux_char_to_int(-4_294_967_296));
@@ -118,7 +128,7 @@ fn char_conversions() {
 
 #[test]
 fn string_from_value_roundtrip() {
-    let v = mux_new_string_from_cstr(cs("data").as_ptr());
+    let v = unsafe { mux_new_string_from_cstr(cs("data").as_ptr()) };
     assert!(!v.is_null());
     assert_eq!(read_cstr(unsafe { mux_string_from_value(v) }), "data");
     assert!(unsafe { mux_rc_dec(v) });
@@ -128,7 +138,7 @@ fn string_from_value_roundtrip() {
 fn string_from_owned_cstr_frees_input() {
     // mux_new_string_from_owned_cstr takes ownership and frees the input CString.
     // We pass into_raw() to give it an owned pointer.
-    let v = mux_new_string_from_owned_cstr(cs("owned").into_raw());
+    let v = unsafe { mux_new_string_from_owned_cstr(cs("owned").into_raw()) };
     assert!(!v.is_null());
     assert_eq!(read_cstr(unsafe { mux_string_from_value(v) }), "owned");
     assert!(unsafe { mux_rc_dec(v) });
@@ -178,7 +188,7 @@ fn boxing_roundtrips() {
 fn string_split() {
     use mux_runtime::Value;
 
-    let got = mux_string_split(cs("a,b,c").as_ptr(), cs(",").as_ptr());
+    let got = unsafe { mux_string_split(cs("a,b,c").as_ptr(), cs(",").as_ptr()) };
     assert_eq!(
         unsafe { &*got },
         &Value::List(vec![
@@ -190,7 +200,7 @@ fn string_split() {
     assert!(unsafe { mux_rc_dec(got) });
 
     // A separator that is not present yields the whole string, not nothing.
-    let got = mux_string_split(cs("abc").as_ptr(), cs(",").as_ptr());
+    let got = unsafe { mux_string_split(cs("abc").as_ptr(), cs(",").as_ptr()) };
     assert_eq!(
         unsafe { &*got },
         &Value::List(vec![Value::String("abc".into())])
@@ -199,7 +209,7 @@ fn string_split() {
 
     // An empty separator splits into characters, which is what makes this the
     // inverse of joining a character list.
-    let got = mux_string_split(cs("hi").as_ptr(), cs("").as_ptr());
+    let got = unsafe { mux_string_split(cs("hi").as_ptr(), cs("").as_ptr()) };
     assert_eq!(
         unsafe { &*got },
         &Value::List(vec![Value::String("h".into()), Value::String("i".into())])
@@ -215,7 +225,7 @@ fn string_positions_are_characters() {
 
     // Accented e is two bytes; the last character is 'o' at index 4, not 5.
     let accented = cs("h\u{e9}llo");
-    let got = mux_string_char_at(accented.as_ptr(), 4);
+    let got = unsafe { mux_string_char_at(accented.as_ptr(), 4) };
     assert_eq!(
         unsafe { &*got },
         &Value::Optional(Some(Box::new(Value::Int('o' as i64))))
@@ -223,7 +233,7 @@ fn string_positions_are_characters() {
     assert!(unsafe { mux_rc_dec(got) });
 
     // Negative indices count from the end, as they do for lists.
-    let got = mux_string_char_at(accented.as_ptr(), -1);
+    let got = unsafe { mux_string_char_at(accented.as_ptr(), -1) };
     assert_eq!(
         unsafe { &*got },
         &Value::Optional(Some(Box::new(Value::Int('o' as i64))))
@@ -231,23 +241,23 @@ fn string_positions_are_characters() {
     assert!(unsafe { mux_rc_dec(got) });
 
     // Out of range is none rather than a panic.
-    let got = mux_string_char_at(accented.as_ptr(), 99);
+    let got = unsafe { mux_string_char_at(accented.as_ptr(), 99) };
     assert_eq!(unsafe { &*got }, &Value::Optional(None));
     assert!(unsafe { mux_rc_dec(got) });
 
     // index_of reports a character offset; a byte offset would say 2 here.
     assert_eq!(
-        mux_string_index_of(accented.as_ptr(), cs("llo").as_ptr()),
+        unsafe { mux_string_index_of(accented.as_ptr(), cs("llo").as_ptr()) },
         2
     );
     assert_eq!(
-        mux_string_index_of(accented.as_ptr(), cs("zz").as_ptr()),
+        unsafe { mux_string_index_of(accented.as_ptr(), cs("zz").as_ptr()) },
         -1
     );
 
     // Slicing counts characters too.
     assert_eq!(
-        read_cstr(mux_string_slice(accented.as_ptr(), 0, 2)),
+        read_cstr(unsafe { mux_string_slice(accented.as_ptr(), 0, 2) }),
         "h\u{e9}"
     );
 }
@@ -257,56 +267,60 @@ fn string_positions_are_characters() {
 #[test]
 fn string_slice_bounds() {
     let s = cs("abcdef");
-    assert_eq!(read_cstr(mux_string_slice(s.as_ptr(), 1, 3)), "bc");
-    assert_eq!(read_cstr(mux_string_slice(s.as_ptr(), 0, 6)), "abcdef");
-    assert_eq!(read_cstr(mux_string_slice(s.as_ptr(), -2, 6)), "ef");
-    assert_eq!(read_cstr(mux_string_slice(s.as_ptr(), 2, 99)), "cdef");
-    assert_eq!(read_cstr(mux_string_slice(s.as_ptr(), 4, 2)), "");
-    assert_eq!(read_cstr(mux_string_slice(s.as_ptr(), 99, 100)), "");
-    assert_eq!(read_cstr(mux_string_slice(s.as_ptr(), -99, 2)), "ab");
-    assert_eq!(read_cstr(mux_string_slice(s.as_ptr(), i64::MIN, 2)), "ab");
+    unsafe {
+        assert_eq!(read_cstr(mux_string_slice(s.as_ptr(), 1, 3)), "bc");
+        assert_eq!(read_cstr(mux_string_slice(s.as_ptr(), 0, 6)), "abcdef");
+        assert_eq!(read_cstr(mux_string_slice(s.as_ptr(), -2, 6)), "ef");
+        assert_eq!(read_cstr(mux_string_slice(s.as_ptr(), 2, 99)), "cdef");
+        assert_eq!(read_cstr(mux_string_slice(s.as_ptr(), 4, 2)), "");
+        assert_eq!(read_cstr(mux_string_slice(s.as_ptr(), 99, 100)), "");
+        assert_eq!(read_cstr(mux_string_slice(s.as_ptr(), -99, 2)), "ab");
+        assert_eq!(read_cstr(mux_string_slice(s.as_ptr(), i64::MIN, 2)), "ab");
+    }
 }
 
 #[test]
 fn string_transforms_and_predicates() {
-    assert_eq!(read_cstr(mux_string_trim(cs("  hi \n").as_ptr())), "hi");
-    assert_eq!(read_cstr(mux_string_to_upper(cs("hi").as_ptr())), "HI");
-    assert_eq!(read_cstr(mux_string_to_lower(cs("Hi").as_ptr())), "hi");
+    unsafe {
+        assert_eq!(read_cstr(mux_string_trim(cs("  hi \n").as_ptr())), "hi");
+        assert_eq!(read_cstr(mux_string_to_upper(cs("hi").as_ptr())), "HI");
+        assert_eq!(read_cstr(mux_string_to_lower(cs("Hi").as_ptr())), "hi");
 
-    assert!(mux_string_starts_with(
-        cs("hello").as_ptr(),
-        cs("he").as_ptr()
-    ));
-    assert!(!mux_string_starts_with(
-        cs("hello").as_ptr(),
-        cs("lo").as_ptr()
-    ));
-    assert!(mux_string_ends_with(
-        cs("hello").as_ptr(),
-        cs("lo").as_ptr()
-    ));
-    assert!(!mux_string_ends_with(
-        cs("hello").as_ptr(),
-        cs("he").as_ptr()
-    ));
+        assert!(mux_string_starts_with(
+            cs("hello").as_ptr(),
+            cs("he").as_ptr()
+        ));
+        assert!(!mux_string_starts_with(
+            cs("hello").as_ptr(),
+            cs("lo").as_ptr()
+        ));
+        assert!(mux_string_ends_with(
+            cs("hello").as_ptr(),
+            cs("lo").as_ptr()
+        ));
+        assert!(!mux_string_ends_with(
+            cs("hello").as_ptr(),
+            cs("he").as_ptr()
+        ));
 
-    assert_eq!(
-        read_cstr(mux_string_replace(
-            cs("a-b-c").as_ptr(),
-            cs("-").as_ptr(),
-            cs("+").as_ptr()
-        )),
-        "a+b+c"
-    );
-    // An empty pattern would otherwise insert between every character.
-    assert_eq!(
-        read_cstr(mux_string_replace(
-            cs("abc").as_ptr(),
-            cs("").as_ptr(),
-            cs("X").as_ptr()
-        )),
-        "abc"
-    );
+        assert_eq!(
+            read_cstr(mux_string_replace(
+                cs("a-b-c").as_ptr(),
+                cs("-").as_ptr(),
+                cs("+").as_ptr()
+            )),
+            "a+b+c"
+        );
+        // An empty pattern would otherwise insert between every character.
+        assert_eq!(
+            read_cstr(mux_string_replace(
+                cs("abc").as_ptr(),
+                cs("").as_ptr(),
+                cs("X").as_ptr()
+            )),
+            "abc"
+        );
+    }
 }
 
 /// `to_list` is what lets `for char c in s` work through the existing list loop
@@ -315,7 +329,7 @@ fn string_transforms_and_predicates() {
 fn string_to_list_yields_characters() {
     use mux_runtime::Value;
 
-    let got = mux_string_to_list(cs("h\u{e9}i").as_ptr());
+    let got = unsafe { mux_string_to_list(cs("h\u{e9}i").as_ptr()) };
     assert_eq!(
         unsafe { &*got },
         &Value::List(vec![
@@ -338,7 +352,7 @@ fn string_to_bool_is_deliberately_narrow() {
 
     let parse = |text: &str| {
         let c = CString::new(text).expect("no interior nul");
-        let result = mux_string_to_bool(c.as_ptr());
+        let result = unsafe { mux_string_to_bool(c.as_ptr()) };
         let ok = mux_result_is_ok(result);
         let data = mux_result_data(result);
         let value = unsafe { &*data }.clone();
@@ -358,7 +372,7 @@ fn string_to_bool_is_deliberately_narrow() {
         assert!(!ok, "{text} must not parse as a bool");
     }
 
-    let result = mux_string_to_bool(std::ptr::null());
+    let result = unsafe { mux_string_to_bool(std::ptr::null()) };
     assert!(mux_runtime::result::mux_result_is_err(result));
     assert!(unsafe { mux_rc_dec(result) });
 }

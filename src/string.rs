@@ -104,15 +104,16 @@ pub unsafe extern "C" fn mux_string_from_value(v: *mut Value) -> *mut c_char {
 /// # Safety
 /// Borrows `v` and clones the string data. Does NOT take ownership of `v`.
 /// Returns a new C string that caller must free with `mux_free_string`.
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn mux_value_get_string(v: *mut Value) -> *mut c_char {
     unsafe { mux_string_from_value(v) }
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
+/// # Safety
+/// `s` must be null or a valid, NUL-terminated C string that remains alive for
+/// the duration of this call.
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_string_to_bool(s: *const c_char) -> *mut Value {
+pub unsafe extern "C" fn mux_string_to_bool(s: *const c_char) -> *mut Value {
     if s.is_null() {
         return mux_rc_alloc(Value::Result(Err(Box::new(Value::String(
             "null input".to_string(),
@@ -125,9 +126,11 @@ pub extern "C" fn mux_string_to_bool(s: *const c_char) -> *mut Value {
     }
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
+/// # Safety
+/// `s` must be a valid, NUL-terminated C string that remains alive for the
+/// duration of this call.
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_string_to_int(s: *const c_char) -> *mut Value {
+pub unsafe extern "C" fn mux_string_to_int(s: *const c_char) -> *mut Value {
     let c_str = unsafe { CStr::from_ptr(s) };
     let rust_str = c_str.to_string_lossy();
     match MuxString(rust_str.to_string()).to_int() {
@@ -136,9 +139,11 @@ pub extern "C" fn mux_string_to_int(s: *const c_char) -> *mut Value {
     }
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
+/// # Safety
+/// `s` must be a valid, NUL-terminated C string that remains alive for the
+/// duration of this call.
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_string_to_float(s: *const c_char) -> *mut Value {
+pub unsafe extern "C" fn mux_string_to_float(s: *const c_char) -> *mut Value {
     let c_str = unsafe { CStr::from_ptr(s) };
     let rust_str = c_str.to_string_lossy();
     match MuxString(rust_str.to_string()).to_float() {
@@ -149,9 +154,11 @@ pub extern "C" fn mux_string_to_float(s: *const c_char) -> *mut Value {
     }
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
+/// # Safety
+/// `a` and `b` must each be valid, NUL-terminated C strings that remain alive
+/// for the duration of this call.
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_string_concat(a: *const c_char, b: *const c_char) -> *mut c_char {
+pub unsafe extern "C" fn mux_string_concat(a: *const c_char, b: *const c_char) -> *mut c_char {
     let a_str = unsafe { CStr::from_ptr(a).to_string_lossy() };
     let b_str = unsafe { CStr::from_ptr(b).to_string_lossy() };
     let result = MuxString(a_str.to_string()).concat(&MuxString(b_str.to_string()));
@@ -161,9 +168,11 @@ pub extern "C" fn mux_string_concat(a: *const c_char, b: *const c_char) -> *mut 
     }
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
+/// # Safety
+/// `s` must be a valid, NUL-terminated C string that remains alive for the
+/// duration of this call.
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_string_length(s: *const c_char) -> i64 {
+pub unsafe extern "C" fn mux_string_length(s: *const c_char) -> i64 {
     let c_str = unsafe { CStr::from_ptr(s) };
     let rust_str = c_str.to_string_lossy();
     MuxString(rust_str.to_string()).length()
@@ -201,17 +210,21 @@ pub unsafe extern "C" fn mux_string_compare(a: *const c_char, b: *const c_char) 
     MuxString(left.to_string()).compare(&MuxString(right.to_string()))
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
+/// # Safety
+/// `s` must be a valid, NUL-terminated C string that remains alive for the
+/// duration of this call.
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_string_hash(s: *const c_char) -> i64 {
+pub unsafe extern "C" fn mux_string_hash(s: *const c_char) -> i64 {
     let c_str = unsafe { CStr::from_ptr(s) };
     let rust_str = c_str.to_string_lossy();
     MuxString(rust_str.to_string()).hash()
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
+/// # Safety
+/// `haystack` and `needle` must be valid, non-null `Value` pointers returned by
+/// `mux_rc_alloc` and live for the duration of this call.
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_string_contains(haystack: *const Value, needle: *const Value) -> bool {
+pub unsafe extern "C" fn mux_string_contains(haystack: *const Value, needle: *const Value) -> bool {
     unsafe {
         if let (Value::String(haystack_str), Value::String(needle_str)) = (&*haystack, &*needle) {
             haystack_str.contains(needle_str)
@@ -221,9 +234,11 @@ pub extern "C" fn mux_string_contains(haystack: *const Value, needle: *const Val
     }
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
+/// # Safety
+/// `haystack` must be a valid, non-null `Value` pointer returned by
+/// `mux_rc_alloc` and live for the duration of this call.
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_string_contains_char(haystack: *const Value, needle: i64) -> bool {
+pub unsafe extern "C" fn mux_string_contains_char(haystack: *const Value, needle: i64) -> bool {
     let haystack_str = unsafe {
         match &*haystack {
             Value::String(s) => s,
@@ -242,9 +257,11 @@ fn char_from_int(value: i64) -> Option<char> {
     u32::try_from(value).ok().and_then(char::from_u32)
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
+/// # Safety
+/// `s` must be a valid, NUL-terminated C string that remains alive for the
+/// duration of this call.
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_string_to_string(s: *const c_char) -> *mut c_char {
+pub unsafe extern "C" fn mux_string_to_string(s: *const c_char) -> *mut c_char {
     let c_str = unsafe { CStr::from_ptr(s) };
     let rust_str = c_str.to_string_lossy();
     match std::ffi::CString::new(rust_str.as_ref()) {
@@ -258,9 +275,8 @@ pub extern "C" fn mux_string_to_string(s: *const c_char) -> *mut c_char {
 ///
 /// # Safety
 /// `s` must be a valid pointer or null. Does not take ownership of `s`.
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_new_string_from_cstr(s: *const c_char) -> *mut Value {
+pub unsafe extern "C" fn mux_new_string_from_cstr(s: *const c_char) -> *mut Value {
     if s.is_null() {
         return std::ptr::null_mut();
     }
@@ -277,9 +293,8 @@ pub extern "C" fn mux_new_string_from_cstr(s: *const c_char) -> *mut Value {
 /// # Safety
 /// `s` must be a valid pointer returned by a runtime function's `CString::into_raw()` call,
 /// or null. This function takes ownership and will free the memory.
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_new_string_from_owned_cstr(s: *mut c_char) -> *mut Value {
+pub unsafe extern "C" fn mux_new_string_from_owned_cstr(s: *mut c_char) -> *mut Value {
     if s.is_null() {
         return std::ptr::null_mut();
     }
@@ -301,9 +316,11 @@ pub extern "C" fn mux_new_string_from_owned_cstr(s: *mut c_char) -> *mut Value {
 
 /// Compare two C strings for equality
 /// Returns 1 if equal, 0 if not equal
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
+/// # Safety
+/// `a` and `b` must each be null or valid, NUL-terminated C strings that
+/// remain alive for the duration of this call.
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_string_equal(a: *const c_char, b: *const c_char) -> i32 {
+pub unsafe extern "C" fn mux_string_equal(a: *const c_char, b: *const c_char) -> i32 {
     if a.is_null() || b.is_null() {
         return i32::from(a == b);
     }
@@ -316,17 +333,21 @@ pub extern "C" fn mux_string_equal(a: *const c_char, b: *const c_char) -> i32 {
 
 /// Compare two C strings for inequality
 /// Returns 1 if not equal, 0 if equal
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
+/// # Safety
+/// `a` and `b` must each be null or valid, NUL-terminated C strings that
+/// remain alive for the duration of this call.
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_string_not_equal(a: *const c_char, b: *const c_char) -> i32 {
-    i32::from(mux_string_equal(a, b) != 1)
+pub unsafe extern "C" fn mux_string_not_equal(a: *const c_char, b: *const c_char) -> i32 {
+    i32::from(unsafe { mux_string_equal(a, b) } != 1)
 }
 
 /// Convert a string to a single character.
 /// Returns Result<char, str>. Fails if the string is not exactly one Unicode character.
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
+/// # Safety
+/// `s` must be a valid, NUL-terminated C string that remains alive for the
+/// duration of this call.
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_string_to_char(s: *const c_char) -> *mut Value {
+pub unsafe extern "C" fn mux_string_to_char(s: *const c_char) -> *mut Value {
     let c_str = unsafe { CStr::from_ptr(s) };
     let rust_str = c_str.to_string_lossy();
     let mut chars = rust_str.chars();
@@ -425,9 +446,11 @@ fn slice_bounds(count: usize, start: i64, end: i64) -> (usize, usize) {
     (from, to.max(from))
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
+/// # Safety
+/// `s` must be null or a valid, NUL-terminated C string that remains alive for
+/// the duration of this call.
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_string_char_at(s: *const c_char, index: i64) -> *mut Value {
+pub unsafe extern "C" fn mux_string_char_at(s: *const c_char, index: i64) -> *mut Value {
     if s.is_null() {
         return crate::optional::mux_optional_none();
     }
@@ -446,9 +469,11 @@ pub extern "C" fn mux_string_char_at(s: *const c_char, index: i64) -> *mut Value
 /// `mux_free_string`. A null input is treated as empty. Bounds are CHARACTER
 /// positions: negative counts from the end, out of range clamps, and a start at
 /// or past the end yields empty rather than reversing.
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
+/// # Safety
+/// `s` must be null or a valid, NUL-terminated C string that remains alive for
+/// the duration of this call.
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_string_slice(s: *const c_char, start: i64, end: i64) -> *mut c_char {
+pub unsafe extern "C" fn mux_string_slice(s: *const c_char, start: i64, end: i64) -> *mut c_char {
     let text = if s.is_null() {
         String::new()
     } else {
@@ -466,11 +491,13 @@ pub extern "C" fn mux_string_slice(s: *const c_char, start: i64, end: i64) -> *m
 /// `mux_rc_dec`. A null argument is treated as empty. An empty separator splits
 /// into single characters, which is what makes this the inverse of joining a
 /// character list.
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
+/// # Safety
+/// `s` and `sep` must each be null or valid, NUL-terminated C strings that
+/// remain alive for the duration of this call.
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_string_split(s: *const c_char, sep: *const c_char) -> *mut Value {
-    let text = borrowed_str(s);
-    let separator = borrowed_str(sep);
+pub unsafe extern "C" fn mux_string_split(s: *const c_char, sep: *const c_char) -> *mut Value {
+    let text = unsafe { borrowed_str(s) };
+    let separator = unsafe { borrowed_str(sep) };
 
     let parts: Vec<Value> = if separator.is_empty() {
         text.chars().map(|c| Value::String(c.to_string())).collect()
@@ -487,10 +514,12 @@ pub extern "C" fn mux_string_split(s: *const c_char, sep: *const c_char) -> *mut
 /// Borrows `s` and returns an OWNED list the caller releases with
 /// `mux_rc_dec`; a null input yields an empty list. This is what makes
 /// `for char c in s` work without the loop needing a string case of its own.
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
+/// # Safety
+/// `s` must be null or a valid, NUL-terminated C string that remains alive for
+/// the duration of this call.
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_string_to_list(s: *const c_char) -> *mut Value {
-    let text = borrowed_str(s);
+pub unsafe extern "C" fn mux_string_to_list(s: *const c_char) -> *mut Value {
+    let text = unsafe { borrowed_str(s) };
     let chars: Vec<Value> = text.chars().map(|c| Value::Int(c as i64)).collect();
     crate::refcount::mux_rc_alloc(Value::List(chars))
 }
@@ -500,10 +529,12 @@ pub extern "C" fn mux_string_to_list(s: *const c_char) -> *mut Value {
 /// Borrows `s` and returns an OWNED C string the caller frees with
 /// `mux_free_string`. A null input is treated as empty rather than
 /// dereferenced. Trims Unicode whitespace, not only ASCII.
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
+/// # Safety
+/// `s` must be null or a valid, NUL-terminated C string that remains alive for
+/// the duration of this call.
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_string_trim(s: *const c_char) -> *mut c_char {
-    owned_cstr(borrowed_str(s).trim().to_string())
+pub unsafe extern "C" fn mux_string_trim(s: *const c_char) -> *mut c_char {
+    owned_cstr(unsafe { borrowed_str(s) }.trim().to_string())
 }
 
 /// The text uppercased.
@@ -512,10 +543,12 @@ pub extern "C" fn mux_string_trim(s: *const c_char) -> *mut c_char {
 /// `mux_free_string`. A null input is treated as empty. Uses full Unicode
 /// case mapping, so the result may be LONGER than the input in characters -
 /// the German sharp s uppercases to two letters.
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
+/// # Safety
+/// `s` must be null or a valid, NUL-terminated C string that remains alive for
+/// the duration of this call.
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_string_to_upper(s: *const c_char) -> *mut c_char {
-    owned_cstr(borrowed_str(s).to_uppercase())
+pub unsafe extern "C" fn mux_string_to_upper(s: *const c_char) -> *mut c_char {
+    owned_cstr(unsafe { borrowed_str(s) }.to_uppercase())
 }
 
 /// The text lowercased.
@@ -523,10 +556,12 @@ pub extern "C" fn mux_string_to_upper(s: *const c_char) -> *mut c_char {
 /// Borrows `s` and returns an OWNED C string the caller frees with
 /// `mux_free_string`. A null input is treated as empty. Uses full Unicode case
 /// mapping, so the result may differ in length from the input.
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
+/// # Safety
+/// `s` must be null or a valid, NUL-terminated C string that remains alive for
+/// the duration of this call.
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_string_to_lower(s: *const c_char) -> *mut c_char {
-    owned_cstr(borrowed_str(s).to_lowercase())
+pub unsafe extern "C" fn mux_string_to_lower(s: *const c_char) -> *mut c_char {
+    owned_cstr(unsafe { borrowed_str(s) }.to_lowercase())
 }
 
 /// Whether `s` begins with `prefix`.
@@ -535,10 +570,12 @@ pub extern "C" fn mux_string_to_lower(s: *const c_char) -> *mut c_char {
 /// so an empty prefix is always a match. Compares by content, not by
 /// normalization form: two strings that render alike but differ in code points
 /// do not match.
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
+/// # Safety
+/// `s` and `prefix` must each be null or valid, NUL-terminated C strings that
+/// remain alive for the duration of this call.
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_string_starts_with(s: *const c_char, prefix: *const c_char) -> bool {
-    borrowed_str(s).starts_with(borrowed_str(prefix).as_str())
+pub unsafe extern "C" fn mux_string_starts_with(s: *const c_char, prefix: *const c_char) -> bool {
+    unsafe { borrowed_str(s) }.starts_with(unsafe { borrowed_str(prefix) }.as_str())
 }
 
 /// Whether `s` ends with `suffix`.
@@ -546,19 +583,23 @@ pub extern "C" fn mux_string_starts_with(s: *const c_char, prefix: *const c_char
 /// Borrows both and allocates nothing. Either being null is treated as empty,
 /// so an empty suffix is always a match. Compares by content, not by
 /// normalization form.
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
+/// # Safety
+/// `s` and `suffix` must each be null or valid, NUL-terminated C strings that
+/// remain alive for the duration of this call.
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_string_ends_with(s: *const c_char, suffix: *const c_char) -> bool {
-    borrowed_str(s).ends_with(borrowed_str(suffix).as_str())
+pub unsafe extern "C" fn mux_string_ends_with(s: *const c_char, suffix: *const c_char) -> bool {
+    unsafe { borrowed_str(s) }.ends_with(unsafe { borrowed_str(suffix) }.as_str())
 }
 
 /// First CHARACTER index of `needle`, or -1. Rust's `find` returns a byte
 /// offset, which would disagree with every other position in this module.
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
+/// # Safety
+/// `s` and `needle` must each be null or valid, NUL-terminated C strings that
+/// remain alive for the duration of this call.
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_string_index_of(s: *const c_char, needle: *const c_char) -> i64 {
-    let text = borrowed_str(s);
-    let pat = borrowed_str(needle);
+pub unsafe extern "C" fn mux_string_index_of(s: *const c_char, needle: *const c_char) -> i64 {
+    let text = unsafe { borrowed_str(s) };
+    let pat = unsafe { borrowed_str(needle) };
     match text.find(pat.as_str()) {
         Some(byte_offset) => text[..byte_offset].chars().count() as i64,
         None => -1,
@@ -571,25 +612,30 @@ pub extern "C" fn mux_string_index_of(s: *const c_char, needle: *const c_char) -
 /// `mux_free_string`. A null argument is treated as empty. An empty `from`
 /// returns the text unchanged rather than inserting `to` between every
 /// character, which is never what a caller means.
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
+/// # Safety
+/// `s`, `from`, and `to` must each be null or valid, NUL-terminated C strings
+/// that remain alive for the duration of this call.
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_string_replace(
+pub unsafe extern "C" fn mux_string_replace(
     s: *const c_char,
     from: *const c_char,
     to: *const c_char,
 ) -> *mut c_char {
-    let text = borrowed_str(s);
-    let needle = borrowed_str(from);
+    let text = unsafe { borrowed_str(s) };
+    let needle = unsafe { borrowed_str(from) };
     // Replacing an empty pattern inserts between every character, which is
     // never what a caller means; return the text unchanged instead.
     if needle.is_empty() {
         return owned_cstr(text);
     }
-    owned_cstr(text.replace(needle.as_str(), borrowed_str(to).as_str()))
+    owned_cstr(text.replace(needle.as_str(), unsafe { borrowed_str(to) }.as_str()))
 }
 
 /// Read a borrowed C string, treating null as empty.
-fn borrowed_str(s: *const c_char) -> String {
+///
+/// # Safety
+/// A non-null `s` must point to a valid, NUL-terminated C string.
+unsafe fn borrowed_str(s: *const c_char) -> String {
     if s.is_null() {
         return String::new();
     }

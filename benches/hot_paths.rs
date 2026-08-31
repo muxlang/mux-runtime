@@ -266,25 +266,25 @@ fn bench_string(c: &mut Criterion) {
 
     group.bench_function("alloc_free", |b| {
         b.iter(|| {
-            let v = mux_new_string_from_cstr(black_box(text.as_ptr()));
+            let v = unsafe { mux_new_string_from_cstr(black_box(text.as_ptr())) };
             unsafe { mux_rc_dec(v) };
         });
     });
     group.bench_function("concat", |b| {
         b.iter(|| {
-            let s = mux_string_concat(black_box(text.as_ptr()), black_box(other.as_ptr()));
+            let s =
+                unsafe { mux_string_concat(black_box(text.as_ptr()), black_box(other.as_ptr())) };
             mux_free_string(s);
         });
     });
     group.bench_function("length", |b| {
-        b.iter(|| black_box(mux_string_length(black_box(text.as_ptr()))));
+        b.iter(|| black_box(unsafe { mux_string_length(black_box(text.as_ptr())) }));
     });
     group.bench_function("equal", |b| {
         b.iter(|| {
-            black_box(mux_string_equal(
-                black_box(text.as_ptr()),
-                black_box(other.as_ptr()),
-            ))
+            black_box(unsafe {
+                mux_string_equal(black_box(text.as_ptr()), black_box(other.as_ptr()))
+            })
         });
     });
     group.finish();
