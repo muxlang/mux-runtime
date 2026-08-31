@@ -80,6 +80,7 @@ fn optional_extern_remainder() {
     assert!(unsafe { mux_rc_dec(data) });
     // identity pass-through
     assert_eq!(mux_optional_into_value(some), some);
+    assert!(mux_optional_into_value(std::ptr::null_mut()).is_null());
     assert_eq!(
         read_cstr(unsafe { mux_optional_to_string(some) }),
         "Some(3)"

@@ -162,9 +162,12 @@ pub unsafe extern "C" fn mux_value_optional_discriminant(val: *mut Value) -> i32
     }
 }
 
-/// Identity function: `*mut Value` that is already a `Value::Optional` passes through unchanged.
-/// Exists for ABI compatibility with older generated code.
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
+/// Return an optional value pointer unchanged for ABI compatibility.
+///
+/// This function deliberately does not inspect, retain, release, or otherwise
+/// access `val`. It is therefore safe for callers to pass null or another
+/// pointer they intend to validate or consume elsewhere; ownership remains
+/// with the caller and is unchanged by this call.
 #[unsafe(no_mangle)]
 pub extern "C" fn mux_optional_into_value(val: *mut Value) -> *mut Value {
     val
