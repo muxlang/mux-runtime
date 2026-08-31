@@ -281,9 +281,15 @@ pub unsafe extern "C" fn mux_value_list_slice(
 ) -> *mut Value {
     let val = unsafe { &*val };
     if let Value::List(vec) = val {
-        let len = vec.len() as i64;
-        let s = start.max(0) as usize;
-        let e = end.min(len) as usize;
+        // Convert and clamp in `usize` so negative bounds cannot wrap to a
+        // huge index, and large positive i64 values cannot truncate on 32-bit
+        // targets.
+        let s = usize::try_from(start.max(0))
+            .unwrap_or(usize::MAX)
+            .min(vec.len());
+        let e = usize::try_from(end.max(0))
+            .unwrap_or(usize::MAX)
+            .min(vec.len());
         let sliced = if s < e {
             vec[s..e].to_vec()
         } else {
