@@ -43,9 +43,11 @@ pub fn close_file(_file: File) {
     // File closes on drop
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
+/// # Safety
+/// `s` must be null or a valid, NUL-terminated C string that remains alive for
+/// the duration of this call.
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_value_from_string(s: *const c_char) -> *mut crate::Value {
+pub unsafe extern "C" fn mux_value_from_string(s: *const c_char) -> *mut crate::Value {
     if s.is_null() {
         return std::ptr::null_mut();
     }
@@ -55,9 +57,11 @@ pub extern "C" fn mux_value_from_string(s: *const c_char) -> *mut crate::Value {
     crate::refcount::mux_rc_alloc(value)
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
+/// # Safety
+/// `s` must be null or a valid, NUL-terminated C string that remains alive for
+/// the duration of this call.
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_print_cstr(s: *const c_char) {
+pub unsafe extern "C" fn mux_print_cstr(s: *const c_char) {
     if s.is_null() {
         return;
     }
@@ -66,9 +70,10 @@ pub extern "C" fn mux_print_cstr(s: *const c_char) {
     let _ = std::io::Write::flush(&mut std::io::stdout());
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
+/// # Safety
+/// `val` must be a valid, live `Value` pointer returned by `mux_rc_alloc`.
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_print(val: *mut Value) {
+pub unsafe extern "C" fn mux_print(val: *mut Value) {
     let val = unsafe { &*val };
     println!("{val}");
 }
@@ -102,9 +107,11 @@ pub extern "C" fn mux_read_int() -> i64 {
     }
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
+/// # Safety
+/// `path` must be null or a valid, NUL-terminated C string that remains alive
+/// for the duration of this call.
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_open_file(path: *const c_char) -> *mut MuxFile {
+pub unsafe extern "C" fn mux_open_file(path: *const c_char) -> *mut MuxFile {
     if path.is_null() {
         return std::ptr::null_mut();
     }
@@ -116,9 +123,11 @@ pub extern "C" fn mux_open_file(path: *const c_char) -> *mut MuxFile {
     }
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
+/// # Safety
+/// `file` must be a valid file handle returned by `mux_open_file` that has not
+/// already been closed.
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_read_file(file: *mut MuxFile) -> *mut c_char {
+pub unsafe extern "C" fn mux_read_file(file: *mut MuxFile) -> *mut c_char {
     let mut contents = String::new();
     match unsafe { (*file).0.read_to_string(&mut contents) } {
         Ok(_) => match CString::new(contents) {
@@ -129,9 +138,12 @@ pub extern "C" fn mux_read_file(file: *mut MuxFile) -> *mut c_char {
     }
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
+/// # Safety
+/// `file` must be a valid file handle returned by `mux_open_file` that has not
+/// already been closed. `content` must be null or a valid, NUL-terminated C
+/// string that remains alive for the duration of this call.
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_write_file(file: *mut MuxFile, content: *const c_char) -> bool {
+pub unsafe extern "C" fn mux_write_file(file: *mut MuxFile, content: *const c_char) -> bool {
     if content.is_null() {
         return false;
     }
@@ -140,9 +152,11 @@ pub extern "C" fn mux_write_file(file: *mut MuxFile, content: *const c_char) -> 
     unsafe { (*file).0.write_all(content_str.as_bytes()).is_ok() }
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
+/// # Safety
+/// `file` must be null or a valid file handle returned by `mux_open_file` that
+/// has not already been closed. A non-null handle is consumed by this call.
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_close_file(file: *mut MuxFile) {
+pub unsafe extern "C" fn mux_close_file(file: *mut MuxFile) {
     if !file.is_null() {
         unsafe {
             drop(Box::from_raw(file));
@@ -163,9 +177,11 @@ fn io_err(msg: String) -> *mut Value {
 // ============================================================================
 
 /// Read file contents at path. Returns Result<string, string>
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
+/// # Safety
+/// `path` must be null or a valid, NUL-terminated C string that remains alive
+/// for the duration of this call.
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_io_read_file(path: *const c_char) -> *mut Value {
+pub unsafe extern "C" fn mux_io_read_file(path: *const c_char) -> *mut Value {
     if path.is_null() {
         return io_err("path is null".to_string());
     }
@@ -179,9 +195,14 @@ pub extern "C" fn mux_io_read_file(path: *const c_char) -> *mut Value {
 }
 
 /// Write content to file at path. Returns Result<void, string>
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
+/// # Safety
+/// `path` and `content` must each be null or valid, NUL-terminated C strings
+/// that remain alive for the duration of this call.
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_io_write_file(path: *const c_char, content: *const c_char) -> *mut Value {
+pub unsafe extern "C" fn mux_io_write_file(
+    path: *const c_char,
+    content: *const c_char,
+) -> *mut Value {
     if path.is_null() || content.is_null() {
         return io_err("path or content is null".to_string());
     }
@@ -195,9 +216,11 @@ pub extern "C" fn mux_io_write_file(path: *const c_char, content: *const c_char)
 }
 
 /// Check if path exists. Returns Result<bool, string>
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
+/// # Safety
+/// `path` must be null or a valid, NUL-terminated C string that remains alive
+/// for the duration of this call.
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_io_exists(path: *const c_char) -> *mut Value {
+pub unsafe extern "C" fn mux_io_exists(path: *const c_char) -> *mut Value {
     if path.is_null() {
         return io_err("path is null".to_string());
     }
@@ -206,9 +229,11 @@ pub extern "C" fn mux_io_exists(path: *const c_char) -> *mut Value {
 }
 
 /// Remove file at path. Returns Result<void, string>
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
+/// # Safety
+/// `path` must be null or a valid, NUL-terminated C string that remains alive
+/// for the duration of this call.
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_io_remove(path: *const c_char) -> *mut Value {
+pub unsafe extern "C" fn mux_io_remove(path: *const c_char) -> *mut Value {
     if path.is_null() {
         return io_err("path is null".to_string());
     }
@@ -221,9 +246,11 @@ pub extern "C" fn mux_io_remove(path: *const c_char) -> *mut Value {
 }
 
 /// Check if path is a file. Returns Result<bool, string>
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
+/// # Safety
+/// `path` must be null or a valid, NUL-terminated C string that remains alive
+/// for the duration of this call.
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_io_is_file(path: *const c_char) -> *mut Value {
+pub unsafe extern "C" fn mux_io_is_file(path: *const c_char) -> *mut Value {
     if path.is_null() {
         return io_err("path is null".to_string());
     }
@@ -232,9 +259,11 @@ pub extern "C" fn mux_io_is_file(path: *const c_char) -> *mut Value {
 }
 
 /// Check if path is a directory. Returns Result<bool, string>
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
+/// # Safety
+/// `path` must be null or a valid, NUL-terminated C string that remains alive
+/// for the duration of this call.
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_io_is_dir(path: *const c_char) -> *mut Value {
+pub unsafe extern "C" fn mux_io_is_dir(path: *const c_char) -> *mut Value {
     if path.is_null() {
         return io_err("path is null".to_string());
     }
@@ -247,9 +276,11 @@ pub extern "C" fn mux_io_is_dir(path: *const c_char) -> *mut Value {
 // ============================================================================
 
 /// Create directory at path. Returns Result<void, string>
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
+/// # Safety
+/// `path` must be null or a valid, NUL-terminated C string that remains alive
+/// for the duration of this call.
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_io_mkdir(path: *const c_char) -> *mut Value {
+pub unsafe extern "C" fn mux_io_mkdir(path: *const c_char) -> *mut Value {
     if path.is_null() {
         return io_err("path is null".to_string());
     }
@@ -262,9 +293,11 @@ pub extern "C" fn mux_io_mkdir(path: *const c_char) -> *mut Value {
 }
 
 /// List directory contents. Returns `Result<list<string>, string>`.
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
+/// # Safety
+/// `path` must be null or a valid, NUL-terminated C string that remains alive
+/// for the duration of this call.
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_io_listdir(path: *const c_char) -> *mut Value {
+pub unsafe extern "C" fn mux_io_listdir(path: *const c_char) -> *mut Value {
     if path.is_null() {
         return io_err("path is null".to_string());
     }
@@ -289,9 +322,11 @@ pub extern "C" fn mux_io_listdir(path: *const c_char) -> *mut Value {
 // ============================================================================
 
 /// Join two path components. Returns Result<string, string>
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
+/// # Safety
+/// `path1` and `path2` must each be null or valid, NUL-terminated C strings
+/// that remain alive for the duration of this call.
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_io_join(path1: *const c_char, path2: *const c_char) -> *mut Value {
+pub unsafe extern "C" fn mux_io_join(path1: *const c_char, path2: *const c_char) -> *mut Value {
     if path1.is_null() || path2.is_null() {
         return io_err("path1 or path2 is null".to_string());
     }
@@ -306,9 +341,11 @@ pub extern "C" fn mux_io_join(path1: *const c_char, path2: *const c_char) -> *mu
 }
 
 /// Get base name of path. Returns Result<string, string>
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
+/// # Safety
+/// `path` must be null or a valid, NUL-terminated C string that remains alive
+/// for the duration of this call.
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_io_basename(path: *const c_char) -> *mut Value {
+pub unsafe extern "C" fn mux_io_basename(path: *const c_char) -> *mut Value {
     if path.is_null() {
         return io_err("path is null".to_string());
     }
@@ -323,9 +360,11 @@ pub extern "C" fn mux_io_basename(path: *const c_char) -> *mut Value {
 }
 
 /// Get directory name of path. Returns Result<string, string>
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
+/// # Safety
+/// `path` must be null or a valid, NUL-terminated C string that remains alive
+/// for the duration of this call.
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_io_dirname(path: *const c_char) -> *mut Value {
+pub unsafe extern "C" fn mux_io_dirname(path: *const c_char) -> *mut Value {
     if path.is_null() {
         return io_err("path is null".to_string());
     }
