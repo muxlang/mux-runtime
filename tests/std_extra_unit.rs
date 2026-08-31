@@ -14,11 +14,11 @@ use mux_runtime::Value;
 fn some_none_ok_err_wrappers() {
     let i = mux_int_value(1);
     let some = mux_some(i);
-    assert!(mux_optional_is_some(some));
+    assert!(unsafe { mux_optional_is_some(some) });
     assert!(unsafe { mux_rc_dec(some) });
 
     let none = mux_none();
-    assert!(mux_optional_is_none(none));
+    assert!(unsafe { mux_optional_is_none(none) });
     assert!(unsafe { mux_rc_dec(none) });
 
     let ok = mux_ok(i);
@@ -73,8 +73,8 @@ fn value_map_get_value_reads_without_cloning_whole_map() {
     // Present key -> Some(value).
     let key = mux_rc_alloc(Value::String("k".into()));
     let hit = mux_value_map_get_value(map_val, key);
-    assert!(mux_optional_is_some(hit));
-    let inner = mux_optional_get_value(hit);
+    assert!(unsafe { mux_optional_is_some(hit) });
+    let inner = unsafe { mux_optional_get_value(hit) };
     assert_eq!(mux_value_get_int(inner), 42);
     assert!(unsafe { mux_rc_dec(inner) });
     assert!(unsafe { mux_rc_dec(hit) });
@@ -83,7 +83,7 @@ fn value_map_get_value_reads_without_cloning_whole_map() {
     // Missing key -> None.
     let missing = mux_rc_alloc(Value::String("nope".into()));
     let miss = mux_value_map_get_value(map_val, missing);
-    assert!(mux_optional_is_none(miss));
+    assert!(unsafe { mux_optional_is_none(miss) });
     assert!(unsafe { mux_rc_dec(miss) });
     assert!(unsafe { mux_rc_dec(missing) });
 
@@ -91,7 +91,7 @@ fn value_map_get_value_reads_without_cloning_whole_map() {
     let not_a_map = mux_int_value(0);
     let probe_key = mux_rc_alloc(Value::Int(1));
     let none = mux_value_map_get_value(not_a_map, probe_key);
-    assert!(mux_optional_is_none(none));
+    assert!(unsafe { mux_optional_is_none(none) });
     assert!(unsafe { mux_rc_dec(none) });
     assert!(unsafe { mux_rc_dec(probe_key) });
     assert!(unsafe { mux_rc_dec(not_a_map) });
@@ -127,15 +127,15 @@ fn env_access() {
     // A variable we set is visible.
     std::env::set_var("MUX_TEST_ENV_VAR", "present");
     let got = mux_env_get(CString::new("MUX_TEST_ENV_VAR").unwrap().as_ptr());
-    assert!(mux_optional_is_some(got));
+    assert!(unsafe { mux_optional_is_some(got) });
     assert!(unsafe { mux_rc_dec(got) });
 
     let missing = mux_env_get(CString::new("MUX_DEFINITELY_UNSET_XYZ").unwrap().as_ptr());
-    assert!(mux_optional_is_none(missing));
+    assert!(unsafe { mux_optional_is_none(missing) });
     assert!(unsafe { mux_rc_dec(missing) });
 
     let null_key = mux_env_get(std::ptr::null());
-    assert!(mux_optional_is_none(null_key));
+    assert!(unsafe { mux_optional_is_none(null_key) });
     assert!(unsafe { mux_rc_dec(null_key) });
 }
 

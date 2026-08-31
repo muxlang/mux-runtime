@@ -29,18 +29,20 @@ impl fmt::Display for Optional {
     }
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
+/// # Safety
+/// `val` must be null or a live `Value` pointer returned by `mux_rc_alloc`.
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_optional_is_some(val: *mut Value) -> bool {
+pub unsafe extern "C" fn mux_optional_is_some(val: *mut Value) -> bool {
     if val.is_null() {
         return false;
     }
     unsafe { matches!(&*val, Value::Optional(Some(_))) }
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
+/// # Safety
+/// `val` must be null or a live `Value` pointer returned by `mux_rc_alloc`.
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_optional_is_none(val: *mut Value) -> bool {
+pub unsafe extern "C" fn mux_optional_is_none(val: *mut Value) -> bool {
     if val.is_null() {
         return false;
     }
@@ -49,9 +51,11 @@ pub extern "C" fn mux_optional_is_none(val: *mut Value) -> bool {
 
 /// Returns a new `*mut Value` containing the inner value of a `Value::Optional(Some(...))`.
 /// Returns null if the optional is None or the pointer is null.
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
+///
+/// # Safety
+/// `val` must be null or a live `Value` pointer returned by `mux_rc_alloc`.
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_optional_get_value(val: *mut Value) -> *mut Value {
+pub unsafe extern "C" fn mux_optional_get_value(val: *mut Value) -> *mut Value {
     if val.is_null() {
         return std::ptr::null_mut();
     }
@@ -63,10 +67,11 @@ pub extern "C" fn mux_optional_get_value(val: *mut Value) -> *mut Value {
     }
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
+/// # Safety
+/// `val` must be null or a live `Value` pointer returned by `mux_rc_alloc`.
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_optional_data(val: *mut Value) -> *mut Value {
-    mux_optional_get_value(val)
+pub unsafe extern "C" fn mux_optional_data(val: *mut Value) -> *mut Value {
+    unsafe { mux_optional_get_value(val) }
 }
 
 #[unsafe(no_mangle)]
@@ -92,15 +97,17 @@ pub extern "C" fn mux_optional_some_char(val: i64) -> *mut Value {
     mux_rc_alloc(Value::Optional(Some(Box::new(Value::Int(val)))))
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
+/// # Safety
+/// `val` must be null or a live `Value` pointer returned by `mux_rc_alloc`.
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_optional_some_string(val: *mut Value) -> *mut Value {
-    mux_optional_some_value(val)
+pub unsafe extern "C" fn mux_optional_some_string(val: *mut Value) -> *mut Value {
+    unsafe { mux_optional_some_value(val) }
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
+/// # Safety
+/// `val` must be null or a live `Value` pointer returned by `mux_rc_alloc`.
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_optional_some_value(val: *mut Value) -> *mut Value {
+pub unsafe extern "C" fn mux_optional_some_value(val: *mut Value) -> *mut Value {
     if val.is_null() {
         return mux_rc_alloc(Value::Optional(None));
     }
@@ -115,9 +122,10 @@ pub extern "C" fn mux_optional_none() -> *mut Value {
     mux_rc_alloc(Value::Optional(None))
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
+/// # Safety
+/// `val` must be null or a live `Value` pointer returned by `mux_rc_alloc`.
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_optional_to_string(val: *const Value) -> *mut std::ffi::c_char {
+pub unsafe extern "C" fn mux_optional_to_string(val: *const Value) -> *mut std::ffi::c_char {
     use std::ffi::CString;
     if val.is_null() {
         return match CString::new("null".to_string()) {
@@ -138,9 +146,10 @@ pub extern "C" fn mux_optional_to_string(val: *const Value) -> *mut std::ffi::c_
     }
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
+/// # Safety
+/// `val` must be null or a live `Value` pointer returned by `mux_rc_alloc`.
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_value_optional_discriminant(val: *mut Value) -> i32 {
+pub unsafe extern "C" fn mux_value_optional_discriminant(val: *mut Value) -> i32 {
     if val.is_null() {
         return -1;
     }
