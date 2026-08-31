@@ -865,18 +865,22 @@ fn execute_http_request(request: *const Value) -> Result<Value, String> {
     read_http_response(response)
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_net_http_request(request: *const Value) -> *mut Value {
+/// # Safety
+/// `request` must be null or a valid, live `Value` pointer returned by
+/// `mux_rc_alloc` for the duration of this call.
+pub unsafe extern "C" fn mux_net_http_request(request: *const Value) -> *mut Value {
     match execute_http_request(request) {
         Ok(value) => net_result_ok(value),
         Err(err) => net_result_err(err),
     }
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_net_tcp_listener_bind(addr: *mut Value) -> *mut Value {
+/// # Safety
+/// `addr` must be null or a valid, live string `Value` pointer returned by
+/// `mux_rc_alloc` for the duration of this call.
+pub unsafe extern "C" fn mux_net_tcp_listener_bind(addr: *mut Value) -> *mut Value {
     match value_to_string(addr).and_then(|address| {
         StdTcpListener::bind(address).map_err(|e| format!("tcp listener bind failed: {e}"))
     }) {
@@ -888,9 +892,11 @@ pub extern "C" fn mux_net_tcp_listener_bind(addr: *mut Value) -> *mut Value {
     }
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_net_tcp_listener_accept(listener: *mut Value) -> *mut Value {
+/// # Safety
+/// `listener` must be null or a valid, live listener `Value` pointer returned
+/// by `mux_rc_alloc` for the duration of this call.
+pub unsafe extern "C" fn mux_net_tcp_listener_accept(listener: *mut Value) -> *mut Value {
     let handle = match tcp_listener_handle(listener) {
         Ok(handle) => handle,
         Err(err) => return net_result_err(err),
@@ -909,9 +915,11 @@ pub extern "C" fn mux_net_tcp_listener_accept(listener: *mut Value) -> *mut Valu
     }
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_net_tcp_listener_set_nonblocking(
+/// # Safety
+/// `listener` must be null or a valid, live listener `Value` pointer returned
+/// by `mux_rc_alloc` for the duration of this call.
+pub unsafe extern "C" fn mux_net_tcp_listener_set_nonblocking(
     listener: *mut Value,
     enabled: i32,
 ) -> *mut Value {
@@ -926,9 +934,11 @@ pub extern "C" fn mux_net_tcp_listener_set_nonblocking(
     }))
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_net_tcp_listener_local_addr(listener: *mut Value) -> *mut Value {
+/// # Safety
+/// `listener` must be null or a valid, live listener `Value` pointer returned
+/// by `mux_rc_alloc` for the duration of this call.
+pub unsafe extern "C" fn mux_net_tcp_listener_local_addr(listener: *mut Value) -> *mut Value {
     let result = tcp_listener_handle(listener).and_then(|handle| {
         with_tcp_listener(handle, |socket| {
             socket
@@ -940,18 +950,22 @@ pub extern "C" fn mux_net_tcp_listener_local_addr(listener: *mut Value) -> *mut 
     net_result_string(result)
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_net_tcp_listener_close(listener: *mut Value) {
+/// # Safety
+/// `listener` must be null or a valid, live listener `Value` pointer returned
+/// by `mux_rc_alloc`. The handle is closed and invalidated by this call.
+pub unsafe extern "C" fn mux_net_tcp_listener_close(listener: *mut Value) {
     if let Ok(handle) = tcp_listener_handle(listener) {
         remove_tcp_listener(handle);
         write_handle(listener, 0);
     }
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_net_http_read_request(stream: *mut Value) -> *mut Value {
+/// # Safety
+/// `stream` must be null or a valid, live stream `Value` pointer returned by
+/// `mux_rc_alloc` for the duration of this call.
+pub unsafe extern "C" fn mux_net_http_read_request(stream: *mut Value) -> *mut Value {
     let handle = match tcp_handle(stream) {
         Ok(handle) => handle,
         Err(err) => return net_result_err(err),
@@ -964,9 +978,11 @@ pub extern "C" fn mux_net_http_read_request(stream: *mut Value) -> *mut Value {
     }
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_net_http_write_response(
+/// # Safety
+/// `stream` and `response` must be null or valid, live `Value` pointers
+/// returned by `mux_rc_alloc` for the duration of this call.
+pub unsafe extern "C" fn mux_net_http_write_response(
     stream: *mut Value,
     response: *mut Value,
 ) -> *mut Value {
@@ -986,9 +1002,11 @@ pub extern "C" fn mux_net_http_write_response(
     net_result_unit(result)
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_net_tcp_connect(addr: *mut Value) -> *mut Value {
+/// # Safety
+/// `addr` must be null or a valid, live string `Value` pointer returned by
+/// `mux_rc_alloc` for the duration of this call.
+pub unsafe extern "C" fn mux_net_tcp_connect(addr: *mut Value) -> *mut Value {
     match value_to_string(addr).and_then(|address| {
         StdTcpStream::connect(address).map_err(|e| format!("failed to connect: {e}"))
     }) {
@@ -1000,9 +1018,11 @@ pub extern "C" fn mux_net_tcp_connect(addr: *mut Value) -> *mut Value {
     }
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_net_tcp_read(stream: *mut Value, size: i64) -> *mut Value {
+/// # Safety
+/// `stream` must be null or a valid, live stream `Value` pointer returned by
+/// `mux_rc_alloc` for the duration of this call.
+pub unsafe extern "C" fn mux_net_tcp_read(stream: *mut Value, size: i64) -> *mut Value {
     let size = match socket_read_size(size) {
         Ok(size) => size,
         Err(err) => return net_result_err(err),
@@ -1031,9 +1051,11 @@ pub extern "C" fn mux_net_tcp_read(stream: *mut Value, size: i64) -> *mut Value 
     }
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_net_tcp_write(stream: *mut Value, data: *mut Value) -> *mut Value {
+/// # Safety
+/// `stream` and `data` must be null or valid, live `Value` pointers returned by
+/// `mux_rc_alloc` for the duration of this call.
+pub unsafe extern "C" fn mux_net_tcp_write(stream: *mut Value, data: *mut Value) -> *mut Value {
     let handle = match tcp_handle(stream) {
         Ok(handle) => handle,
         Err(err) => return net_result_err(err),
@@ -1056,18 +1078,25 @@ pub extern "C" fn mux_net_tcp_write(stream: *mut Value, data: *mut Value) -> *mu
     }
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_net_tcp_close(stream: *mut Value) {
+/// # Safety
+/// `stream` must be null or a valid, live stream `Value` pointer returned by
+/// `mux_rc_alloc`. The handle is closed and invalidated by this call.
+pub unsafe extern "C" fn mux_net_tcp_close(stream: *mut Value) {
     if let Ok(handle) = tcp_handle(stream) {
         remove_tcp_stream(handle);
         write_handle(stream, 0);
     }
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_net_tcp_set_nonblocking(stream: *mut Value, enabled: i32) -> *mut Value {
+/// # Safety
+/// `stream` must be null or a valid, live stream `Value` pointer returned by
+/// `mux_rc_alloc` for the duration of this call.
+pub unsafe extern "C" fn mux_net_tcp_set_nonblocking(
+    stream: *mut Value,
+    enabled: i32,
+) -> *mut Value {
     let handle = match tcp_handle(stream) {
         Ok(handle) => handle,
         Err(err) => return net_result_err(err),
@@ -1079,9 +1108,11 @@ pub extern "C" fn mux_net_tcp_set_nonblocking(stream: *mut Value, enabled: i32) 
     }))
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_net_tcp_peer_addr(stream: *mut Value) -> *mut Value {
+/// # Safety
+/// `stream` must be null or a valid, live stream `Value` pointer returned by
+/// `mux_rc_alloc` for the duration of this call.
+pub unsafe extern "C" fn mux_net_tcp_peer_addr(stream: *mut Value) -> *mut Value {
     let result = tcp_handle(stream).and_then(|handle| {
         with_tcp_stream(handle, |socket| {
             socket
@@ -1093,9 +1124,11 @@ pub extern "C" fn mux_net_tcp_peer_addr(stream: *mut Value) -> *mut Value {
     net_result_string(result)
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_net_tcp_local_addr(stream: *mut Value) -> *mut Value {
+/// # Safety
+/// `stream` must be null or a valid, live stream `Value` pointer returned by
+/// `mux_rc_alloc` for the duration of this call.
+pub unsafe extern "C" fn mux_net_tcp_local_addr(stream: *mut Value) -> *mut Value {
     let result = tcp_handle(stream).and_then(|handle| {
         with_tcp_stream(handle, |socket| {
             socket
@@ -1107,9 +1140,11 @@ pub extern "C" fn mux_net_tcp_local_addr(stream: *mut Value) -> *mut Value {
     net_result_string(result)
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_net_udp_bind(addr: *mut Value) -> *mut Value {
+/// # Safety
+/// `addr` must be null or a valid, live string `Value` pointer returned by
+/// `mux_rc_alloc` for the duration of this call.
+pub unsafe extern "C" fn mux_net_udp_bind(addr: *mut Value) -> *mut Value {
     match value_to_string(addr).and_then(|address| {
         StdUdpSocket::bind(address).map_err(|e| format!("udp bind failed: {e}"))
     }) {
@@ -1121,9 +1156,11 @@ pub extern "C" fn mux_net_udp_bind(addr: *mut Value) -> *mut Value {
     }
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_net_udp_send_to(
+/// # Safety
+/// `socket`, `data`, and `addr` must be null or valid, live `Value` pointers
+/// returned by `mux_rc_alloc` for the duration of this call.
+pub unsafe extern "C" fn mux_net_udp_send_to(
     socket: *mut Value,
     data: *mut Value,
     addr: *mut Value,
@@ -1152,9 +1189,11 @@ pub extern "C" fn mux_net_udp_send_to(
     }
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_net_udp_recv_from(socket: *mut Value, size: i64) -> *mut Value {
+/// # Safety
+/// `socket` must be null or a valid, live socket `Value` pointer returned by
+/// `mux_rc_alloc` for the duration of this call.
+pub unsafe extern "C" fn mux_net_udp_recv_from(socket: *mut Value, size: i64) -> *mut Value {
     let size = match socket_read_size(size) {
         Ok(size) => size,
         Err(err) => return net_result_err(err),
@@ -1176,18 +1215,25 @@ pub extern "C" fn mux_net_udp_recv_from(socket: *mut Value, size: i64) -> *mut V
     }
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_net_udp_close(socket: *mut Value) {
+/// # Safety
+/// `socket` must be null or a valid, live socket `Value` pointer returned by
+/// `mux_rc_alloc`. The handle is closed and invalidated by this call.
+pub unsafe extern "C" fn mux_net_udp_close(socket: *mut Value) {
     if let Ok(handle) = udp_handle(socket) {
         remove_udp_socket(handle);
         write_handle(socket, 0);
     }
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_net_udp_set_nonblocking(socket: *mut Value, enabled: i32) -> *mut Value {
+/// # Safety
+/// `socket` must be null or a valid, live socket `Value` pointer returned by
+/// `mux_rc_alloc` for the duration of this call.
+pub unsafe extern "C" fn mux_net_udp_set_nonblocking(
+    socket: *mut Value,
+    enabled: i32,
+) -> *mut Value {
     let handle = match udp_handle(socket) {
         Ok(handle) => handle,
         Err(err) => return net_result_err(err),
@@ -1198,9 +1244,11 @@ pub extern "C" fn mux_net_udp_set_nonblocking(socket: *mut Value, enabled: i32) 
     }))
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_net_udp_peer_addr(socket: *mut Value) -> *mut Value {
+/// # Safety
+/// `socket` must be null or a valid, live socket `Value` pointer returned by
+/// `mux_rc_alloc` for the duration of this call.
+pub unsafe extern "C" fn mux_net_udp_peer_addr(socket: *mut Value) -> *mut Value {
     let result = udp_handle(socket).and_then(|handle| {
         with_udp_socket(handle, |sock| {
             sock.peer_addr()
@@ -1211,9 +1259,11 @@ pub extern "C" fn mux_net_udp_peer_addr(socket: *mut Value) -> *mut Value {
     net_result_string(result)
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_net_udp_local_addr(socket: *mut Value) -> *mut Value {
+/// # Safety
+/// `socket` must be null or a valid, live socket `Value` pointer returned by
+/// `mux_rc_alloc` for the duration of this call.
+pub unsafe extern "C" fn mux_net_udp_local_addr(socket: *mut Value) -> *mut Value {
     let result = udp_handle(socket).and_then(|handle| {
         with_udp_socket(handle, |sock| {
             sock.local_addr()
