@@ -625,8 +625,7 @@ extern "C" fn destroy_thread_object(ptr: *mut c_void) {
     };
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
-fn extract_handle_id(
+unsafe fn extract_handle_id(
     handle: *mut Value,
     expected_type_id: TypeId,
     type_name: &str,
@@ -672,9 +671,15 @@ fn condvar_entry(id: i64) -> Result<Arc<CondVarEntry>, *mut Value> {
         .ok_or_else(|| err_string(format!("CondVar handle {id} not found")))
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_sync_spawn(closure: *mut c_void) -> *mut Value {
+/// Spawn a compiler-produced closure on a new thread.
+///
+/// # Safety
+/// `closure` may be null, which returns an error. Otherwise it must point to
+/// a live compiler closure whose layout and function-pointer invariants match
+/// the documented `ClosureRepr` layout. The closure must remain valid until this function returns;
+/// the runtime retains it for the worker thread.
+pub unsafe extern "C" fn mux_sync_spawn(closure: *mut c_void) -> *mut Value {
     // SAFETY: `closure` must be a pointer to a ClosureRepr as produced by the Mux compiler.
     // The ClosureRepr struct documents the invariants that make this safe.
     if closure.is_null() {
@@ -744,9 +749,15 @@ pub extern "C" fn mux_sync_spawn(closure: *mut c_void) -> *mut Value {
     }
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_thread_join(thread_handle: *mut Value) -> *mut Value {
+/// Join a spawned thread and return an owned result value.
+///
+/// # Safety
+/// A null handle returns an error. Otherwise `thread_handle` must point to a
+/// live, initialized thread-handle `Value` for the duration of this call. The
+/// value is borrowed and remains caller-owned; it must not be concurrently
+/// mutated or used for another join/detach operation.
+pub unsafe extern "C" fn mux_thread_join(thread_handle: *mut Value) -> *mut Value {
     let id = match extract_handle_id(thread_handle, *THREAD_TYPE_ID, "Thread") {
         Ok(id) => id,
         Err(e) => return e,
@@ -772,9 +783,15 @@ pub extern "C" fn mux_thread_join(thread_handle: *mut Value) -> *mut Value {
     }
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_thread_detach(thread_handle: *mut Value) -> *mut Value {
+/// Detach a spawned thread and return an owned result value.
+///
+/// # Safety
+/// A null handle returns an error. Otherwise `thread_handle` must point to a
+/// live, initialized thread-handle `Value` for the duration of this call. The
+/// value is borrowed and remains caller-owned; it must not be concurrently
+/// mutated or used for another join/detach operation.
+pub unsafe extern "C" fn mux_thread_detach(thread_handle: *mut Value) -> *mut Value {
     let id = match extract_handle_id(thread_handle, *THREAD_TYPE_ID, "Thread") {
         Ok(id) => id,
         Err(e) => return e,
@@ -885,9 +902,15 @@ pub extern "C" fn mux_condvar_new() -> *mut Value {
     }
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_mutex_lock(mutex_handle: *mut Value) -> *mut Value {
+/// Lock a mutex represented by a runtime handle.
+///
+/// # Safety
+/// A null handle or invalid handle returns an error. Otherwise
+/// `mutex_handle` must point to a live, initialized mutex-handle `Value` for
+/// the duration of this call. The value is borrowed and remains caller-owned;
+/// concurrent mutation or destruction of the handle is not permitted.
+pub unsafe extern "C" fn mux_mutex_lock(mutex_handle: *mut Value) -> *mut Value {
     let id = match extract_handle_id(mutex_handle, *MUTEX_TYPE_ID, "Mutex") {
         Ok(id) => id,
         Err(e) => return e,
@@ -913,9 +936,15 @@ pub extern "C" fn mux_mutex_lock(mutex_handle: *mut Value) -> *mut Value {
     ok_unit()
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_mutex_unlock(mutex_handle: *mut Value) -> *mut Value {
+/// Unlock a mutex previously locked by the calling thread.
+///
+/// # Safety
+/// A null handle or invalid handle returns an error. Otherwise
+/// `mutex_handle` must point to a live, initialized mutex-handle `Value` for
+/// the duration of this call, and this thread must own its lock. The value is
+/// borrowed and remains caller-owned.
+pub unsafe extern "C" fn mux_mutex_unlock(mutex_handle: *mut Value) -> *mut Value {
     let id = match extract_handle_id(mutex_handle, *MUTEX_TYPE_ID, "Mutex") {
         Ok(id) => id,
         Err(e) => return e,
@@ -947,9 +976,15 @@ pub extern "C" fn mux_mutex_unlock(mutex_handle: *mut Value) -> *mut Value {
     ok_unit()
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_rwlock_read_lock(rwlock_handle: *mut Value) -> *mut Value {
+/// Acquire a shared read lock represented by a runtime handle.
+///
+/// # Safety
+/// A null handle or invalid handle returns an error. Otherwise
+/// `rwlock_handle` must point to a live, initialized read-write-lock handle
+/// `Value` for the duration of this call. The value is borrowed and remains
+/// caller-owned.
+pub unsafe extern "C" fn mux_rwlock_read_lock(rwlock_handle: *mut Value) -> *mut Value {
     let id = match extract_handle_id(rwlock_handle, *RWLOCK_TYPE_ID, "RwLock") {
         Ok(id) => id,
         Err(e) => return e,
@@ -975,9 +1010,15 @@ pub extern "C" fn mux_rwlock_read_lock(rwlock_handle: *mut Value) -> *mut Value 
     ok_unit()
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_rwlock_write_lock(rwlock_handle: *mut Value) -> *mut Value {
+/// Acquire an exclusive write lock represented by a runtime handle.
+///
+/// # Safety
+/// A null handle or invalid handle returns an error. Otherwise
+/// `rwlock_handle` must point to a live, initialized read-write-lock handle
+/// `Value` for the duration of this call. The value is borrowed and remains
+/// caller-owned.
+pub unsafe extern "C" fn mux_rwlock_write_lock(rwlock_handle: *mut Value) -> *mut Value {
     let id = match extract_handle_id(rwlock_handle, *RWLOCK_TYPE_ID, "RwLock") {
         Ok(id) => id,
         Err(e) => return e,
@@ -1003,9 +1044,15 @@ pub extern "C" fn mux_rwlock_write_lock(rwlock_handle: *mut Value) -> *mut Value
     ok_unit()
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_rwlock_unlock(rwlock_handle: *mut Value) -> *mut Value {
+/// Release a read or write lock held by the calling thread.
+///
+/// # Safety
+/// A null handle or invalid handle returns an error. Otherwise
+/// `rwlock_handle` must point to a live, initialized read-write-lock handle
+/// `Value` for the duration of this call, and this thread must hold the lock.
+/// The value is borrowed and remains caller-owned.
+pub unsafe extern "C" fn mux_rwlock_unlock(rwlock_handle: *mut Value) -> *mut Value {
     let id = match extract_handle_id(rwlock_handle, *RWLOCK_TYPE_ID, "RwLock") {
         Ok(id) => id,
         Err(e) => return e,
@@ -1037,9 +1084,15 @@ pub extern "C" fn mux_rwlock_unlock(rwlock_handle: *mut Value) -> *mut Value {
     ok_unit()
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_condvar_wait(
+/// Wait on a condition variable while releasing and reacquiring its mutex.
+///
+/// # Safety
+/// Null or invalid handles return an error. Otherwise both pointers must point
+/// to live, initialized condition-variable and mutex handle `Value`s for the
+/// duration of this call. The mutex must be held by the calling thread and
+/// associated with the condition variable. Both values are borrowed.
+pub unsafe extern "C" fn mux_condvar_wait(
     condvar_handle: *mut Value,
     mutex_handle: *mut Value,
 ) -> *mut Value {
@@ -1081,9 +1134,14 @@ pub extern "C" fn mux_condvar_wait(
     ok_unit()
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_condvar_signal(condvar_handle: *mut Value) -> *mut Value {
+/// Wake one waiter on a condition variable.
+///
+/// # Safety
+/// A null or invalid handle returns an error. Otherwise `condvar_handle` must
+/// point to a live, initialized condition-variable handle `Value` for the
+/// duration of this call. The value is borrowed and remains caller-owned.
+pub unsafe extern "C" fn mux_condvar_signal(condvar_handle: *mut Value) -> *mut Value {
     let id = match extract_handle_id(condvar_handle, *CONDVAR_TYPE_ID, "CondVar") {
         Ok(id) => id,
         Err(e) => return e,
@@ -1102,9 +1160,14 @@ pub extern "C" fn mux_condvar_signal(condvar_handle: *mut Value) -> *mut Value {
     ok_unit()
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_condvar_broadcast(condvar_handle: *mut Value) -> *mut Value {
+/// Wake all waiters on a condition variable.
+///
+/// # Safety
+/// A null or invalid handle returns an error. Otherwise `condvar_handle` must
+/// point to a live, initialized condition-variable handle `Value` for the
+/// duration of this call. The value is borrowed and remains caller-owned.
+pub unsafe extern "C" fn mux_condvar_broadcast(condvar_handle: *mut Value) -> *mut Value {
     let id = match extract_handle_id(condvar_handle, *CONDVAR_TYPE_ID, "CondVar") {
         Ok(id) => id,
         Err(e) => return e,
@@ -1149,8 +1212,8 @@ mod tests {
     fn mutex_destroy_keeps_native_lock_alive_until_unlock() {
         let handle = mux_mutex_new();
         assert!(!handle.is_null());
-        let id = extract_handle_id(handle, *MUTEX_TYPE_ID, "Mutex").unwrap();
-        release_result(mux_mutex_lock(handle));
+        let id = unsafe { extract_handle_id(handle, *MUTEX_TYPE_ID, "Mutex") }.unwrap();
+        release_result(unsafe { mux_mutex_lock(handle) });
 
         // Dropping the last language handle removes the registry entry while
         // the native mutex is still locked. The per-thread pin must keep the
@@ -1173,8 +1236,8 @@ mod tests {
     fn rwlock_destroy_keeps_native_lock_alive_until_unlock() {
         let handle = mux_rwlock_new();
         assert!(!handle.is_null());
-        let id = extract_handle_id(handle, *RWLOCK_TYPE_ID, "RwLock").unwrap();
-        release_result(mux_rwlock_read_lock(handle));
+        let id = unsafe { extract_handle_id(handle, *RWLOCK_TYPE_ID, "RwLock") }.unwrap();
+        release_result(unsafe { mux_rwlock_read_lock(handle) });
         assert!(unsafe { mux_rc_dec(handle) });
         assert!(!RWLOCKS
             .lock()
@@ -1193,7 +1256,7 @@ mod tests {
     fn condvar_operation_pins_entry_after_handle_drop() {
         let handle = mux_condvar_new();
         assert!(!handle.is_null());
-        let id = extract_handle_id(handle, *CONDVAR_TYPE_ID, "CondVar").unwrap();
+        let id = unsafe { extract_handle_id(handle, *CONDVAR_TYPE_ID, "CondVar") }.unwrap();
         let entry = condvar_entry(id).unwrap();
         assert!(unsafe { mux_rc_dec(handle) });
         assert!(!CONDVARS
@@ -1210,20 +1273,20 @@ mod tests {
         let mutex = mux_mutex_new();
         assert!(!condvar.is_null());
         assert!(!mutex.is_null());
-        release_result(mux_mutex_lock(mutex));
+        release_result(unsafe { mux_mutex_lock(mutex) });
 
         let signal_handle = condvar as usize;
         let signaler = thread::spawn(move || {
             thread::sleep(Duration::from_millis(5));
             // The owning test thread keeps the Value alive until this call
             // completes; only immutable handle metadata is read here.
-            let result = mux_condvar_signal(signal_handle as *mut Value);
+            let result = unsafe { mux_condvar_signal(signal_handle as *mut Value) };
             assert!(!result.is_null());
             assert!(unsafe { mux_rc_dec(result) });
         });
-        release_result(mux_condvar_wait(condvar, mutex));
+        release_result(unsafe { mux_condvar_wait(condvar, mutex) });
         signaler.join().unwrap();
-        release_result(mux_mutex_unlock(mutex));
+        release_result(unsafe { mux_mutex_unlock(mutex) });
         assert!(unsafe { mux_rc_dec(condvar) });
         assert!(unsafe { mux_rc_dec(mutex) });
     }
@@ -1234,7 +1297,7 @@ mod tests {
         let mutex = mux_mutex_new();
         assert!(!condvar.is_null());
         assert!(!mutex.is_null());
-        let result = mux_condvar_wait(condvar, mutex);
+        let result = unsafe { mux_condvar_wait(condvar, mutex) };
         assert!(!result.is_null());
         assert!(!matches!(unsafe { &*result }, Value::Result(Ok(_))));
         assert!(unsafe { mux_rc_dec(result) });
@@ -1259,13 +1322,15 @@ mod tests {
         let waiter_mutex_addr = waiter_mutex as usize;
         let waiter_condvar_addr = condvar as usize;
         let waiter = thread::spawn(move || {
-            release_result(mux_mutex_lock(waiter_mutex_addr as *mut Value));
+            release_result(unsafe { mux_mutex_lock(waiter_mutex_addr as *mut Value) });
             ready_tx.send(()).unwrap();
-            release_result(mux_condvar_wait(
-                waiter_condvar_addr as *mut Value,
-                waiter_mutex_addr as *mut Value,
-            ));
-            release_result(mux_mutex_unlock(waiter_mutex_addr as *mut Value));
+            release_result(unsafe {
+                mux_condvar_wait(
+                    waiter_condvar_addr as *mut Value,
+                    waiter_mutex_addr as *mut Value,
+                )
+            });
+            release_result(unsafe { mux_mutex_unlock(waiter_mutex_addr as *mut Value) });
             assert!(unsafe { mux_rc_dec(waiter_mutex_addr as *mut Value) });
         });
         ready_rx.recv().unwrap();
@@ -1278,7 +1343,7 @@ mod tests {
         assert!(unsafe { mux_rc_dec(mutex) });
         let signal_condvar_addr = signal_condvar as usize;
         let signaler = thread::spawn(move || {
-            release_result(mux_condvar_signal(signal_condvar_addr as *mut Value));
+            release_result(unsafe { mux_condvar_signal(signal_condvar_addr as *mut Value) });
             assert!(unsafe { mux_rc_dec(signal_condvar_addr as *mut Value) });
         });
         waiter.join().unwrap();
@@ -1290,7 +1355,7 @@ mod tests {
         let owner = thread::spawn(|| {
             let mutex = mux_mutex_new();
             assert!(!mutex.is_null());
-            let result = mux_mutex_lock(mutex);
+            let result = unsafe { mux_mutex_lock(mutex) };
             assert!(!result.is_null());
             assert!(unsafe { mux_rc_dec(result) });
             // The thread-local HeldMutex must unlock this native mutex before
@@ -1308,15 +1373,15 @@ mod tests {
         let owner = thread::spawn(move || {
             // The main test thread keeps the handle alive; this thread only
             // reads its immutable type/id metadata through the exported API.
-            let result = mux_mutex_lock(handle_addr as *mut Value);
+            let result = unsafe { mux_mutex_lock(handle_addr as *mut Value) };
             assert!(!result.is_null());
             assert!(unsafe { mux_rc_dec(result) });
             // Deliberately omit unlock: thread-local cleanup must release it.
         });
         owner.join().unwrap();
 
-        release_result(mux_mutex_lock(mutex));
-        release_result(mux_mutex_unlock(mutex));
+        release_result(unsafe { mux_mutex_lock(mutex) });
+        release_result(unsafe { mux_mutex_unlock(mutex) });
         assert!(unsafe { mux_rc_dec(mutex) });
     }
 }
