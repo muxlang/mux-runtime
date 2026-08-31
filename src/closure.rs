@@ -70,9 +70,17 @@ unsafe fn cell_header(cell: *mut c_void) -> *const AtomicI64 {
 /// [ i64 refcount | *mut Value ]
 ///   ^base          ^--- cell pointer returned to codegen
 /// ```
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_cell_alloc(initial: *mut Value) -> *mut c_void {
+/// Allocates a capture cell and transfers one value reference into it.
+///
+/// # Safety
+///
+/// `initial` must be null or a live pointer returned by `mux_rc_alloc` (or
+/// another runtime function that returns an owned reference). For a non-null
+/// pointer, ownership of that reference transfers to the cell; the caller
+/// must not release or otherwise use that reference after this call. The cell
+/// releases it when its final holder calls [`mux_cell_release`].
+pub unsafe extern "C" fn mux_cell_alloc(initial: *mut Value) -> *mut c_void {
     unsafe {
         let base = libc::malloc(std::mem::size_of::<i64>() + std::mem::size_of::<*mut Value>());
         if base.is_null() {
