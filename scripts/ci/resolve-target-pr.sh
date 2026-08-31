@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Resolve the PR that the triggering Build run belongs to, from trusted
+# Resolve the PR that the triggering Runtime Reports run belongs to, from trusted
 # workflow_run metadata only - never from artifact contents, which a fork
 # fully controls. Writes `number=<n>` (or empty, if no unique match) to
 # $GITHUB_OUTPUT.
