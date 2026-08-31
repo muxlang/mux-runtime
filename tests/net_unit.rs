@@ -22,7 +22,7 @@ fn addr_val(s: &str) -> *mut Value {
 
 fn bytes_val(bytes: &[u8]) -> *mut Value {
     mux_rc_alloc(Value::List(
-        bytes.iter().map(|b| Value::Int(*b as i64)).collect(),
+        bytes.iter().map(|b| Value::Int(i64::from(*b))).collect(),
     ))
 }
 
