@@ -132,29 +132,29 @@ fn map_box_layer() {
     let k = mux_string_value(CString::new("k").unwrap().as_ptr());
     let v = int(42);
 
-    mux_map_put(map, k, v);
-    assert!(mux_map_contains(map, k));
+    unsafe { mux_map_put(map, k, v) };
+    assert!(unsafe { mux_map_contains(map, k) });
     assert_eq!(unsafe { mux_map_size(map) }, 1);
     assert!(!unsafe { mux_map_is_empty(map) });
 
-    let got = mux_map_get(map, k); // Optional(Some)
+    let got = unsafe { mux_map_get(map, k) }; // Optional(Some)
     assert!(unsafe { mux_rc_dec(got) });
 
-    let keys = mux_map_keys(map);
-    let values = mux_map_values(map);
-    let pairs = mux_map_pairs(map);
+    let keys = unsafe { mux_map_keys(map) };
+    let values = unsafe { mux_map_values(map) };
+    let pairs = unsafe { mux_map_pairs(map) };
     assert!(unsafe { mux_rc_dec(keys) });
     assert!(unsafe { mux_rc_dec(values) });
     assert!(unsafe { mux_rc_dec(pairs) });
 
-    assert!(!read_cstr(mux_map_to_string(map)).is_empty());
+    assert!(!read_cstr(unsafe { mux_map_to_string(map) }).is_empty());
 
-    let removed = mux_map_remove(map, k); // Optional(Some)
+    let removed = unsafe { mux_map_remove(map, k) }; // Optional(Some)
     assert!(unsafe { mux_rc_dec(removed) });
     assert!(unsafe { mux_map_is_empty(map) });
 
     let other = mux_new_map();
-    let merged = mux_map_merge(map, other);
+    let merged = unsafe { mux_map_merge(map, other) };
     assert!(!merged.is_null());
     mux_free_map(merged);
 
@@ -166,11 +166,11 @@ fn map_box_layer() {
 
 #[test]
 fn map_value_layer() {
-    let mv = mux_map_value(mux_new_map());
+    let mv = unsafe { mux_map_value(mux_new_map()) };
     let k = mux_string_value(CString::new("x").unwrap().as_ptr());
     let v = int(1);
-    mux_map_put_value(mv, k, v);
-    let removed = mux_map_remove_value(mv, k);
+    unsafe { mux_map_put_value(mv, k, v) };
+    let removed = unsafe { mux_map_remove_value(mv, k) };
     assert!(unsafe { mux_rc_dec(removed) });
     assert!(unsafe { mux_rc_dec(mv) });
     assert!(unsafe { mux_rc_dec(k) });
