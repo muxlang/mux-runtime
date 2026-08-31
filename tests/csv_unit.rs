@@ -21,7 +21,7 @@ fn ok_data(result: *mut Value) -> *mut Value {
 #[test]
 fn parse_plain_csv() {
     let input = CString::new("a,b\n1,2\n").unwrap();
-    let res = mux_csv_parse(input.as_ptr());
+    let res = unsafe { mux_csv_parse(input.as_ptr()) };
     assert!(mux_result_is_ok(res));
     assert!(unsafe { mux_rc_dec(res) });
 }
@@ -29,14 +29,14 @@ fn parse_plain_csv() {
 #[test]
 fn parse_with_headers() {
     let input = CString::new("name,age\nAlice,30\nBob,25\n").unwrap();
-    let res = mux_csv_parse_with_headers(input.as_ptr());
+    let res = unsafe { mux_csv_parse_with_headers(input.as_ptr()) };
     assert!(mux_result_is_ok(res));
     assert!(unsafe { mux_rc_dec(res) });
 }
 
 #[test]
 fn parse_null_is_error() {
-    let res = mux_csv_parse(std::ptr::null());
+    let res = unsafe { mux_csv_parse(std::ptr::null()) };
     assert!(mux_result_is_err(res));
     assert!(unsafe { mux_rc_dec(res) });
 }
@@ -61,7 +61,7 @@ fn to_string_roundtrip() {
     );
     let csv_val = mux_rc_alloc(Value::Map(map));
 
-    let res = mux_csv_to_string(csv_val);
+    let res = unsafe { mux_csv_to_string(csv_val) };
     assert!(mux_result_is_ok(res));
 
     assert!(unsafe { mux_rc_dec(res) });
@@ -71,7 +71,7 @@ fn to_string_roundtrip() {
 #[test]
 fn to_string_rejects_non_map() {
     let bad = mux_rc_alloc(Value::Int(1));
-    let res = mux_csv_to_string(bad);
+    let res = unsafe { mux_csv_to_string(bad) };
     assert!(mux_result_is_err(res));
     assert!(unsafe { mux_rc_dec(res) });
     assert!(unsafe { mux_rc_dec(bad) });
@@ -90,10 +90,10 @@ fn rows_as_maps_pairs_headers_with_cells() {
     use std::ffi::CString;
 
     let text = CString::new("sku,qty\nwidget,3\ngadget,7\n").expect("no interior nul");
-    let parsed = mux_csv_parse_with_headers(text.as_ptr());
+    let parsed = unsafe { mux_csv_parse_with_headers(text.as_ptr()) };
     let table = ok_data(parsed);
 
-    let got = mux_csv_rows_as_maps(table);
+    let got = unsafe { mux_csv_rows_as_maps(table) };
     let rows = match unsafe { &*got } {
         Value::Result(Ok(inner)) => match inner.as_ref() {
             Value::List(rows) => rows.clone(),
@@ -131,7 +131,7 @@ fn a_ragged_row_is_rejected_by_the_parser() {
     use std::ffi::CString;
 
     let text = CString::new("sku,qty\nwidget\n").expect("no interior nul");
-    let parsed = mux_csv_parse_with_headers(text.as_ptr());
+    let parsed = unsafe { mux_csv_parse_with_headers(text.as_ptr()) };
     assert!(
         mux_result_is_err(parsed),
         "a row shorter than the header must not parse"
@@ -150,8 +150,8 @@ fn a_repeated_header_is_rejected() {
     use std::ffi::CString;
 
     let text = CString::new("sku,qty,sku\nwidget,3,gadget\n").expect("no interior nul");
-    let table = ok_data(mux_csv_parse_with_headers(text.as_ptr()));
-    let got = mux_csv_rows_as_maps(table);
+    let table = ok_data(unsafe { mux_csv_parse_with_headers(text.as_ptr()) });
+    let got = unsafe { mux_csv_rows_as_maps(table) };
 
     assert!(
         mux_result_is_err(got),
@@ -177,12 +177,12 @@ fn rows_as_maps_rejects_other_shapes() {
     use mux_runtime::data::mux_csv_rows_as_maps;
 
     for input in [Value::Int(1), Value::String("csv".into())] {
-        let got = mux_csv_rows_as_maps(&raw const input);
+        let got = unsafe { mux_csv_rows_as_maps(&raw const input) };
         assert!(mux_result_is_err(got));
         assert!(unsafe { mux_rc_dec(got) });
     }
 
-    let got = mux_csv_rows_as_maps(std::ptr::null());
+    let got = unsafe { mux_csv_rows_as_maps(std::ptr::null()) };
     assert!(mux_result_is_err(got));
     assert!(unsafe { mux_rc_dec(got) });
 }

@@ -13,7 +13,12 @@ fn csv_parse_error_result(error: impl std::fmt::Display) -> *mut Value {
     err_result(&format!("CSV parse error: {error}"))
 }
 
-fn read_input_string(input: *const c_char) -> Result<String, *mut Value> {
+/// Read a caller-owned NUL-terminated C string.
+///
+/// # Safety
+/// A non-null `input` must point to a valid, NUL-terminated C string that
+/// remains alive for the duration of this call.
+unsafe fn read_input_string(input: *const c_char) -> Result<String, *mut Value> {
     if input.is_null() {
         return Err(err_result("null input"));
     }
@@ -53,11 +58,15 @@ fn csv_value(headers: Value, rows: Vec<Value>) -> Value {
     Value::Map(map)
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
 #[allow(clippy::mutable_key_type)]
-pub extern "C" fn mux_csv_parse(input: *const c_char) -> *mut Value {
-    let s = match read_input_string(input) {
+/// Parse CSV text without treating the first row as headers.
+///
+/// # Safety
+/// `input` must be null or a valid, NUL-terminated C string that remains alive
+/// for the duration of this call.
+pub unsafe extern "C" fn mux_csv_parse(input: *const c_char) -> *mut Value {
+    let s = match unsafe { read_input_string(input) } {
         Ok(input) => input,
         Err(error) => return error,
     };
@@ -77,11 +86,15 @@ pub extern "C" fn mux_csv_parse(input: *const c_char) -> *mut Value {
     crate::refcount::mux_rc_alloc(Value::Result(Ok(Box::new(csv_value))))
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
 #[allow(clippy::mutable_key_type)]
-pub extern "C" fn mux_csv_parse_with_headers(input: *const c_char) -> *mut Value {
-    let s = match read_input_string(input) {
+/// Parse CSV text, treating its first row as headers.
+///
+/// # Safety
+/// `input` must be null or a valid, NUL-terminated C string that remains alive
+/// for the duration of this call.
+pub unsafe extern "C" fn mux_csv_parse_with_headers(input: *const c_char) -> *mut Value {
+    let s = match unsafe { read_input_string(input) } {
         Ok(input) => input,
         Err(error) => return error,
     };
@@ -131,10 +144,13 @@ pub extern "C" fn mux_csv_parse_with_headers(input: *const c_char) -> *mut Value
 /// which a typed reader then reports as a missing required field - the same
 /// answer it gives for an absent JSON field, rather than a second vocabulary
 /// for the same problem.
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[allow(clippy::mutable_key_type)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_csv_rows_as_maps(val: *const Value) -> *mut Value {
+///
+/// # Safety
+/// `val` must be null or a valid, live `Value` pointer returned by
+/// `mux_rc_alloc`.
+pub unsafe extern "C" fn mux_csv_rows_as_maps(val: *const Value) -> *mut Value {
     if val.is_null() {
         return csv_rows_error("no CSV table to read");
     }
@@ -199,9 +215,12 @@ fn csv_rows_error(message: &str) -> *mut Value {
 /// because it validates the shape. Same reasoning as `mux_json_to_string`: a
 /// `Csv` that exists came from the parser and is well formed, so the failing
 /// branch is unreachable - and is still given an answer rather than a panic.
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_csv_render(val: *const Value) -> *mut Value {
+///
+/// # Safety
+/// `val` must be null or a valid, live `Value` pointer returned by
+/// `mux_rc_alloc`.
+pub unsafe extern "C" fn mux_csv_render(val: *const Value) -> *mut Value {
     let text = if val.is_null() {
         String::new()
     } else if let Ok((headers, rows)) = validate_and_extract_csv(unsafe { &*val }) {
@@ -213,9 +232,12 @@ pub extern "C" fn mux_csv_render(val: *const Value) -> *mut Value {
     crate::refcount::mux_rc_alloc(Value::String(text))
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_csv_to_string(val: *const Value) -> *mut Value {
+///
+/// # Safety
+/// `val` must be null or a valid, live `Value` pointer returned by
+/// `mux_rc_alloc`.
+pub unsafe extern "C" fn mux_csv_to_string(val: *const Value) -> *mut Value {
     if val.is_null() {
         let msg = CString::new("null input").unwrap();
         unsafe {
