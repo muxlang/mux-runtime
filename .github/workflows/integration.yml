@@ -1,4 +1,8 @@
-name: Build
+# Keep the job names below stable: they are the required status contexts used
+# by repository rulesets. This workflow owns service-backed coverage and
+# cross-repository integration; source policy is in source-gates.yml and
+# optional performance/memory reports are in runtime-reports.yml.
+name: Runtime Integration
 on:
   push:
     branches:
