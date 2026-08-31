@@ -41,32 +41,32 @@ fn list_box_layer() {
     let a = int(10);
     let b = int(20);
 
-    mux_list_push_back(list, a);
-    mux_list_push(list, b);
+    unsafe { mux_list_push_back(list, a) };
+    unsafe { mux_list_push(list, b) };
     assert_eq!(unsafe { mux_list_length(list) }, 2);
     assert!(!unsafe { mux_list_is_empty(list) });
-    assert!(mux_list_contains(list, a));
+    assert!(unsafe { mux_list_contains(list, a) });
 
-    let got = mux_list_get_value(list, 0);
+    let got = unsafe { mux_list_get_value(list, 0) };
     assert!(!got.is_null());
     assert!(unsafe { mux_rc_dec(got) });
 
-    let opt = mux_list_get(list, 0); // Optional(Some)
+    let opt = unsafe { mux_list_get(list, 0) }; // Optional(Some)
     assert!(unsafe { mux_rc_dec(opt) });
 
     let c = int(99);
-    mux_list_set(list, 0, c);
-    mux_list_insert(list, 0, c);
+    unsafe { mux_list_set(list, 0, c) };
+    unsafe { mux_list_insert(list, 0, c) };
     assert_eq!(unsafe { mux_list_length(list) }, 3);
 
-    let popped = mux_list_pop_back(list); // Optional
+    let popped = unsafe { mux_list_pop_back(list) }; // Optional
     assert!(unsafe { mux_rc_dec(popped) });
 
-    assert_eq!(read_cstr(mux_list_to_string(list)), "[99, 99]");
+    assert_eq!(read_cstr(unsafe { mux_list_to_string(list) }), "[99, 99]");
 
     let other = mux_new_list();
-    mux_list_push_back(other, a);
-    let joined = mux_list_concat(list, other);
+    unsafe { mux_list_push_back(other, a) };
+    let joined = unsafe { mux_list_concat(list, other) };
     assert!(!joined.is_null());
     mux_free_list(joined);
 
@@ -83,15 +83,15 @@ fn list_box_layer() {
 fn list_value_layer() {
     let lv = mux_list_value(mux_new_list());
     let v = int(7);
-    mux_list_push_back_value(lv, v);
-    mux_list_push_value(lv, v); // push to front
-    mux_list_set_value(lv, 0, v);
+    unsafe { mux_list_push_back_value(lv, v) };
+    unsafe { mux_list_push_value(lv, v) }; // push to front
+    unsafe { mux_list_set_value(lv, 0, v) };
     // negative index wraps from the end; out-of-range extends with defaults
-    mux_list_set_value(lv, -1, v);
-    mux_list_set_value(lv, 5, v);
-    let popped = mux_list_pop_back_value(lv);
+    unsafe { mux_list_set_value(lv, -1, v) };
+    unsafe { mux_list_set_value(lv, 5, v) };
+    let popped = unsafe { mux_list_pop_back_value(lv) };
     assert!(unsafe { mux_rc_dec(popped) });
-    let front = mux_list_pop_value(lv); // pop from front
+    let front = unsafe { mux_list_pop_value(lv) }; // pop from front
     assert!(unsafe { mux_rc_dec(front) });
     assert!(unsafe { mux_rc_dec(lv) });
     assert!(unsafe { mux_rc_dec(v) });
@@ -102,20 +102,20 @@ fn list_box_pop_front_and_empty() {
     let list = mux_new_list();
     let a = int(1);
     let b = int(2);
-    mux_list_push_back(list, a);
-    mux_list_push_back(list, b);
+    unsafe { mux_list_push_back(list, a) };
+    unsafe { mux_list_push_back(list, b) };
 
-    let front = mux_list_pop(list); // Optional(Some) from front
+    let front = unsafe { mux_list_pop(list) }; // Optional(Some) from front
     assert!(unsafe { mux_rc_dec(front) });
 
     // get out of range yields Optional(None)
-    let oob = mux_list_get(list, 50);
+    let oob = unsafe { mux_list_get(list, 50) };
     assert!(unsafe { mux_rc_dec(oob) });
 
     // drain then pop empty -> Optional(None)
-    let drained = mux_list_pop(list); // Optional(Some) - owned, must be released
+    let drained = unsafe { mux_list_pop(list) }; // Optional(Some) - owned, must be released
     assert!(unsafe { mux_rc_dec(drained) });
-    let empty = mux_list_pop(list);
+    let empty = unsafe { mux_list_pop(list) };
     assert!(unsafe { mux_rc_dec(empty) });
     assert!(unsafe { mux_list_is_empty(list) });
 

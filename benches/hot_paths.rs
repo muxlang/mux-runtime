@@ -71,7 +71,7 @@ fn build_list(n: i64) -> *mut List {
     let list = mux_new_list();
     for i in 0..n {
         let e = mux_box_int(i);
-        mux_list_push(list, e);
+        unsafe { mux_list_push(list, e) };
         unsafe { mux_rc_dec(e) };
     }
     list
@@ -154,7 +154,7 @@ fn bench_list(c: &mut Criterion) {
             let list = mux_new_list();
             for i in 0..N {
                 let e = mux_box_int(i);
-                mux_list_push(list, e);
+                unsafe { mux_list_push(list, e) };
                 unsafe { mux_rc_dec(e) };
             }
             unsafe { mux_rc_dec(mux_list_value(list)) };
@@ -166,22 +166,22 @@ fn bench_list(c: &mut Criterion) {
     let needle = mux_box_int(N / 2);
     group.bench_function("get", |b| {
         b.iter(|| {
-            let v = mux_list_get(list, black_box(N / 2));
+            let v = unsafe { mux_list_get(list, black_box(N / 2)) };
             unsafe { mux_rc_dec(v) };
         });
     });
     group.bench_function("contains", |b| {
-        b.iter(|| black_box(mux_list_contains(list, needle)));
+        b.iter(|| black_box(unsafe { mux_list_contains(list, needle) }));
     });
     group.bench_function("concat", |b| {
         b.iter(|| {
-            let joined = mux_list_concat(list, list2);
+            let joined = unsafe { mux_list_concat(list, list2) };
             mux_free_list(joined);
         });
     });
     group.bench_function("to_string", |b| {
         b.iter(|| {
-            let s = mux_list_to_string(list);
+            let s = unsafe { mux_list_to_string(list) };
             mux_free_string(s);
         });
     });

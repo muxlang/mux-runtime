@@ -33,7 +33,7 @@ fn build_list(n: i64) -> *mut Value {
     );
     for i in 0..n {
         with_scalar(Value::Int(i), |elem| {
-            mux_list_push_back_value(list_val, elem);
+            unsafe { mux_list_push_back_value(list_val, elem) };
         });
     }
     list_val
@@ -62,7 +62,9 @@ fn list_push_back_builds_in_order_when_uniquely_owned() {
 fn list_push_front_prepends() {
     let list_val = mux_rc_alloc(Value::List(Vec::new()));
     for i in 0..5 {
-        with_scalar(Value::Int(i), |elem| mux_list_push_value(list_val, elem));
+        with_scalar(Value::Int(i), |elem| unsafe {
+            mux_list_push_value(list_val, elem);
+        });
     }
     // Front insertion reverses the order.
     let contents = list_contents(list_val);
@@ -82,13 +84,17 @@ fn list_push_front_prepends() {
 #[test]
 fn list_set_value_overwrites_and_extends() {
     let list_val = build_list(3);
-    with_scalar(Value::Int(42), |elem| mux_list_set_value(list_val, 1, elem));
+    with_scalar(Value::Int(42), |elem| unsafe {
+        mux_list_set_value(list_val, 1, elem);
+    });
     // Negative index writes from the end.
     with_scalar(Value::Int(99), |elem| {
-        mux_list_set_value(list_val, -1, elem);
+        unsafe { mux_list_set_value(list_val, -1, elem) };
     });
     // Index past the end extends with default fill (Int(0)) then writes.
-    with_scalar(Value::Int(7), |elem| mux_list_set_value(list_val, 5, elem));
+    with_scalar(Value::Int(7), |elem| unsafe {
+        mux_list_set_value(list_val, 5, elem);
+    });
     let contents = list_contents(list_val);
     assert_eq!(
         contents,
@@ -107,13 +113,13 @@ fn list_set_value_overwrites_and_extends() {
 #[test]
 fn list_pop_back_and_front_return_ends() {
     let list_val = build_list(3); // [0, 1, 2]
-    let back = mux_list_pop_back_value(list_val);
+    let back = unsafe { mux_list_pop_back_value(list_val) };
     assert_eq!(
         unsafe { &*back },
         &Value::Optional(Some(Box::new(Value::Int(2))))
     );
     unsafe { mux_rc_dec(back) };
-    let front = mux_list_pop_value(list_val);
+    let front = unsafe { mux_list_pop_value(list_val) };
     assert_eq!(
         unsafe { &*front },
         &Value::Optional(Some(Box::new(Value::Int(0))))
@@ -126,7 +132,7 @@ fn list_pop_back_and_front_return_ends() {
 #[test]
 fn list_pop_on_empty_returns_none() {
     let list_val = mux_rc_alloc(Value::List(Vec::new()));
-    let popped = mux_list_pop_back_value(list_val);
+    let popped = unsafe { mux_list_pop_back_value(list_val) };
     assert_eq!(unsafe { &*popped }, &Value::Optional(None));
     unsafe { mux_rc_dec(popped) };
     unsafe { mux_rc_dec(list_val) };
@@ -143,7 +149,9 @@ fn list_mutation_on_shared_value_is_in_place() {
         2,
         "value must be shared for this case"
     );
-    with_scalar(Value::Int(3), |elem| mux_list_push_back_value(shared, elem));
+    with_scalar(Value::Int(3), |elem| unsafe {
+        mux_list_push_back_value(shared, elem);
+    });
     assert_eq!(
         list_contents(shared),
         vec![Value::Int(1), Value::Int(2), Value::Int(3)]
