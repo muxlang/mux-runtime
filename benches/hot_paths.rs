@@ -308,7 +308,7 @@ fn bench_wrappers(c: &mut Criterion) {
         b.iter(|| {
             let l = mux_box_int(black_box(1));
             let r = mux_box_int(black_box(2));
-            let t = mux_new_tuple(l, r);
+            let t = unsafe { mux_new_tuple(l, r) };
             unsafe { mux_rc_dec(l) };
             unsafe { mux_rc_dec(r) };
             unsafe { mux_rc_dec(mux_tuple_value(t)) };

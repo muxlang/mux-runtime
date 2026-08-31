@@ -224,25 +224,31 @@ fn tuple_ops() {
     let l = int(1);
     let r = int(2);
 
-    let t1 = mux_new_tuple(l, r);
-    let t2 = mux_new_tuple(l, r);
-    assert!(mux_tuple_eq(t1, t2));
+    let t1 = unsafe { mux_new_tuple(l, r) };
+    let t2 = unsafe { mux_new_tuple(l, r) };
+    assert!(unsafe { mux_tuple_eq(t1, t2) });
 
-    let left = mux_tuple_left(t1);
-    let right = mux_tuple_right(t1);
+    let left = unsafe { mux_tuple_left(t1) };
+    let right = unsafe { mux_tuple_right(t1) };
     assert!(unsafe { mux_rc_dec(left) });
     assert!(unsafe { mux_rc_dec(right) });
-    assert_eq!(read_cstr(mux_tuple_to_string(t1)), "(1, 2)");
+    assert_eq!(read_cstr(unsafe { mux_tuple_to_string(t1) }), "(1, 2)");
 
     // mux_tuple_value consumes the Box; the borrowed get_tuple result must NOT be freed.
-    let tv = mux_tuple_value(t1);
-    let borrowed = mux_value_get_tuple(tv);
+    let tv = unsafe { mux_tuple_value(t1) };
+    let borrowed = unsafe { mux_value_get_tuple(tv) };
     assert!(!borrowed.is_null());
     assert!(unsafe { mux_rc_dec(tv) });
 
-    let tv2 = mux_tuple_value(t2);
+    let tv2 = unsafe { mux_tuple_value(t2) };
     assert!(unsafe { mux_rc_dec(tv2) });
 
     assert!(unsafe { mux_rc_dec(l) });
     assert!(unsafe { mux_rc_dec(r) });
+}
+
+#[test]
+fn tuple_null_queries_preserve_false_or_null_results() {
+    assert!(!unsafe { mux_tuple_eq(std::ptr::null_mut(), std::ptr::null_mut()) });
+    assert!(unsafe { mux_value_get_tuple(std::ptr::null_mut()) }.is_null());
 }
