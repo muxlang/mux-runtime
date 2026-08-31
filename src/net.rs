@@ -339,7 +339,10 @@ fn value_to_bytes(list: *mut Value) -> Result<Vec<u8>, String> {
 }
 
 fn tuple_from_bytes_and_addr(bytes: Vec<u8>, addr: String) -> Value {
-    let byte_list = bytes.into_iter().map(|b| Value::Int(b as i64)).collect();
+    let byte_list = bytes
+        .into_iter()
+        .map(|b| Value::Int(i64::from(b)))
+        .collect();
     let tuple = Tuple(Value::List(byte_list), Value::String(addr));
     Value::Tuple(Box::new(tuple))
 }
@@ -997,7 +1000,10 @@ pub extern "C" fn mux_net_tcp_read(stream: *mut Value, size: i64) -> *mut Value 
     });
     match result {
         Ok(bytes) => {
-            let values = bytes.into_iter().map(|b| Value::Int(b as i64)).collect();
+            let values = bytes
+                .into_iter()
+                .map(|b| Value::Int(i64::from(b)))
+                .collect();
             net_result_ok(Value::List(values))
         }
         Err(err) => net_result_err(err),

@@ -345,7 +345,7 @@ pub extern "C" fn mux_string_to_char(s: *const c_char) -> *mut Value {
 pub extern "C" fn mux_char_to_int(c: i64) -> *mut Value {
     if let Some(ch) = char_from_int(c) {
         if ch.is_ascii_digit() {
-            let digit = (ch as u8 - b'0') as i64;
+            let digit = i64::from(ch as u8 - b'0');
             mux_rc_alloc(Value::Result(Ok(Box::new(Value::Int(digit)))))
         } else {
             mux_rc_alloc(Value::Result(Err(Box::new(Value::String(
