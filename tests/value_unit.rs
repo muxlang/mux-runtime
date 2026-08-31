@@ -147,7 +147,7 @@ fn object_value_display_debug_and_compare() {
     use std::ffi::CString;
 
     let name = CString::new("Widget").unwrap();
-    let tid = mux_register_object_type(name.as_ptr(), 8);
+    let tid = unsafe { mux_register_object_type(name.as_ptr(), 8) };
     let obj = mux_alloc_object(tid);
     assert!(!obj.is_null());
 
@@ -161,7 +161,7 @@ fn object_value_display_debug_and_compare() {
         assert_eq!(hash_of(&*obj), hash_of(&*obj));
     }
 
-    mux_free_object(obj);
+    unsafe { mux_free_object(obj) };
 }
 
 #[test]

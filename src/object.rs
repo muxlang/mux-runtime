@@ -216,9 +216,14 @@ pub unsafe fn copy_object(src: *const Value) -> *mut Value {
 }
 
 // C API functions
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_register_object_type(name: *const c_char, size: usize) -> TypeId {
+/// Registers an object type and returns its runtime type identifier.
+///
+/// # Safety
+///
+/// `name` must be a non-null pointer to a valid, NUL-terminated C string that
+/// remains readable for the duration of this call.
+pub unsafe extern "C" fn mux_register_object_type(name: *const c_char, size: usize) -> TypeId {
     let c_str = unsafe { CStr::from_ptr(name) };
     let name_str = c_str.to_string_lossy().into_owned();
     register_object_type(&name_str, size, None)
@@ -357,26 +362,51 @@ pub extern "C" fn mux_alloc_object(type_id: TypeId) -> *mut Value {
     alloc_object(type_id)
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_free_object(obj: *mut Value) {
+/// Releases one owned reference to an object value.
+///
+/// # Safety
+///
+/// `obj` must be null or a live pointer returned by [`mux_alloc_object`] (or
+/// another runtime function that returns an owned reference). A non-null
+/// pointer's reference is consumed by this call and must not be used again if
+/// the call releases the allocation.
+pub unsafe extern "C" fn mux_free_object(obj: *mut Value) {
     unsafe { free_object(obj) }
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_get_object_ptr(obj: *const Value) -> *mut c_void {
+/// Returns the data buffer owned by an object value.
+///
+/// # Safety
+///
+/// `obj` must be null or a live pointer to a `Value` returned by the runtime.
+/// If non-null, it must contain `Value::Object`. The returned buffer is
+/// borrowed from the value and must not be freed by the caller; it remains
+/// valid only while the value keeps its object allocation alive.
+pub unsafe extern "C" fn mux_get_object_ptr(obj: *const Value) -> *mut c_void {
     unsafe { get_object_ptr(obj) }
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_get_object_type_id(obj: *const Value) -> TypeId {
+/// Returns an object's registered type identifier, or zero for null/non-object
+/// values.
+///
+/// # Safety
+///
+/// `obj` must be null or a live pointer to a `Value` returned by the runtime.
+pub unsafe extern "C" fn mux_get_object_type_id(obj: *const Value) -> TypeId {
     unsafe { get_object_type_id(obj) }
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_copy_object(src: *const Value) -> *mut Value {
+/// Creates an independent object copy using its registered copy callback.
+///
+/// # Safety
+///
+/// `src` must be null or a live pointer to a `Value` returned by the runtime.
+/// A non-null value must contain `Value::Object`; null and non-object values
+/// return null. The source remains borrowed and is not consumed.
+pub unsafe extern "C" fn mux_copy_object(src: *const Value) -> *mut Value {
     unsafe { copy_object(src) }
 }
