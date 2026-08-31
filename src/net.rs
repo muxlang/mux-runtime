@@ -327,7 +327,7 @@ fn value_to_bytes(list: *mut Value) -> Result<Vec<u8>, String> {
                 if *i < 0 || *i > 255 {
                     return Err("byte value out of range".to_string());
                 }
-                bytes.push(*i as u8);
+                bytes.push(u8::try_from(*i).map_err(|_| "byte value out of range".to_string())?);
             } else {
                 return Err("bytes list must contain ints".to_string());
             }
@@ -367,6 +367,26 @@ fn net_result_string(result: Result<String, String>) -> *mut Value {
         Ok(value) => net_result_ok(Value::String(value)),
         Err(err) => net_result_err(err),
     }
+}
+
+/// Keep a single socket read from turning an untrusted Mux integer into an
+/// unbounded allocation. Callers can read larger streams in multiple chunks.
+const MAX_SOCKET_READ_BYTES: usize = 16 * 1024 * 1024;
+
+fn socket_read_size(size: i64) -> Result<usize, String> {
+    let size = usize::try_from(size).map_err(|_| "invalid buffer size".to_string())?;
+    if size == 0 || size > MAX_SOCKET_READ_BYTES {
+        return Err(format!(
+            "buffer size must be between 1 and {MAX_SOCKET_READ_BYTES} bytes"
+        ));
+    }
+    Ok(size)
+}
+
+fn byte_count_value(count: usize, operation: &str) -> Result<Value, String> {
+    i64::try_from(count)
+        .map(Value::Int)
+        .map_err(|_| format!("{operation} byte count exceeds the Mux integer range"))
 }
 
 fn value_to_json_map(value: *const Value, label: &str) -> Result<JsonMap, String> {
@@ -983,15 +1003,16 @@ pub extern "C" fn mux_net_tcp_connect(addr: *mut Value) -> *mut Value {
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
 pub extern "C" fn mux_net_tcp_read(stream: *mut Value, size: i64) -> *mut Value {
-    if size <= 0 {
-        return net_result_err("invalid buffer size".to_string());
-    }
+    let size = match socket_read_size(size) {
+        Ok(size) => size,
+        Err(err) => return net_result_err(err),
+    };
     let handle = match tcp_handle(stream) {
         Ok(handle) => handle,
         Err(err) => return net_result_err(err),
     };
     let result = with_tcp_stream(handle, |socket| {
-        let mut buf = vec![0u8; size as usize];
+        let mut buf = vec![0u8; size];
         let count = socket
             .read(&mut buf)
             .map_err(|e| format!("tcp read failed: {e}"))?;
@@ -1027,7 +1048,10 @@ pub extern "C" fn mux_net_tcp_write(stream: *mut Value, data: *mut Value) -> *mu
             .map_err(|e| format!("tcp write failed: {e}"))
     });
     match result {
-        Ok(written) => net_result_ok(Value::Int(written as i64)),
+        Ok(written) => match byte_count_value(written, "tcp write") {
+            Ok(value) => net_result_ok(value),
+            Err(err) => net_result_err(err),
+        },
         Err(err) => net_result_err(err),
     }
 }
@@ -1120,7 +1144,10 @@ pub extern "C" fn mux_net_udp_send_to(
         sock.send_to(&payload, destination.clone())
             .map_err(|e| format!("udp send failed: {e}"))
     }) {
-        Ok(written) => net_result_ok(Value::Int(written as i64)),
+        Ok(written) => match byte_count_value(written, "udp send") {
+            Ok(value) => net_result_ok(value),
+            Err(err) => net_result_err(err),
+        },
         Err(err) => net_result_err(err),
     }
 }
@@ -1128,15 +1155,16 @@ pub extern "C" fn mux_net_udp_send_to(
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
 pub extern "C" fn mux_net_udp_recv_from(socket: *mut Value, size: i64) -> *mut Value {
-    if size <= 0 {
-        return net_result_err("invalid buffer size".to_string());
-    }
+    let size = match socket_read_size(size) {
+        Ok(size) => size,
+        Err(err) => return net_result_err(err),
+    };
     let handle = match udp_handle(socket) {
         Ok(handle) => handle,
         Err(err) => return net_result_err(err),
     };
     match with_udp_socket(handle, |sock| {
-        let mut buf = vec![0u8; size as usize];
+        let mut buf = vec![0u8; size];
         let result = sock
             .recv_from(&mut buf)
             .map_err(|e| format!("udp recv failed: {e}"))?;
