@@ -18,7 +18,9 @@ fn dt_err(msg: String) -> *mut Value {
 pub extern "C" fn mux_datetime_now() -> *mut Value {
     match SystemTime::now().duration_since(UNIX_EPOCH) {
         Ok(duration) => {
-            let seconds = duration.as_secs() as i64;
+            let Ok(seconds) = i64::try_from(duration.as_secs()) else {
+                return dt_err("Current time exceeds the supported timestamp range".to_string());
+            };
             dt_ok(Value::Int(seconds))
         }
         Err(e) => dt_err(format!("Failed to get current time: {e}")),
@@ -29,7 +31,9 @@ pub extern "C" fn mux_datetime_now() -> *mut Value {
 pub extern "C" fn mux_datetime_now_millis() -> *mut Value {
     match SystemTime::now().duration_since(UNIX_EPOCH) {
         Ok(duration) => {
-            let millis = duration.as_millis() as i64;
+            let Ok(millis) = i64::try_from(duration.as_millis()) else {
+                return dt_err("Current time exceeds the supported timestamp range".to_string());
+            };
             dt_ok(Value::Int(millis))
         }
         Err(e) => dt_err(format!("Failed to get current time: {e}")),
@@ -60,37 +64,39 @@ fn datetime_field(timestamp: i64, get_field: impl FnOnce(&DateTime<Utc>) -> i64)
 
 #[unsafe(no_mangle)]
 pub extern "C" fn mux_datetime_year(timestamp: i64) -> *mut Value {
-    datetime_field(timestamp, |dt| dt.year() as i64)
+    datetime_field(timestamp, |dt| i64::from(dt.year()))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn mux_datetime_month(timestamp: i64) -> *mut Value {
-    datetime_field(timestamp, |dt| dt.month() as i64)
+    datetime_field(timestamp, |dt| i64::from(dt.month()))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn mux_datetime_day(timestamp: i64) -> *mut Value {
-    datetime_field(timestamp, |dt| dt.day() as i64)
+    datetime_field(timestamp, |dt| i64::from(dt.day()))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn mux_datetime_hour(timestamp: i64) -> *mut Value {
-    datetime_field(timestamp, |dt| dt.hour() as i64)
+    datetime_field(timestamp, |dt| i64::from(dt.hour()))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn mux_datetime_minute(timestamp: i64) -> *mut Value {
-    datetime_field(timestamp, |dt| dt.minute() as i64)
+    datetime_field(timestamp, |dt| i64::from(dt.minute()))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn mux_datetime_second(timestamp: i64) -> *mut Value {
-    datetime_field(timestamp, |dt| dt.second() as i64)
+    datetime_field(timestamp, |dt| i64::from(dt.second()))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn mux_datetime_weekday(timestamp: i64) -> *mut Value {
-    datetime_field(timestamp, |dt| dt.weekday().num_days_from_sunday() as i64)
+    datetime_field(timestamp, |dt| {
+        i64::from(dt.weekday().num_days_from_sunday())
+    })
 }
 
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
@@ -136,7 +142,7 @@ pub extern "C" fn mux_datetime_sleep(seconds: i64) -> *mut Value {
     if seconds < 0 {
         return dt_err("Sleep duration cannot be negative".to_string());
     }
-    thread::sleep(Duration::from_secs(seconds as u64));
+    thread::sleep(Duration::from_secs(seconds.unsigned_abs()));
     dt_ok(Value::Unit)
 }
 
@@ -148,6 +154,6 @@ pub extern "C" fn mux_datetime_sleep_millis(milliseconds: i64) -> *mut Value {
     if milliseconds < 0 {
         return dt_err("Sleep duration cannot be negative".to_string());
     }
-    thread::sleep(Duration::from_millis(milliseconds as u64));
+    thread::sleep(Duration::from_millis(milliseconds.unsigned_abs()));
     dt_ok(Value::Unit)
 }
