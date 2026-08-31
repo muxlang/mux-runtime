@@ -62,9 +62,9 @@ fn json_to_value_roundtrip() {
 
 #[test]
 fn json_parse_extern() {
-    assert_ok(mux_json_parse(CString::new("[1, 2, 3]").unwrap().as_ptr()));
-    assert_err(mux_json_parse(CString::new("{bad").unwrap().as_ptr()));
-    assert_err(mux_json_parse(std::ptr::null()));
+    assert_ok(unsafe { mux_json_parse(CString::new("[1, 2, 3]").unwrap().as_ptr()) });
+    assert_err(unsafe { mux_json_parse(CString::new("{bad").unwrap().as_ptr()) });
+    assert_err(unsafe { mux_json_parse(std::ptr::null()) });
 }
 
 #[test]
@@ -72,15 +72,15 @@ fn json_stringify_extern() {
     let v = mux_rc_alloc(Value::List(vec![Value::Int(1), Value::Int(2)]));
 
     // no indent (null option)
-    assert_ok(mux_json_stringify(v, std::ptr::null_mut()));
+    assert_ok(unsafe { mux_json_stringify(v, std::ptr::null_mut()) });
 
     // with indent via Optional(Some(Int))
     let indent = mux_rc_alloc(Value::Optional(Some(Box::new(Value::Int(2)))));
-    assert_ok(mux_json_stringify(v, indent));
+    assert_ok(unsafe { mux_json_stringify(v, indent) });
     assert!(unsafe { mux_rc_dec(indent) });
 
     // null value -> error
-    assert_err(mux_json_stringify(std::ptr::null(), std::ptr::null_mut()));
+    assert_err(unsafe { mux_json_stringify(std::ptr::null(), std::ptr::null_mut()) });
 
     assert!(unsafe { mux_rc_dec(v) });
 }
@@ -91,13 +91,13 @@ fn json_from_and_to_map_extern() {
     map.insert(Value::String("k".into()), Value::Int(1));
     let map_val = mux_rc_alloc(Value::Map(map));
 
-    assert_ok(mux_json_from_map(map_val));
-    assert_ok(mux_json_to_map(map_val));
+    assert_ok(unsafe { mux_json_from_map(map_val) });
+    assert_ok(unsafe { mux_json_to_map(map_val) });
     assert!(unsafe { mux_rc_dec(map_val) });
 
     // non-map inputs are errors
     let int_val = mux_rc_alloc(Value::Int(1));
-    assert_err(mux_json_from_map(int_val));
-    assert_err(mux_json_to_map(int_val));
+    assert_err(unsafe { mux_json_from_map(int_val) });
+    assert_err(unsafe { mux_json_to_map(int_val) });
     assert!(unsafe { mux_rc_dec(int_val) });
 }

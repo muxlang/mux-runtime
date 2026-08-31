@@ -152,17 +152,20 @@ fn accessors_return_decoded_values() {
 
     let name = json_to_value(map.get("name").unwrap());
     assert_eq!(
-        ok_payload(mux_json_as_string(&raw const name)),
+        ok_payload(unsafe { mux_json_as_string(&raw const name) }),
         Value::String("Ada".into()),
         "as_string must yield Ada, not \"Ada\""
     );
 
     let age = json_to_value(map.get("age").unwrap());
-    assert_eq!(ok_payload(mux_json_as_int(&raw const age)), Value::Int(36));
+    assert_eq!(
+        ok_payload(unsafe { mux_json_as_int(&raw const age) }),
+        Value::Int(36)
+    );
 
     let active = json_to_value(map.get("active").unwrap());
     assert_eq!(
-        ok_payload(mux_json_as_bool(&raw const active)),
+        ok_payload(unsafe { mux_json_as_bool(&raw const active) }),
         Value::Bool(true)
     );
 }
@@ -180,32 +183,32 @@ fn accessors_report_the_kind_they_found() {
 
     let text = Value::String("not a number".into());
     assert_eq!(
-        err_message(mux_json_as_int(&raw const text)),
+        err_message(unsafe { mux_json_as_int(&raw const text) }),
         "expected an int, found a string"
     );
 
     let number = Value::Int(7);
     assert_eq!(
-        err_message(mux_json_as_string(&raw const number)),
+        err_message(unsafe { mux_json_as_string(&raw const number) }),
         "expected a string, found an int"
     );
 
     let nothing = Value::Unit;
     assert_eq!(
-        err_message(mux_json_as_int(&raw const nothing)),
+        err_message(unsafe { mux_json_as_int(&raw const nothing) }),
         "expected an int, found null"
     );
 
     // A null pointer is not a kind, so it says so rather than guessing.
     assert_eq!(
-        err_message(mux_json_as_int(std::ptr::null())),
+        err_message(unsafe { mux_json_as_int(std::ptr::null()) }),
         "expected an int, found nothing"
     );
 
     // A null is a kind of its own, not an absent value.
-    assert!(mux_json_is_null(&Value::Unit));
-    assert!(!mux_json_is_null(&Value::Int(0)));
-    assert!(!mux_json_is_null(std::ptr::null()));
+    assert!(unsafe { mux_json_is_null(&Value::Unit) });
+    assert!(!unsafe { mux_json_is_null(&Value::Int(0)) });
+    assert!(!unsafe { mux_json_is_null(std::ptr::null()) });
 }
 
 /// Numbers convert the way a reader expects: an integral float reads as an int
@@ -218,13 +221,13 @@ fn number_accessors_convert_deliberately() {
 
     let integral = Value::Float(ordered_float::OrderedFloat(42.0));
     assert_eq!(
-        ok_payload(mux_json_as_int(&raw const integral)),
+        ok_payload(unsafe { mux_json_as_int(&raw const integral) }),
         Value::Int(42)
     );
 
     let fractional = Value::Float(ordered_float::OrderedFloat(1.5));
     assert_eq!(
-        err_message(mux_json_as_int(&raw const fractional)),
+        err_message(unsafe { mux_json_as_int(&raw const fractional) }),
         "expected an int, found a float",
         "1.5 must not truncate to 1"
     );
@@ -235,7 +238,7 @@ fn number_accessors_convert_deliberately() {
     for enormous in [1e30_f64, -1e30_f64, f64::MAX, f64::MIN] {
         let v = Value::Float(ordered_float::OrderedFloat(enormous));
         assert!(
-            !err_message(mux_json_as_int(&raw const v)).is_empty(),
+            !err_message(unsafe { mux_json_as_int(&raw const v) }).is_empty(),
             "{enormous} is outside i64 and must be an error, not a saturated bound"
         );
     }
@@ -244,13 +247,13 @@ fn number_accessors_convert_deliberately() {
     // than only the far side of it.
     let big = Value::Float(ordered_float::OrderedFloat(9_007_199_254_740_992.0));
     assert_eq!(
-        ok_payload(mux_json_as_int(&raw const big)),
+        ok_payload(unsafe { mux_json_as_int(&raw const big) }),
         Value::Int(9_007_199_254_740_992)
     );
 
     let whole = Value::Int(3);
     assert_eq!(
-        ok_payload(mux_json_as_float(&raw const whole)),
+        ok_payload(unsafe { mux_json_as_float(&raw const whole) }),
         Value::Float(ordered_float::OrderedFloat(3.0))
     );
 }
@@ -273,7 +276,7 @@ fn field_lookup_separates_absent_from_null() {
     let key = |k: &str| CString::new(k).expect("no interior nul");
 
     // Present and a real value.
-    let got = mux_json_field(&raw const value, key("name").as_ptr());
+    let got = unsafe { mux_json_field(&raw const value, key("name").as_ptr()) };
     assert_eq!(
         unsafe { &*got },
         &Value::Optional(Some(Box::new(Value::String("Ada".into()))))
@@ -281,11 +284,11 @@ fn field_lookup_separates_absent_from_null() {
     assert!(unsafe { mux_rc_dec(got) });
 
     // Present but null: `some`, holding the null. NOT absent.
-    let got = mux_json_field(&raw const value, key("bio").as_ptr());
+    let got = unsafe { mux_json_field(&raw const value, key("bio").as_ptr()) };
     match unsafe { &*got } {
         Value::Optional(Some(inner)) => {
             assert!(
-                mux_json_is_null(inner.as_ref()),
+                unsafe { mux_json_is_null(inner.as_ref()) },
                 "bio should hold JSON null"
             );
         }
@@ -294,17 +297,17 @@ fn field_lookup_separates_absent_from_null() {
     assert!(unsafe { mux_rc_dec(got) });
 
     // Absent: `none`.
-    let got = mux_json_field(&raw const value, key("missing").as_ptr());
+    let got = unsafe { mux_json_field(&raw const value, key("missing").as_ptr()) };
     assert_eq!(unsafe { &*got }, &Value::Optional(None));
     assert!(unsafe { mux_rc_dec(got) });
 
     // Not an object at all, and a null key.
     let scalar = Value::Int(1);
-    let got = mux_json_field(&raw const scalar, key("any").as_ptr());
+    let got = unsafe { mux_json_field(&raw const scalar, key("any").as_ptr()) };
     assert_eq!(unsafe { &*got }, &Value::Optional(None));
     assert!(unsafe { mux_rc_dec(got) });
 
-    let got = mux_json_field(&raw const value, std::ptr::null());
+    let got = unsafe { mux_json_field(&raw const value, std::ptr::null()) };
     assert_eq!(unsafe { &*got }, &Value::Optional(None));
     assert!(unsafe { mux_rc_dec(got) });
 }

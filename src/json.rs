@@ -156,9 +156,14 @@ pub fn value_to_json(v: &Value) -> Result<Json, String> {
     }
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_json_parse(input: *const c_char) -> *mut Value {
+/// Parses a NUL-terminated C string as JSON and returns a result value.
+///
+/// # Safety
+///
+/// `input` must be null or a valid NUL-terminated C string readable for the
+/// duration of this call. Null preserves the result-error behavior.
+pub unsafe extern "C" fn mux_json_parse(input: *const c_char) -> *mut Value {
     if input.is_null() {
         let msg = CString::new("null input").unwrap();
         unsafe {
@@ -183,9 +188,18 @@ pub extern "C" fn mux_json_parse(input: *const c_char) -> *mut Value {
     }
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_json_stringify(val: *const Value, indent_opt: *mut Value) -> *mut Value {
+/// Serializes a value as JSON with an optional indentation value.
+///
+/// # Safety
+///
+/// `val` may be null, which returns a result error; otherwise it must point to
+/// a live runtime `Value`. A non-null `indent_opt` must likewise point to a
+/// live runtime `Value`. Both are borrowed for the duration of this call.
+pub unsafe extern "C" fn mux_json_stringify(
+    val: *const Value,
+    indent_opt: *mut Value,
+) -> *mut Value {
     if val.is_null() {
         let msg = CString::new("null input").unwrap();
         unsafe {
@@ -222,9 +236,14 @@ pub extern "C" fn mux_json_stringify(val: *const Value, indent_opt: *mut Value) 
     }
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_json_from_map(val: *const Value) -> *mut Value {
+/// Converts a map value to a JSON object result.
+///
+/// # Safety
+///
+/// `val` may be null, which returns a result error; otherwise it must point to
+/// a live runtime `Value` and remains borrowed for this call.
+pub unsafe extern "C" fn mux_json_from_map(val: *const Value) -> *mut Value {
     if val.is_null() {
         let msg = CString::new("null input").unwrap();
         unsafe { return crate::result::mux_result_err_str(msg.as_ptr()) }
@@ -259,9 +278,14 @@ pub extern "C" fn mux_json_from_map(val: *const Value) -> *mut Value {
     crate::refcount::mux_rc_alloc(Value::Result(Ok(Box::new(v))))
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_json_to_map(val: *const Value) -> *mut Value {
+/// Converts a JSON object value to a Mux map result.
+///
+/// # Safety
+///
+/// `val` may be null, which returns a result error; otherwise it must point to
+/// a live runtime `Value` and remains borrowed for this call.
+pub unsafe extern "C" fn mux_json_to_map(val: *const Value) -> *mut Value {
     if val.is_null() {
         let msg = CString::new("null input").unwrap();
         unsafe { return crate::result::mux_result_err_str(msg.as_ptr()) }
@@ -306,17 +330,10 @@ pub extern "C" fn mux_json_to_map(val: *const Value) -> *mut Value {
 ///
 /// # Safety contract for every accessor below
 ///
-/// `val` must be either null or a valid pointer to a live `Value` that stays
-/// alive for the duration of the call. Null is handled here and yields `none`;
-/// a dangling or misaligned pointer is undefined behaviour. Each accessor
-/// borrows its argument and never takes ownership - the caller still releases
-/// what it passed - and returns a NEW owned optional the caller releases with
-/// `mux_rc_dec`.
-///
-/// These stay safe `extern "C"` rather than `unsafe fn` to match the other
-/// entry points in this module (`mux_json_parse`, `mux_json_stringify`,
-/// `mux_json_from_map`, `mux_json_to_map`), which take the same shape of
-/// argument under the same contract.
+/// Each accessor accepts a null pointer as an ordinary wrong-kind result. A
+/// non-null `val` must point to a live runtime `Value` for the duration of the
+/// call. The argument is borrowed, and each returned result is a new owned
+/// value released with `mux_rc_dec`.
 /// The kind of a JSON value, for an error that says what was actually there.
 ///
 /// "expected an int" alone leaves the reader guessing whether the field was a
@@ -365,9 +382,14 @@ fn json_kind_error(expected: &str, found: &str) -> *mut Value {
     ))))))
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_json_as_string(val: *const Value) -> *mut Value {
+/// Reads a JSON string as a result value.
+///
+/// # Safety
+///
+/// `val` may be null; otherwise it must point to a live runtime `Value` for
+/// the duration of this call.
+pub unsafe extern "C" fn mux_json_as_string(val: *const Value) -> *mut Value {
     json_accessor(val, "a string", |v| match v {
         Value::String(s) => Some(Value::String(s.clone())),
         _ => None,
@@ -384,9 +406,14 @@ pub extern "C" fn mux_json_as_string(val: *const Value) -> *mut Value {
 /// the document. Comparing against the bounds as `f64` is deliberate; casting
 /// `i64::MAX` to `f64` rounds up, so `>=` on the upper bound is what excludes
 /// exactly the values that would not survive the conversion.
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_json_as_int(val: *const Value) -> *mut Value {
+/// Reads an integral JSON number as a result value.
+///
+/// # Safety
+///
+/// `val` may be null; otherwise it must point to a live runtime `Value` for
+/// the duration of this call.
+pub unsafe extern "C" fn mux_json_as_int(val: *const Value) -> *mut Value {
     json_accessor(val, "an int", |v| match v {
         Value::Int(i) => Some(Value::Int(*i)),
         Value::Float(f) => {
@@ -404,9 +431,14 @@ pub extern "C" fn mux_json_as_int(val: *const Value) -> *mut Value {
 
 /// A float. An integer widens, since every JSON number is a number first and
 /// asking for a float is asking how to read it, not what it was written as.
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_json_as_float(val: *const Value) -> *mut Value {
+/// Reads a JSON number as a floating-point result value.
+///
+/// # Safety
+///
+/// `val` may be null; otherwise it must point to a live runtime `Value` for
+/// the duration of this call.
+pub unsafe extern "C" fn mux_json_as_float(val: *const Value) -> *mut Value {
     json_accessor(val, "a float", |v| match v {
         Value::Float(f) => Some(Value::Float(*f)),
         Value::Int(i) => Some(Value::Float(ordered_float::OrderedFloat(*i as f64))),
@@ -414,18 +446,28 @@ pub extern "C" fn mux_json_as_float(val: *const Value) -> *mut Value {
     })
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_json_as_bool(val: *const Value) -> *mut Value {
+/// Reads a JSON boolean as a result value.
+///
+/// # Safety
+///
+/// `val` may be null; otherwise it must point to a live runtime `Value` for
+/// the duration of this call.
+pub unsafe extern "C" fn mux_json_as_bool(val: *const Value) -> *mut Value {
     json_accessor(val, "a bool", |v| match v {
         Value::Bool(b) => Some(Value::Bool(*b)),
         _ => None,
     })
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_json_as_list(val: *const Value) -> *mut Value {
+/// Reads a JSON array as a result value.
+///
+/// # Safety
+///
+/// `val` may be null; otherwise it must point to a live runtime `Value` for
+/// the duration of this call.
+pub unsafe extern "C" fn mux_json_as_list(val: *const Value) -> *mut Value {
     json_accessor(val, "an array", |v| match v {
         Value::List(items) => Some(Value::List(items.clone())),
         _ => None,
@@ -436,9 +478,14 @@ pub extern "C" fn mux_json_as_list(val: *const Value) -> *mut Value {
 /// returning a `result`; this is the method form, and `none` rather than an
 /// error message for a non-object.
 #[allow(clippy::mutable_key_type)]
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_json_as_map(val: *const Value) -> *mut Value {
+/// Reads a JSON object as a result value.
+///
+/// # Safety
+///
+/// `val` may be null; otherwise it must point to a live runtime `Value` for
+/// the duration of this call.
+pub unsafe extern "C" fn mux_json_as_map(val: *const Value) -> *mut Value {
     json_accessor(val, "an object", |v| match v {
         Value::Map(m) => Some(Value::Map(m.clone())),
         _ => None,
@@ -461,9 +508,14 @@ pub extern "C" fn mux_json_as_map(val: *const Value) -> *mut Value {
 /// abort a program over its own invariant, and a value that somehow reached
 /// this point renders as `null` - which is at least valid JSON - with a
 /// `debug_assert` so a test build fails where someone can act on it.
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_json_to_string(val: *const Value) -> *mut Value {
+/// Returns a JSON value's serialized text.
+///
+/// # Safety
+///
+/// `val` may be null, which returns the JSON text `null`; otherwise it must
+/// point to a live runtime `Value` for the duration of this call.
+pub unsafe extern "C" fn mux_json_to_string(val: *const Value) -> *mut Value {
     if val.is_null() {
         return crate::refcount::mux_rc_alloc(Value::String("null".to_string()));
     }
@@ -490,9 +542,15 @@ pub extern "C" fn mux_json_to_string(val: *const Value) -> *mut Value {
 /// The compiler emits one call per declared field rather than converting the
 /// whole object to a Mux map first, which would clone every value including
 /// the ones the class does not declare.
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_json_field(val: *const Value, key: *const c_char) -> *mut Value {
+/// Reads one JSON object field by C-string key.
+///
+/// # Safety
+///
+/// `val` may be null and `key` may be null, preserving the empty-optional
+/// behavior. Non-null pointers must be valid live runtime values and a valid
+/// NUL-terminated C string respectively for the duration of this call.
+pub unsafe extern "C" fn mux_json_field(val: *const Value, key: *const c_char) -> *mut Value {
     if key.is_null() {
         return crate::optional::mux_optional_none();
     }
@@ -522,8 +580,13 @@ pub extern "C" fn mux_json_field(val: *const Value, key: *const c_char) -> *mut 
 }
 
 /// JSON null. `Value::Unit` is what `json_to_value` maps it to.
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[unsafe(no_mangle)]
-pub extern "C" fn mux_json_is_null(val: *const Value) -> bool {
+/// Tests whether a value is JSON null.
+///
+/// # Safety
+///
+/// `val` may be null, which returns `false`; otherwise it must point to a live
+/// runtime `Value` for the duration of this call.
+pub unsafe extern "C" fn mux_json_is_null(val: *const Value) -> bool {
     !val.is_null() && matches!(unsafe { &*val }, Value::Unit)
 }

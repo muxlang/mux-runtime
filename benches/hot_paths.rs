@@ -343,14 +343,14 @@ fn bench_json(c: &mut Criterion) {
     // payload fails the bench instead of silently timing the error path.
     group.bench_function("parse_small", |b| {
         b.iter(|| {
-            let v = mux_json_parse(black_box(small.as_ptr()));
+            let v = unsafe { mux_json_parse(black_box(small.as_ptr())) };
             assert!(mux_result_is_ok(v), "benchmark JSON payload should parse");
             unsafe { mux_rc_dec(v) };
         });
     });
     group.bench_function("parse_medium", |b| {
         b.iter(|| {
-            let v = mux_json_parse(black_box(medium.as_ptr()));
+            let v = unsafe { mux_json_parse(black_box(medium.as_ptr())) };
             assert!(mux_result_is_ok(v), "benchmark JSON payload should parse");
             unsafe { mux_rc_dec(v) };
         });
@@ -361,7 +361,7 @@ fn bench_json(c: &mut Criterion) {
     let doc = mux_list_value(build_list(N));
     group.bench_function("stringify", |b| {
         b.iter(|| {
-            let s = mux_json_stringify(doc, ptr::null_mut());
+            let s = unsafe { mux_json_stringify(doc, ptr::null_mut()) };
             unsafe { mux_rc_dec(s) };
         });
     });
