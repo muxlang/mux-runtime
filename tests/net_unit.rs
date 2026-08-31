@@ -96,6 +96,8 @@ fn udp_roundtrip() {
     let recv = mux_net_udp_recv_from(b, 16);
     assert!(mux_result_is_ok(recv));
     assert!(unsafe { mux_rc_dec(recv) });
+    assert_err(mux_net_udp_recv_from(b, -1));
+    assert_err(mux_net_udp_recv_from(b, i64::MAX));
 
     assert!(unsafe { mux_rc_dec(payload) });
     assert!(unsafe { mux_rc_dec(dest) });
@@ -380,6 +382,8 @@ fn invalid_read_size_errors() {
     assert!(unsafe { mux_rc_dec(connect_addr) });
 
     assert_err(mux_net_tcp_read(client, 0));
+    assert_err(mux_net_tcp_read(client, -1));
+    assert_err(mux_net_tcp_read(client, i64::MAX));
 
     mux_net_tcp_close(client);
     mux_net_tcp_listener_close(listener);
