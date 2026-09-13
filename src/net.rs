@@ -1501,73 +1501,100 @@ fn streaming_socket_actor_loop(
     let mut fragments = None;
     let mut next_heartbeat = heartbeat.map(|(_, interval)| Instant::now() + interval);
     while !cancelled.load(Ordering::Acquire) {
-        let wait = next_heartbeat
-            .map(|deadline| deadline.saturating_duration_since(Instant::now()))
-            .map_or(Duration::from_millis(20), |remaining| {
-                remaining.min(Duration::from_millis(20))
-            });
+        let wait = streaming_socket_wait(next_heartbeat);
         let command = match receiver.recv_timeout(wait) {
             Ok(command) => command,
             Err(mpsc::RecvTimeoutError::Timeout) => {
-                if let (Some((kind, interval)), Some(deadline)) = (heartbeat, next_heartbeat) {
-                    if Instant::now() >= deadline {
-                        let bytes = match kind {
-                            StreamingHeartbeat::Sse => Ok(b": heartbeat\n\n".to_vec()),
-                            StreamingHeartbeat::WebSocket => {
-                                encode_websocket_frame(&WebSocketFrameEntry {
-                                    fin: true,
-                                    opcode: 9,
-                                    payload: Vec::new(),
-                                    masked: false,
-                                    names: 1,
-                                })
-                            }
-                        };
-                        if bytes
-                            .and_then(|bytes| {
-                                socket
-                                    .write_all(&bytes)
-                                    .and_then(|()| socket.flush())
-                                    .map_err(|error| error.to_string())
-                            })
-                            .is_err()
-                        {
-                            cancelled.store(true, Ordering::Release);
-                            break;
-                        }
-                        next_heartbeat = Some(deadline + interval);
-                    }
+                if let Ok(next) =
+                    write_due_streaming_heartbeat(&mut socket, heartbeat, next_heartbeat)
+                {
+                    next_heartbeat = next;
+                    continue;
                 }
-                continue;
+                cancelled.store(true, Ordering::Release);
+                break;
             }
             Err(mpsc::RecvTimeoutError::Disconnected) => break,
         };
         if cancelled.load(Ordering::Acquire) {
             break;
         }
-        match command {
-            StreamingSocketCommand::Write {
-                bytes,
-                flush,
-                response,
-            } => {
-                let result = socket
-                    .write_all(&bytes)
-                    .and_then(|()| if flush { socket.flush() } else { Ok(()) })
-                    .map_err(|error| format!("HTTP streaming write failed: {error}"));
-                let failed = result.is_err();
-                let _ = response.send(result);
-                if failed {
-                    cancelled.store(true, Ordering::Release);
-                }
+        if !handle_streaming_socket_command(&mut socket, &mut fragments, command, &cancelled) {
+            break;
+        }
+    }
+}
+
+fn streaming_socket_wait(next_heartbeat: Option<Instant>) -> Duration {
+    next_heartbeat
+        .map(|deadline| deadline.saturating_duration_since(Instant::now()))
+        .map_or(Duration::from_millis(20), |remaining| {
+            remaining.min(Duration::from_millis(20))
+        })
+}
+
+fn write_due_streaming_heartbeat(
+    socket: &mut StdTcpStream,
+    heartbeat: Option<(StreamingHeartbeat, Duration)>,
+    next_heartbeat: Option<Instant>,
+) -> Result<Option<Instant>, ()> {
+    let Some((kind, interval)) = heartbeat else {
+        return Ok(next_heartbeat);
+    };
+    let Some(deadline) = next_heartbeat else {
+        return Ok(None);
+    };
+    if Instant::now() < deadline {
+        return Ok(Some(deadline));
+    }
+
+    let bytes = match kind {
+        StreamingHeartbeat::Sse => Ok(b": heartbeat\n\n".to_vec()),
+        StreamingHeartbeat::WebSocket => encode_websocket_frame(&WebSocketFrameEntry {
+            fin: true,
+            opcode: 9,
+            payload: Vec::new(),
+            masked: false,
+            names: 1,
+        }),
+    };
+    let bytes = bytes.map_err(|_| ())?;
+    socket.write_all(&bytes).map_err(|_| ())?;
+    socket.flush().map_err(|_| ())?;
+    Ok(Some(deadline + interval))
+}
+
+fn handle_streaming_socket_command(
+    socket: &mut StdTcpStream,
+    fragments: &mut Option<(u8, Vec<u8>)>,
+    command: StreamingSocketCommand,
+    cancelled: &AtomicBool,
+) -> bool {
+    match command {
+        StreamingSocketCommand::Write {
+            bytes,
+            flush,
+            response,
+        } => {
+            let result = socket
+                .write_all(&bytes)
+                .and_then(|()| if flush { socket.flush() } else { Ok(()) })
+                .map_err(|error| format!("HTTP streaming write failed: {error}"));
+            let failed = result.is_err();
+            let _ = response.send(result);
+            if failed {
+                cancelled.store(true, Ordering::Release);
             }
-            StreamingSocketCommand::ReadWebSocket { response } => {
-                let result = read_websocket_message(&mut socket, fragments.take());
-                if result.is_err() {
-                    cancelled.store(true, Ordering::Release);
-                }
-                let _ = response.send(result);
+            !failed
+        }
+        StreamingSocketCommand::ReadWebSocket { response } => {
+            let result = read_websocket_message(socket, fragments.take());
+            let failed = result.is_err();
+            if failed {
+                cancelled.store(true, Ordering::Release);
             }
+            let _ = response.send(result);
+            !failed
         }
     }
 }
@@ -2827,37 +2854,40 @@ fn tcp_handle(value: *const Value) -> Result<i64, String> {
 #[cfg(feature = "net")]
 pub(crate) fn clone_tcp_stream(value: *const Value) -> Result<StdTcpStream, String> {
     let handle = tcp_handle(value)?;
-    let entry = socket_entry_or_err(&TCP_STREAMS, handle, "tcp stream")?;
-    let clone = entry
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .try_clone()
-        .map_err(|error| format!("failed to clone tcp stream: {error}"));
-    clone
+    {
+        let entry = socket_entry_or_err(&TCP_STREAMS, handle, "tcp stream")?;
+        let clone = entry
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .try_clone();
+        clone.map_err(|error| format!("failed to clone tcp stream: {error}"))
+    }
 }
 
 #[cfg(feature = "net")]
 pub(crate) fn clone_tcp_listener(value: *const Value) -> Result<StdTcpListener, String> {
     let handle = tcp_listener_handle(value)?;
-    let entry = socket_entry_or_err(&TCP_LISTENERS, handle, "tcp listener")?;
-    let clone = entry
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .try_clone()
-        .map_err(|error| format!("failed to clone tcp listener: {error}"));
-    clone
+    {
+        let entry = socket_entry_or_err(&TCP_LISTENERS, handle, "tcp listener")?;
+        let clone = entry
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .try_clone();
+        clone.map_err(|error| format!("failed to clone tcp listener: {error}"))
+    }
 }
 
 #[cfg(feature = "net")]
 pub(crate) fn clone_udp_socket(value: *const Value) -> Result<StdUdpSocket, String> {
     let handle = udp_handle(value)?;
-    let entry = socket_entry_or_err(&UDP_SOCKETS, handle, "udp socket")?;
-    let clone = entry
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .try_clone()
-        .map_err(|error| format!("failed to clone udp socket: {error}"));
-    clone
+    {
+        let entry = socket_entry_or_err(&UDP_SOCKETS, handle, "udp socket")?;
+        let clone = entry
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .try_clone();
+        clone.map_err(|error| format!("failed to clone udp socket: {error}"))
+    }
 }
 
 fn udp_handle(value: *const Value) -> Result<i64, String> {
@@ -3605,25 +3635,7 @@ fn reassemble_websocket_frames(values: &[Value]) -> Result<WebSocketFrameEntry, 
         return Err("WebSocket message must contain at least one frame".to_string());
     }
 
-    let entries = values
-        .iter()
-        .map(|value| {
-            let handle = websocket_frame_handle(value)?;
-            let frames = lock_websocket_frames();
-            let entry = frames
-                .get(&handle)
-                .ok_or_else(|| "invalid WebSocketFrame handle".to_string())?;
-            let entry = WebSocketFrameEntry {
-                fin: entry.fin,
-                opcode: entry.opcode,
-                payload: entry.payload.clone(),
-                masked: entry.masked,
-                names: 1,
-            };
-            validate_websocket_frame(&entry)?;
-            Ok(entry)
-        })
-        .collect::<Result<Vec<_>, String>>()?;
+    let entries = websocket_frame_entries(values)?;
 
     let first = &entries[0];
     let first_opcode = validate_websocket_opcode(first.opcode)?;
@@ -3650,52 +3662,86 @@ fn reassemble_websocket_frames(values: &[Value]) -> Result<WebSocketFrameEntry, 
     let mut payload = first.payload.clone();
     let mut total = first.payload.len();
     for (index, entry) in entries.iter().enumerate() {
-        let opcode = validate_websocket_opcode(entry.opcode)?;
-        if index == 0 {
-            if entry.fin {
-                return Err("WebSocket fragmented message starts as final".to_string());
-            }
-        } else if opcode >= 8 {
-            // Control frames are allowed between fragments but never become
-            // part of the reassembled application message.
-            if entry.masked != first.masked {
-                return Err("WebSocket message frames must use one masking state".to_string());
-            }
-            continue;
-        } else {
-            if opcode != 0 {
-                return Err("WebSocket fragmented message contains a new data frame".to_string());
-            }
-            if entry.masked != first.masked {
-                return Err("WebSocket message frames must use one masking state".to_string());
-            }
-            total = total
-                .checked_add(entry.payload.len())
-                .ok_or_else(|| "WebSocket message payload length overflows".to_string())?;
-            if total > MAX_WEBSOCKET_FRAME_BYTES {
-                return Err(format!(
-                    "WebSocket message payload exceeds {MAX_WEBSOCKET_FRAME_BYTES} bytes"
-                ));
-            }
-            payload.extend_from_slice(&entry.payload);
-            if entry.fin {
-                if index + 1 != entries.len() {
-                    return Err("WebSocket complete message has trailing frames".to_string());
-                }
-                let output = WebSocketFrameEntry {
-                    fin: true,
-                    opcode: first.opcode,
-                    payload,
-                    masked: first.masked,
-                    names: 1,
-                };
-                validate_websocket_frame(&output)?;
-                return Ok(output);
-            }
+        if let Some(output) =
+            append_websocket_fragment(first, entry, index, entries.len(), &mut payload, &mut total)?
+        {
+            return Ok(output);
         }
     }
 
     Err("WebSocket fragmented message is missing a final continuation".to_string())
+}
+
+fn websocket_frame_entries(values: &[Value]) -> Result<Vec<WebSocketFrameEntry>, String> {
+    values
+        .iter()
+        .map(|value| {
+            let handle = websocket_frame_handle(value)?;
+            let frames = lock_websocket_frames();
+            let entry = frames
+                .get(&handle)
+                .ok_or_else(|| "invalid WebSocketFrame handle".to_string())?;
+            let entry = WebSocketFrameEntry {
+                fin: entry.fin,
+                opcode: entry.opcode,
+                payload: entry.payload.clone(),
+                masked: entry.masked,
+                names: 1,
+            };
+            validate_websocket_frame(&entry)?;
+            Ok(entry)
+        })
+        .collect()
+}
+
+fn append_websocket_fragment(
+    first: &WebSocketFrameEntry,
+    entry: &WebSocketFrameEntry,
+    index: usize,
+    entry_count: usize,
+    payload: &mut Vec<u8>,
+    total: &mut usize,
+) -> Result<Option<WebSocketFrameEntry>, String> {
+    let opcode = validate_websocket_opcode(entry.opcode)?;
+    if index == 0 {
+        if entry.fin {
+            return Err("WebSocket fragmented message starts as final".to_string());
+        }
+        return Ok(None);
+    }
+    if entry.masked != first.masked {
+        return Err("WebSocket message frames must use one masking state".to_string());
+    }
+    if opcode >= 8 {
+        return Ok(None);
+    }
+    if opcode != 0 {
+        return Err("WebSocket fragmented message contains a new data frame".to_string());
+    }
+    *total = total
+        .checked_add(entry.payload.len())
+        .ok_or_else(|| "WebSocket message payload length overflows".to_string())?;
+    if *total > MAX_WEBSOCKET_FRAME_BYTES {
+        return Err(format!(
+            "WebSocket message payload exceeds {MAX_WEBSOCKET_FRAME_BYTES} bytes"
+        ));
+    }
+    payload.extend_from_slice(&entry.payload);
+    if !entry.fin {
+        return Ok(None);
+    }
+    if index + 1 != entry_count {
+        return Err("WebSocket complete message has trailing frames".to_string());
+    }
+    let output = WebSocketFrameEntry {
+        fin: true,
+        opcode: first.opcode,
+        payload: std::mem::take(payload),
+        masked: first.masked,
+        names: 1,
+    };
+    validate_websocket_frame(&output)?;
+    Ok(Some(output))
 }
 
 #[unsafe(no_mangle)]
@@ -5140,69 +5186,142 @@ fn read_chunked_http_request_body(
     let mut cursor = 0;
     let mut body = Vec::new();
     loop {
-        let line_end = loop {
-            if let Some(relative) = buffer[cursor..]
-                .windows(2)
-                .position(|bytes| bytes == b"\r\n")
-            {
-                break cursor + relative;
-            }
-            if buffer.len().saturating_sub(cursor) > max_header_bytes {
-                return Err("chunk size line too large".to_string());
-            }
-            read_more_http_bytes(stream, &mut buffer, max_header_bytes, max_body_bytes)?;
-        };
-        let line = std::str::from_utf8(&buffer[cursor..line_end])
-            .map_err(|_| "chunk size line is not utf-8".to_string())?;
-        let size_text = line.split(';').next().unwrap_or_default().trim();
-        let size =
-            usize::from_str_radix(size_text, 16).map_err(|_| "invalid chunk size".to_string())?;
-        cursor = line_end + 2;
+        let size = read_chunk_size(
+            stream,
+            &mut buffer,
+            &mut cursor,
+            max_header_bytes,
+            max_body_bytes,
+        )?;
         if size == 0 {
-            let mut trailer_bytes = 0_usize;
-            let mut trailer_count = 0_usize;
-            loop {
-                let trailer_end = loop {
-                    if let Some(relative) = buffer[cursor..]
-                        .windows(2)
-                        .position(|bytes| bytes == b"\r\n")
-                    {
-                        break cursor + relative;
-                    }
-                    read_more_http_bytes(stream, &mut buffer, max_header_bytes, max_body_bytes)?;
-                };
-                let empty = trailer_end == cursor;
-                let trailer_line = &buffer[cursor..trailer_end];
-                cursor = trailer_end + 2;
-                if empty {
-                    return Ok(body);
-                }
-                trailer_bytes = trailer_bytes
-                    .saturating_add(trailer_line.len())
-                    .saturating_add(2);
-                if trailer_bytes > max_header_bytes {
-                    return Err("chunked request trailers too large".to_string());
-                }
-                trailer_count = trailer_count.saturating_add(1);
-                if trailer_count > max_trailers {
-                    return Err("too many HTTP request trailer fields".to_string());
-                }
-                validate_http_request_trailer(trailer_line)?;
-            }
+            read_chunked_request_trailers(
+                stream,
+                &mut buffer,
+                &mut cursor,
+                max_header_bytes,
+                max_body_bytes,
+                max_trailers,
+            )?;
+            return Ok(body);
         }
         if body.len().saturating_add(size) > max_body_bytes {
             return Err("request body too large".to_string());
         }
-        while buffer.len().saturating_sub(cursor) < size.saturating_add(2) {
-            read_more_http_bytes(stream, &mut buffer, max_header_bytes, max_body_bytes)?;
-        }
-        body.extend_from_slice(&buffer[cursor..cursor + size]);
-        cursor += size;
-        if buffer.get(cursor..cursor + 2) != Some(b"\r\n") {
-            return Err("chunk is missing its trailing CRLF".to_string());
-        }
-        cursor += 2;
+        read_chunk_data(
+            stream,
+            &mut buffer,
+            &mut cursor,
+            &mut body,
+            size,
+            max_header_bytes,
+            max_body_bytes,
+        )?;
     }
+}
+
+fn read_chunk_size(
+    stream: &mut StdTcpStream,
+    buffer: &mut Vec<u8>,
+    cursor: &mut usize,
+    max_header_bytes: usize,
+    max_body_bytes: usize,
+) -> Result<usize, String> {
+    let line_end = read_http_line_end(
+        stream,
+        buffer,
+        *cursor,
+        max_header_bytes,
+        max_body_bytes,
+        Some("chunk size line too large"),
+    )?;
+    let line = std::str::from_utf8(&buffer[*cursor..line_end])
+        .map_err(|_| "chunk size line is not utf-8".to_string())?;
+    *cursor = line_end + 2;
+    usize::from_str_radix(line.split(';').next().unwrap_or_default().trim(), 16)
+        .map_err(|_| "invalid chunk size".to_string())
+}
+
+fn read_http_line_end(
+    stream: &mut StdTcpStream,
+    buffer: &mut Vec<u8>,
+    cursor: usize,
+    max_header_bytes: usize,
+    max_body_bytes: usize,
+    too_large_message: Option<&str>,
+) -> Result<usize, String> {
+    loop {
+        if let Some(relative) = buffer[cursor..]
+            .windows(2)
+            .position(|bytes| bytes == b"\r\n")
+        {
+            return Ok(cursor + relative);
+        }
+        if let Some(message) = too_large_message {
+            if buffer.len().saturating_sub(cursor) > max_header_bytes {
+                return Err(message.to_string());
+            }
+        }
+        read_more_http_bytes(stream, buffer, max_header_bytes, max_body_bytes)?;
+    }
+}
+
+fn read_chunked_request_trailers(
+    stream: &mut StdTcpStream,
+    buffer: &mut Vec<u8>,
+    cursor: &mut usize,
+    max_header_bytes: usize,
+    max_body_bytes: usize,
+    max_trailers: usize,
+) -> Result<(), String> {
+    let mut trailer_bytes = 0_usize;
+    let mut trailer_count = 0_usize;
+    loop {
+        let trailer_end = read_http_line_end(
+            stream,
+            buffer,
+            *cursor,
+            max_header_bytes,
+            max_body_bytes,
+            None,
+        )?;
+        let trailer_line = &buffer[*cursor..trailer_end];
+        *cursor = trailer_end + 2;
+        if trailer_line.is_empty() {
+            return Ok(());
+        }
+        trailer_bytes = trailer_bytes
+            .saturating_add(trailer_line.len())
+            .saturating_add(2);
+        if trailer_bytes > max_header_bytes {
+            return Err("chunked request trailers too large".to_string());
+        }
+        trailer_count = trailer_count.saturating_add(1);
+        if trailer_count > max_trailers {
+            return Err("too many HTTP request trailer fields".to_string());
+        }
+        validate_http_request_trailer(trailer_line)?;
+    }
+}
+
+fn read_chunk_data(
+    stream: &mut StdTcpStream,
+    buffer: &mut Vec<u8>,
+    cursor: &mut usize,
+    body: &mut Vec<u8>,
+    size: usize,
+    max_header_bytes: usize,
+    max_body_bytes: usize,
+) -> Result<(), String> {
+    while buffer.len().saturating_sub(*cursor) < size.saturating_add(2) {
+        read_more_http_bytes(stream, buffer, max_header_bytes, max_body_bytes)?;
+    }
+    body.extend_from_slice(&buffer[*cursor..*cursor + size]);
+    *cursor += size;
+    if buffer.get(*cursor..*cursor + 2) != Some(b"\r\n") {
+        return Err("chunk is missing its trailing CRLF".to_string());
+    }
+    *cursor += 2;
+    Ok(())
 }
 
 fn read_typed_http_request_with_limits(
@@ -5332,111 +5451,166 @@ fn sanitize_http_log_field(value: &str) -> String {
     sanitized
 }
 
-fn validated_http_response_headers(
+struct HttpResponseHeaderState {
+    wire_headers: Vec<(String, String)>,
+    declared_content_length: Option<usize>,
+    has_content_length: bool,
+    has_connection: bool,
+    connection_closes: bool,
+    connection_keep_alive: bool,
+    has_transfer_encoding: bool,
+}
+
+fn collect_http_response_headers(
     headers: &[(String, String)],
-    status_code: u16,
-    body_len: usize,
-) -> Result<Vec<(String, String)>, String> {
+) -> Result<HttpResponseHeaderState, String> {
     // Reject an oversized caller-owned collection before reserving capacity or
     // walking it. The final validation below also accounts for the writer's
     // automatically added framing fields.
     validate_http_header_budget(headers)?;
-    let mut wire_headers = Vec::with_capacity(headers.len() + 2);
-    let mut declared_content_length = None;
-    let mut has_content_length = false;
-    let mut has_connection = false;
-    let mut connection_closes = false;
-    let mut connection_keep_alive = false;
-    let mut has_transfer_encoding = false;
+    let mut state = HttpResponseHeaderState {
+        wire_headers: Vec::with_capacity(headers.len() + 2),
+        declared_content_length: None,
+        has_content_length: false,
+        has_connection: false,
+        connection_closes: false,
+        connection_keep_alive: false,
+        has_transfer_encoding: false,
+    };
 
     for (name, value) in headers {
         header_name(name)?;
         header_value(value)?;
         if name.eq_ignore_ascii_case("content-length") {
-            has_content_length = true;
+            state.has_content_length = true;
             let length = value
                 .trim()
                 .parse::<usize>()
                 .map_err(|_| "invalid Content-Length header".to_string())?;
-            if declared_content_length.is_some_and(|known| known != length) {
+            if state
+                .declared_content_length
+                .is_some_and(|known| known != length)
+            {
                 return Err("conflicting Content-Length headers".to_string());
             }
-            declared_content_length = Some(length);
+            state.declared_content_length = Some(length);
         }
         if name.eq_ignore_ascii_case("connection") {
-            has_connection = true;
+            state.has_connection = true;
             for token in value.split(',').map(str::trim) {
-                connection_closes |= token.eq_ignore_ascii_case("close");
-                connection_keep_alive |= token.eq_ignore_ascii_case("keep-alive");
+                state.connection_closes |= token.eq_ignore_ascii_case("close");
+                state.connection_keep_alive |= token.eq_ignore_ascii_case("keep-alive");
             }
         }
         if name.eq_ignore_ascii_case("transfer-encoding") {
-            has_transfer_encoding = true;
+            state.has_transfer_encoding = true;
         }
-        wire_headers.push((name.clone(), value.clone()));
+        state.wire_headers.push((name.clone(), value.clone()));
     }
+    Ok(state)
+}
 
-    // This writer uses a fixed Content-Length and closes the connection after
-    // one response. It has no chunk encoder, so accepting Transfer-Encoding
-    // would put a caller-supplied framing header next to a non-chunked body.
-    // Reject it rather than emitting an ambiguous response.
-    if has_transfer_encoding {
+fn validate_http_response_header_state(
+    state: &HttpResponseHeaderState,
+    status_code: u16,
+    body_len: usize,
+) -> Result<(), String> {
+    if state.has_transfer_encoding {
         return Err(
             "Transfer-Encoding is not supported by the HTTP/1.x response writer".to_string(),
         );
     }
-
-    // The writer closes the stream immediately after this response. A caller
-    // supplied `Connection: keep-alive` (or any other value without `close`)
-    // would advertise a connection lifecycle that the implementation cannot
-    // honor, so reject it instead of emitting a misleading response.
-    if has_connection && (!connection_closes || connection_keep_alive) {
+    if state.has_connection && (!state.connection_closes || state.connection_keep_alive) {
         return Err(
             "HTTP/1.x response writer always closes the connection; Connection must include close and must not advertise keep-alive".to_string(),
         );
     }
-
-    if declared_content_length.is_some_and(|length| length != body_len) {
+    if state
+        .declared_content_length
+        .is_some_and(|length| length != body_len)
+    {
         return Err("Content-Length does not match the response body".to_string());
     }
+    validate_bodyless_http_response(state, status_code, body_len)?;
+    validate_reset_http_response(state, status_code, body_len)
+}
+
+fn validate_bodyless_http_response(
+    state: &HttpResponseHeaderState,
+    status_code: u16,
+    body_len: usize,
+) -> Result<(), String> {
     let bodyless_status = (100..200).contains(&status_code) || matches!(status_code, 204 | 304);
-    if bodyless_status {
-        if body_len != 0 {
-            return Err(format!(
-                "HTTP status {status_code} must not include a response body"
-            ));
-        }
-        if has_content_length {
-            return Err(format!(
-                "HTTP status {status_code} must not include Content-Length"
-            ));
-        }
+    if !bodyless_status {
+        return Ok(());
     }
-    // RFC 9110 requires 205 responses to have no content and to explicitly
-    // indicate a zero-length payload. The writer's close-delimited fallback
-    // is therefore represented as Content-Length: 0.
-    if status_code == 205 {
-        if body_len != 0 {
-            return Err("HTTP status 205 must not include a response body".to_string());
-        }
-        if declared_content_length.is_some_and(|length| length != 0) {
-            return Err("HTTP status 205 requires Content-Length: 0".to_string());
-        }
+    if body_len != 0 {
+        return Err(format!(
+            "HTTP status {status_code} must not include a response body"
+        ));
     }
-    // 1xx, 204, and 304 responses must omit Content-Length entirely. 205 is
-    // the exception: RFC 9110 requires an explicit zero-length indication.
-    if !has_content_length {
+    if state.has_content_length {
+        return Err(format!(
+            "HTTP status {status_code} must not include Content-Length"
+        ));
+    }
+    Ok(())
+}
+
+fn validate_reset_http_response(
+    state: &HttpResponseHeaderState,
+    status_code: u16,
+    body_len: usize,
+) -> Result<(), String> {
+    if status_code != 205 {
+        return Ok(());
+    }
+    if body_len != 0 {
+        return Err("HTTP status 205 must not include a response body".to_string());
+    }
+    if state
+        .declared_content_length
+        .is_some_and(|length| length != 0)
+    {
+        return Err("HTTP status 205 requires Content-Length: 0".to_string());
+    }
+    Ok(())
+}
+
+fn append_http_response_framing(
+    state: &mut HttpResponseHeaderState,
+    status_code: u16,
+    body_len: usize,
+) {
+    let bodyless_status = (100..200).contains(&status_code) || matches!(status_code, 204 | 304);
+    if !state.has_content_length {
         if status_code == 205 {
-            wire_headers.push(("content-length".to_string(), "0".to_string()));
+            state
+                .wire_headers
+                .push(("content-length".to_string(), "0".to_string()));
         } else if !bodyless_status {
-            wire_headers.push(("content-length".to_string(), body_len.to_string()));
+            state
+                .wire_headers
+                .push(("content-length".to_string(), body_len.to_string()));
         }
     }
-    if !has_connection {
-        wire_headers.push(("connection".to_string(), "close".to_string()));
+    if !state.has_connection {
+        state
+            .wire_headers
+            .push(("connection".to_string(), "close".to_string()));
     }
-    validate_http_header_budget(&wire_headers)?;
-    Ok(wire_headers)
+}
+
+fn validated_http_response_headers(
+    headers: &[(String, String)],
+    status_code: u16,
+    body_len: usize,
+) -> Result<Vec<(String, String)>, String> {
+    let mut state = collect_http_response_headers(headers)?;
+    validate_http_response_header_state(&state, status_code, body_len)?;
+    append_http_response_framing(&mut state, status_code, body_len);
+    validate_http_header_budget(&state.wire_headers)?;
+    Ok(state.wire_headers)
 }
 
 fn write_typed_http_response(
@@ -5713,7 +5887,7 @@ fn preflight_response(
 }
 
 fn static_content_type(path: &Path) -> &'static str {
-    match path.extension().and_then(|extension| extension.to_str()) {
+    match path.extension().and_then(std::ffi::OsStr::to_str) {
         Some("css") => "text/css; charset=utf-8",
         Some("csv") => "text/csv; charset=utf-8",
         Some("gif") => "image/gif",
@@ -7345,14 +7519,9 @@ fn http_router_route_match(
 }
 
 fn http_router_dispatch(router: i64, request: *mut Value, stage: usize) -> *mut Value {
-    let request_data = request_handle(request).ok().and_then(|handle| {
-        lock_requests().get(&handle).map(|entry| {
-            let method = entry.method.to_ascii_uppercase();
-            (method, entry.url.clone())
-        })
-    });
-    let Some((method, url)) = request_data else {
-        return http_result_err("invalid HttpRequest handle".to_string());
+    let (method, url) = match http_router_request_data(request) {
+        Ok(data) => data,
+        Err(error) => return http_result_err(error),
     };
     let route_match = match http_router_route_match(router, &method, &url) {
         Ok(route_match) => route_match,
@@ -7361,125 +7530,23 @@ fn http_router_dispatch(router: i64, request: *mut Value, stage: usize) -> *mut 
         }
     };
     if stage == 0 {
-        let Some(request_handle) = request_handle(request).ok() else {
-            return http_result_err("invalid HttpRequest handle".to_string());
-        };
-        let path_params = {
-            let requests = lock_requests();
-            let Some(request_entry) = requests.get(&request_handle) else {
-                return http_result_err("invalid HttpRequest handle".to_string());
-            };
-            request_entry.path_params.clone()
-        };
-        let mut path_params = path_params
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        path_params.clear();
-        if let Some((route_index, captures)) = &route_match {
-            let routers = lock_http_routers();
-            if let Some(router_entry) = routers.get(&router) {
-                let data = router_entry
-                    .data
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner);
-                if data.routes.get(*route_index).is_some() {
-                    path_params.extend(
-                        captures
-                            .iter()
-                            .map(|(name, value)| (name.clone(), value.clone())),
-                    );
-                }
-            }
+        if let Err(error) = bind_http_route_captures(request, router, &route_match) {
+            return http_result_err(error);
         }
     }
-    let middleware = {
-        let routers = lock_http_routers();
-        let Some(entry) = routers.get(&router) else {
-            return http_result_err("invalid HttpRouter handle".to_string());
-        };
-        let data = entry
-            .data
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        data.middleware.get(stage).map(|entry| match entry {
-            HttpMiddlewareEntry::Callback(callback) => HttpMiddlewareEntry::Callback(*callback),
-            HttpMiddlewareEntry::Basic { username, password } => HttpMiddlewareEntry::Basic {
-                username: username.clone(),
-                password: password.clone(),
-            },
-            HttpMiddlewareEntry::Bearer { token } => HttpMiddlewareEntry::Bearer {
-                token: token.clone(),
-            },
-            HttpMiddlewareEntry::OAuthOidc {
-                issuer,
-                audience,
-                jwks_url,
-            } => HttpMiddlewareEntry::OAuthOidc {
-                issuer: issuer.clone(),
-                audience: audience.clone(),
-                jwks_url: jwks_url.clone(),
-            },
-        })
+    let middleware = match http_router_middleware(router, stage) {
+        Ok(middleware) => middleware,
+        Err(error) => return http_result_err(error),
     };
-
-    if let Some(middleware) = middleware {
-        match middleware {
-            HttpMiddlewareEntry::Basic { username, password } => {
-                if !basic_auth_matches(request, &username, &password) {
-                    return unauthorized_response("Basic", &method, &url);
-                }
-                return http_router_dispatch(router, request, stage + 1);
-            }
-            HttpMiddlewareEntry::Bearer { token } => {
-                if !bearer_auth_matches(request, &token) {
-                    return unauthorized_response("Bearer", &method, &url);
-                }
-                return http_router_dispatch(router, request, stage + 1);
-            }
-            HttpMiddlewareEntry::OAuthOidc {
-                issuer,
-                audience,
-                jwks_url,
-            } => {
-                let Some(token) = bearer_token(request) else {
-                    return unauthorized_response("Bearer", &method, &url);
-                };
-                match oauth_oidc_token_is_valid(&token, &issuer, &audience, &jwks_url) {
-                    Ok(true) => return http_router_dispatch(router, request, stage + 1),
-                    Ok(false) => return unauthorized_response("Bearer", &method, &url),
-                    Err(error) => return oauth_oidc_transport_response(&method, &url, error),
-                }
-            }
-            HttpMiddlewareEntry::Callback(callback) => {
-                let callback = callback as *mut c_void;
-                let next_stage = stage + 1;
-                let next = insert_http_next(router, next_stage);
-                if next.is_null() {
-                    return http_result_err("failed to allocate HttpNext handle".to_string());
-                }
-                let result = unsafe { invoke_http_callback(callback, &[request, next]) };
-                unsafe { mux_rc_dec(next) };
-                return match result {
-                    Ok(result) => result,
-                    Err(error) => http_result_err(error),
-                };
-            }
-        }
+    if let Some(result) =
+        apply_http_router_middleware(router, request, stage, middleware, &method, &url)
+    {
+        return result;
     }
 
-    let callback = {
-        let routers = lock_http_routers();
-        let Some(entry) = routers.get(&router) else {
-            return http_result_err("invalid HttpRouter handle".to_string());
-        };
-        let data = entry
-            .data
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        route_match
-            .as_ref()
-            .and_then(|(index, _)| data.routes.get(*index))
-            .map(|route| route.handler as *mut c_void)
+    let callback = match http_router_callback(router, &route_match) {
+        Ok(callback) => callback,
+        Err(error) => return http_result_err(error),
     };
     if let Some(callback) = callback {
         return match unsafe { invoke_http_callback(callback, &[request]) } {
@@ -7495,6 +7562,172 @@ fn http_router_dispatch(router: i64, request: *mut Value, stage: usize) -> *mut 
         method,
         url,
     )
+}
+
+fn http_router_request_data(request: *mut Value) -> Result<(String, String), String> {
+    let handle = request_handle(request)?;
+    let requests = lock_requests();
+    let entry = requests
+        .get(&handle)
+        .ok_or_else(|| "invalid HttpRequest handle".to_string())?;
+    Ok((entry.method.to_ascii_uppercase(), entry.url.clone()))
+}
+
+fn bind_http_route_captures(
+    request: *mut Value,
+    router: i64,
+    route_match: &Option<HttpRouteMatch>,
+) -> Result<(), String> {
+    let request_handle = request_handle(request)?;
+    let path_params = {
+        let requests = lock_requests();
+        requests
+            .get(&request_handle)
+            .ok_or_else(|| "invalid HttpRequest handle".to_string())?
+            .path_params
+            .clone()
+    };
+    let mut path_params = path_params
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    path_params.clear();
+    let Some((route_index, captures)) = route_match else {
+        return Ok(());
+    };
+    let routers = lock_http_routers();
+    let Some(router_entry) = routers.get(&router) else {
+        return Ok(());
+    };
+    let data = router_entry
+        .data
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if data.routes.get(*route_index).is_some() {
+        path_params.extend(
+            captures
+                .iter()
+                .map(|(name, value)| (name.clone(), value.clone())),
+        );
+    }
+    Ok(())
+}
+
+fn clone_http_middleware(entry: &HttpMiddlewareEntry) -> HttpMiddlewareEntry {
+    match entry {
+        HttpMiddlewareEntry::Callback(callback) => HttpMiddlewareEntry::Callback(*callback),
+        HttpMiddlewareEntry::Basic { username, password } => HttpMiddlewareEntry::Basic {
+            username: username.clone(),
+            password: password.clone(),
+        },
+        HttpMiddlewareEntry::Bearer { token } => HttpMiddlewareEntry::Bearer {
+            token: token.clone(),
+        },
+        HttpMiddlewareEntry::OAuthOidc {
+            issuer,
+            audience,
+            jwks_url,
+        } => HttpMiddlewareEntry::OAuthOidc {
+            issuer: issuer.clone(),
+            audience: audience.clone(),
+            jwks_url: jwks_url.clone(),
+        },
+    }
+}
+
+fn http_router_middleware(
+    router: i64,
+    stage: usize,
+) -> Result<Option<HttpMiddlewareEntry>, String> {
+    let routers = lock_http_routers();
+    let entry = routers
+        .get(&router)
+        .ok_or_else(|| "invalid HttpRouter handle".to_string())?;
+    let data = entry
+        .data
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    Ok(data.middleware.get(stage).map(clone_http_middleware))
+}
+
+fn apply_http_router_middleware(
+    router: i64,
+    request: *mut Value,
+    stage: usize,
+    middleware: Option<HttpMiddlewareEntry>,
+    method: &str,
+    url: &str,
+) -> Option<*mut Value> {
+    let middleware = middleware?;
+    let next_stage = stage + 1;
+    Some(match middleware {
+        HttpMiddlewareEntry::Basic { username, password } => {
+            if basic_auth_matches(request, &username, &password) {
+                http_router_dispatch(router, request, next_stage)
+            } else {
+                unauthorized_response("Basic", method, url)
+            }
+        }
+        HttpMiddlewareEntry::Bearer { token } => {
+            if bearer_auth_matches(request, &token) {
+                http_router_dispatch(router, request, next_stage)
+            } else {
+                unauthorized_response("Bearer", method, url)
+            }
+        }
+        HttpMiddlewareEntry::OAuthOidc {
+            issuer,
+            audience,
+            jwks_url,
+        } => {
+            let Some(token) = bearer_token(request) else {
+                return Some(unauthorized_response("Bearer", method, url));
+            };
+            match oauth_oidc_token_is_valid(&token, &issuer, &audience, &jwks_url) {
+                Ok(true) => http_router_dispatch(router, request, next_stage),
+                Ok(false) => unauthorized_response("Bearer", method, url),
+                Err(error) => oauth_oidc_transport_response(method, url, error),
+            }
+        }
+        HttpMiddlewareEntry::Callback(callback) => {
+            invoke_http_router_middleware_callback(router, request, callback, next_stage)
+        }
+    })
+}
+
+fn invoke_http_router_middleware_callback(
+    router: i64,
+    request: *mut Value,
+    callback: usize,
+    next_stage: usize,
+) -> *mut Value {
+    let next = insert_http_next(router, next_stage);
+    if next.is_null() {
+        return http_result_err("failed to allocate HttpNext handle".to_string());
+    }
+    let result = unsafe { invoke_http_callback(callback as *mut c_void, &[request, next]) };
+    unsafe { mux_rc_dec(next) };
+    match result {
+        Ok(result) => result,
+        Err(error) => http_result_err(error),
+    }
+}
+
+fn http_router_callback(
+    router: i64,
+    route_match: &Option<HttpRouteMatch>,
+) -> Result<Option<*mut c_void>, String> {
+    let routers = lock_http_routers();
+    let entry = routers
+        .get(&router)
+        .ok_or_else(|| "invalid HttpRouter handle".to_string())?;
+    let data = entry
+        .data
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    Ok(route_match
+        .as_ref()
+        .and_then(|(index, _)| data.routes.get(*index))
+        .map(|route| route.handler as *mut c_void))
 }
 
 struct HttpRequestExecution<'a> {
@@ -10905,49 +11138,52 @@ fn serve_http_connection_actor(
     release_http_server_permit(&permits);
 }
 
-fn serve_http_server_pool(
-    listener: *const Value,
-    limits: HttpServerLimits,
+struct HttpServerPoolAdmission {
+    actors: Vec<thread::JoinHandle<()>>,
+    permits: Arc<(Mutex<usize>, Condvar)>,
+    accepted: i64,
+    accept_error: Option<String>,
+    cancelled_by_caller: bool,
+}
+
+struct HttpServerPoolContext<'a> {
+    listener: &'a mut HttpServerListenerModeGuard,
+    limits: &'a HttpServerLimits,
+    sender: &'a mpsc::SyncSender<HttpServerJob>,
+    cancelled: &'a Arc<AtomicBool>,
+    first_error: &'a Arc<Mutex<Option<String>>>,
+    queue_capacity: usize,
+}
+
+fn spawn_http_server_workers(
+    worker_count: usize,
     handler: *mut c_void,
-    max_requests: Option<i64>,
-    cancellation: Option<usize>,
-) -> Result<(), String> {
-    let worker_count = limits.worker_count;
-    let queue_capacity = worker_count
-        .checked_mul(2)
-        .ok_or_else(|| "HTTP server worker queue size overflowed".to_string())?;
-    let mut listener = HttpServerListenerModeGuard::new(clone_tcp_listener(listener)?)?;
+    receiver: &Arc<Mutex<mpsc::Receiver<HttpServerJob>>>,
+    cancelled: &Arc<AtomicBool>,
+    first_error: &Arc<Mutex<Option<String>>>,
+) -> Result<Vec<thread::JoinHandle<()>>, String> {
     let mut worker_handlers = Vec::with_capacity(worker_count);
     for _ in 0..worker_count {
-        match unsafe { crate::sync_primitives::snapshot_sendable_callback(handler) } {
-            Ok(worker_handler) => {
-                worker_handlers.push(HttpClosureReleaseGuard(worker_handler as usize));
-            }
-            Err(error) => return Err(error),
-        }
+        let worker_handler =
+            unsafe { crate::sync_primitives::snapshot_sendable_callback(handler) }?;
+        worker_handlers.push(HttpClosureReleaseGuard(worker_handler as usize));
     }
 
-    let (sender, receiver) = mpsc::sync_channel::<HttpServerJob>(queue_capacity);
-    let receiver = Arc::new(Mutex::new(receiver));
-    let cancelled = Arc::new(AtomicBool::new(false));
-    let first_error = Arc::new(Mutex::new(None::<String>));
     let mut workers = Vec::with_capacity(worker_count);
     for (index, worker_handler) in worker_handlers.into_iter().enumerate() {
-        let worker_receiver = Arc::clone(&receiver);
-        let cancelled = Arc::clone(&cancelled);
-        let first_error = Arc::clone(&first_error);
+        let worker_receiver = Arc::clone(receiver);
+        let worker_cancelled = Arc::clone(cancelled);
+        let first_error = Arc::clone(first_error);
         let worker_handler_address = worker_handler.0;
-        match thread::Builder::new()
+        let worker = thread::Builder::new()
             .name(format!("mux-http-server-{index}"))
             .spawn(move || {
                 let _handler = worker_handler;
                 let worker_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    loop {
-                        let Some(job) = receive_http_server_job(&worker_receiver, &cancelled)
-                        else {
-                            break;
-                        };
-                        if cancelled.load(Ordering::Acquire) {
+                    while let Some(job) =
+                        receive_http_server_job(&worker_receiver, &worker_cancelled)
+                    {
+                        if worker_cancelled.load(Ordering::Acquire) {
                             let _ = job
                                 .response_sender
                                 .try_send(Err("HTTP server worker pool cancelled".to_string()));
@@ -10958,10 +11194,9 @@ fn serve_http_server_pool(
                             &job.limits,
                             worker_handler_address as *mut c_void,
                         );
-                        // A request-specific conversion or handler failure belongs to
-                        // this client. It must not cancel unrelated connections.
+                        // A request-specific failure belongs to that client.
                         let _ = job.response_sender.try_send(result);
-                        if cancelled.load(Ordering::Acquire) {
+                        if worker_cancelled.load(Ordering::Acquire) {
                             break;
                         }
                     }
@@ -10969,137 +11204,183 @@ fn serve_http_server_pool(
                 if worker_result.is_err() {
                     report_http_server_pool_error(
                         "HTTP server worker panicked".to_string(),
-                        &cancelled,
+                        &worker_cancelled,
                         &first_error,
                     );
                 }
-            }) {
+            })
+            .map_err(|error| format!("HTTP server worker start failed: {error}"));
+        match worker {
             Ok(worker) => workers.push(worker),
             Err(error) => {
-                drop(sender);
-                drop(receiver);
+                cancelled.store(true, Ordering::Release);
                 for worker in workers {
                     let _ = worker.join();
                 }
-                return Err(format!("HTTP server worker start failed: {error}"));
+                return Err(error);
             }
         }
     }
-    drop(receiver);
+    Ok(workers)
+}
 
+fn http_server_pool_is_full(permits: &Arc<(Mutex<usize>, Condvar)>, queue_capacity: usize) -> bool {
+    let (count, _) = &**permits;
+    let count = count
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    *count >= queue_capacity
+}
+
+fn pool_cancellation_requested(cancellation: Option<usize>) -> Result<bool, String> {
+    cancellation.map_or(Ok(false), |cancellation| {
+        cancellation_requested(cancellation as *const Value)
+    })
+}
+
+fn accept_http_server_connection(
+    listener: &mut HttpServerListenerModeGuard,
+    limits: &HttpServerLimits,
+    sender: &mpsc::SyncSender<HttpServerJob>,
+    cancelled: &Arc<AtomicBool>,
+    first_error: &Arc<Mutex<Option<String>>>,
+    permits: &Arc<(Mutex<usize>, Condvar)>,
+    connection_index: i64,
+) -> Result<Option<thread::JoinHandle<()>>, String> {
+    let (stream, _) = match listener.listener.accept() {
+        Ok(connection) => connection,
+        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => return Ok(None),
+        Err(error) => return Err(format!("http server accept failed: {error}")),
+    };
+    {
+        let (count, _) = &**permits;
+        let mut count = count
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        *count += 1;
+    }
+    let permits_for_actor = Arc::clone(permits);
+    let cancelled_for_actor = Arc::clone(cancelled);
+    let first_error_for_actor = Arc::clone(first_error);
+    let sender_for_actor = sender.clone();
+    let actor_limits = limits.clone();
+    let actor = thread::Builder::new()
+        .name(format!("mux-http-connection-{connection_index}"))
+        .spawn(move || {
+            let actor_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                serve_http_connection_actor(
+                    stream,
+                    actor_limits,
+                    sender_for_actor,
+                    Arc::clone(&cancelled_for_actor),
+                    Arc::clone(&first_error_for_actor),
+                    Arc::clone(&permits_for_actor),
+                );
+            }));
+            if actor_result.is_err() {
+                report_http_server_pool_error(
+                    "HTTP server connection actor panicked".to_string(),
+                    &cancelled_for_actor,
+                    &first_error_for_actor,
+                );
+                release_http_server_permit(&permits_for_actor);
+            }
+        })
+        .map_err(|error| format!("HTTP server connection start failed: {error}"));
+    match actor {
+        Ok(actor) => Ok(Some(actor)),
+        Err(error) => {
+            release_http_server_permit(permits);
+            Err(error)
+        }
+    }
+}
+
+fn admit_http_server_pool_connections(
+    context: &mut HttpServerPoolContext<'_>,
+    max_requests: Option<i64>,
+    cancellation: Option<usize>,
+) -> HttpServerPoolAdmission {
+    let permits = Arc::new((Mutex::new(0_usize), Condvar::new()));
+    let mut actors = Vec::new();
     let mut accepted = 0_i64;
     let mut accept_error = None;
     let mut cancelled_by_caller = false;
-    let permits = Arc::new((Mutex::new(0_usize), Condvar::new()));
-    let mut actors = Vec::new();
     while max_requests.is_none_or(|limit| accepted < limit) {
-        reap_finished_http_server_actors(&mut actors, &cancelled, &first_error);
-        if cancelled.load(Ordering::Acquire) {
+        reap_finished_http_server_actors(&mut actors, context.cancelled, context.first_error);
+        if context.cancelled.load(Ordering::Acquire) {
             accept_error = Some("HTTP server worker pool cancelled".to_string());
             break;
         }
-        if let Some(cancellation) = cancellation {
-            match cancellation_requested(cancellation as *const Value) {
-                Ok(true) => {
-                    cancelled_by_caller = true;
-                    break;
-                }
-                Ok(false) => {}
-                Err(error) => {
-                    accept_error = Some(error);
-                    cancelled.store(true, Ordering::Release);
-                    break;
-                }
+        match pool_cancellation_requested(cancellation) {
+            Ok(true) => {
+                cancelled_by_caller = true;
+                break;
+            }
+            Ok(false) => {}
+            Err(error) => {
+                accept_error = Some(error);
+                context.cancelled.store(true, Ordering::Release);
+                break;
             }
         }
-        {
-            let (count, _) = &*permits;
-            let count = count
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            if *count >= queue_capacity {
-                drop(count);
-                thread::sleep(Duration::from_millis(1));
-                continue;
-            }
+        if http_server_pool_is_full(&permits, context.queue_capacity) {
+            thread::sleep(Duration::from_millis(1));
+            continue;
         }
-        match listener.listener.accept() {
-            Ok((stream, _)) => {
-                {
-                    let (count, _) = &*permits;
-                    let mut count = count
-                        .lock()
-                        .unwrap_or_else(std::sync::PoisonError::into_inner);
-                    if *count >= queue_capacity {
-                        drop(count);
-                        continue;
-                    }
-                    *count += 1;
-                }
-                let permits_for_actor = Arc::clone(&permits);
-                let cancelled_for_actor = Arc::clone(&cancelled);
-                let first_error_for_actor = Arc::clone(&first_error);
-                let sender_for_actor = sender.clone();
-                let actor_limits = limits.clone();
-                let actor = thread::Builder::new()
-                    .name(format!("mux-http-connection-{accepted}"))
-                    .spawn(move || {
-                        let actor_result =
-                            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                                serve_http_connection_actor(
-                                    stream,
-                                    actor_limits,
-                                    sender_for_actor,
-                                    Arc::clone(&cancelled_for_actor),
-                                    Arc::clone(&first_error_for_actor),
-                                    Arc::clone(&permits_for_actor),
-                                );
-                            }));
-                        if actor_result.is_err() {
-                            report_http_server_pool_error(
-                                "HTTP server connection actor panicked".to_string(),
-                                &cancelled_for_actor,
-                                &first_error_for_actor,
-                            );
-                            release_http_server_permit(&permits_for_actor);
-                        }
-                    })
-                    .map_err(|error| format!("HTTP server connection start failed: {error}"));
-                match actor {
-                    Ok(actor) => actors.push(actor),
-                    Err(error) => {
-                        release_http_server_permit(&permits);
-                        accept_error = Some(error);
-                        cancelled.store(true, Ordering::Release);
-                        break;
-                    }
-                }
-                reap_finished_http_server_actors(&mut actors, &cancelled, &first_error);
+        match accept_http_server_connection(
+            context.listener,
+            context.limits,
+            context.sender,
+            context.cancelled,
+            context.first_error,
+            &permits,
+            accepted,
+        ) {
+            Ok(Some(actor)) => {
+                actors.push(actor);
+                reap_finished_http_server_actors(
+                    &mut actors,
+                    context.cancelled,
+                    context.first_error,
+                );
                 accepted += 1;
             }
-            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                thread::sleep(Duration::from_millis(1));
-            }
+            Ok(None) => thread::sleep(Duration::from_millis(1)),
             Err(error) => {
-                accept_error = Some(format!("http server accept failed: {error}"));
-                cancelled.store(true, Ordering::Release);
+                accept_error = Some(error);
+                context.cancelled.store(true, Ordering::Release);
                 break;
             }
         }
     }
-    drop(sender);
-    wait_for_http_server_actors(&permits);
+    HttpServerPoolAdmission {
+        actors,
+        permits,
+        accepted,
+        accept_error,
+        cancelled_by_caller,
+    }
+}
 
-    for actor in actors {
+fn finish_http_server_pool(
+    listener: &mut HttpServerListenerModeGuard,
+    admission: HttpServerPoolAdmission,
+    workers: Vec<thread::JoinHandle<()>>,
+    cancelled: &Arc<AtomicBool>,
+    first_error: &Arc<Mutex<Option<String>>>,
+    max_requests: Option<i64>,
+) -> Result<(), String> {
+    wait_for_http_server_actors(&admission.permits);
+    for actor in admission.actors {
         if actor.join().is_err() {
             report_http_server_pool_error(
                 "HTTP server connection actor panicked".to_string(),
-                &cancelled,
-                &first_error,
+                cancelled,
+                first_error,
             );
         }
     }
-
     for worker in workers {
         if worker.join().is_err() {
             cancelled.store(true, Ordering::Release);
@@ -11120,16 +11401,65 @@ fn serve_http_server_pool(
     {
         return Err(error);
     }
-    if let Some(error) = accept_error {
+    if let Some(error) = admission.accept_error {
         return Err(error);
     }
     if let Some(error) = restore_error {
         return Err(error);
     }
-    if !cancelled_by_caller && max_requests.is_some_and(|limit| accepted != limit) {
+    if !admission.cancelled_by_caller
+        && max_requests.is_some_and(|limit| admission.accepted != limit)
+    {
         return Err("HTTP server stopped before serving max_requests".to_string());
     }
     Ok(())
+}
+
+fn serve_http_server_pool(
+    listener: *const Value,
+    limits: HttpServerLimits,
+    handler: *mut c_void,
+    max_requests: Option<i64>,
+    cancellation: Option<usize>,
+) -> Result<(), String> {
+    let worker_count = limits.worker_count;
+    let queue_capacity = worker_count
+        .checked_mul(2)
+        .ok_or_else(|| "HTTP server worker queue size overflowed".to_string())?;
+    let mut listener = HttpServerListenerModeGuard::new(clone_tcp_listener(listener)?)?;
+    let (sender, receiver) = mpsc::sync_channel::<HttpServerJob>(queue_capacity);
+    let receiver = Arc::new(Mutex::new(receiver));
+    let cancelled = Arc::new(AtomicBool::new(false));
+    let first_error = Arc::new(Mutex::new(None::<String>));
+    let workers =
+        match spawn_http_server_workers(worker_count, handler, &receiver, &cancelled, &first_error)
+        {
+            Ok(workers) => workers,
+            Err(error) => {
+                drop(sender);
+                drop(receiver);
+                return Err(error);
+            }
+        };
+    drop(receiver);
+    let mut context = HttpServerPoolContext {
+        listener: &mut listener,
+        limits: &limits,
+        sender: &sender,
+        cancelled: &cancelled,
+        first_error: &first_error,
+        queue_capacity,
+    };
+    let admission = admit_http_server_pool_connections(&mut context, max_requests, cancellation);
+    drop(sender);
+    finish_http_server_pool(
+        &mut listener,
+        admission,
+        workers,
+        &cancelled,
+        &first_error,
+        max_requests,
+    )
 }
 
 fn serve_http_server_until_cancelled_single(
@@ -12531,6 +12861,12 @@ pub unsafe extern "C" fn mux_net_udp_local_addr(socket: *mut Value) -> *mut Valu
 
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "http3")]
+    use super::{
+        BASE64_STANDARD, Http3ClientTransport, Http3Error, Http3ErrorKind, Http3Response,
+        Http3ServerTransport, http3_connection_error_can_fallback,
+        http3_pre_dispatch_connection_error_can_fallback,
+    };
     use super::{
         basic_auth_matches, bearer_auth_matches, configure_http_server_socket_timeouts,
         constant_time_equal, cors_response_headers, default_http_request_options,
@@ -12550,12 +12886,6 @@ mod tests {
         OAuthSessionEntry, SseEventEntry, StreamingHeartbeat, StreamingSocketActor,
         BASE64_URL_SAFE, HTTP_SERVER_POOL_POLL_INTERVAL, MAX_HTTP_BODY_BYTES,
         MAX_HTTP_HEADERS_COUNT, MAX_HTTP_HEADER_BYTES, OAUTH_JWKS_CACHE,
-    };
-    #[cfg(feature = "http3")]
-    use super::{
-        http3_connection_error_can_fallback, http3_pre_dispatch_connection_error_can_fallback,
-        Http3ClientTransport, Http3Error, Http3ErrorKind, Http3Response, Http3ServerTransport,
-        BASE64_STANDARD,
     };
     use crate::Value;
     use base64::Engine as _;

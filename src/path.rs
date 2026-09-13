@@ -216,7 +216,7 @@ fn component(value: *const Value, which: fn(&StdPath) -> Option<&std::ffi::OsStr
     match path(value) {
         Ok(path) => result(Ok(Value::Optional(
             which(&path)
-                .and_then(|v| v.to_str())
+                .and_then(std::ffi::OsStr::to_str)
                 .map(|v| Box::new(Value::String(v.to_string()))),
         ))),
         Err(error) => result(Err(error)),

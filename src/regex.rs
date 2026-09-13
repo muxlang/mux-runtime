@@ -696,7 +696,7 @@ pub unsafe extern "C" fn mux_regex_match_capture(value: *const Value, index: i64
                 .entry(handle)
                 .captures
                 .get(index as usize)
-                .and_then(|value| value.as_ref())
+                .and_then(Option::as_ref)
                 .map(|value| Box::new(Value::String(value.clone())));
             ok(Value::Optional(capture))
         }
@@ -722,7 +722,7 @@ pub unsafe extern "C" fn mux_regex_match_capture_named(
                 .position(|candidate| candidate.as_deref() == Some(name.as_str()));
             let capture = index
                 .and_then(|index| entry.captures.get(index))
-                .and_then(|value| value.as_ref())
+                .and_then(Option::as_ref)
                 .map(|value| Box::new(Value::String(value.clone())));
             ok(Value::Optional(capture))
         }

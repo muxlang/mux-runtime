@@ -925,14 +925,13 @@ pub unsafe extern "C" fn mux_process_child_try_wait(child: *mut Value) -> *mut V
         let mut child = lock(&child);
         child.try_wait()
     };
-    let result = match status {
+    match status {
         Ok(Some(status)) => mux_rc_alloc(Value::Result(Ok(Box::new(Value::Optional(Some(
             Box::new(Value::Int(status_code(status))),
         )))))),
         Ok(None) => mux_rc_alloc(Value::Result(Ok(Box::new(Value::Optional(None))))),
         Err(error_value) => error(format!("checking child status failed: {error_value}")),
-    };
-    result
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -996,11 +995,10 @@ pub unsafe extern "C" fn mux_process_child_kill(child: *mut Value) -> *mut Value
         let mut child = lock(&child);
         child.kill()
     };
-    let result = match status {
+    match status {
         Ok(()) => unit_ok(),
         Err(error_value) => error(format!("killing child failed: {error_value}")),
-    };
-    result
+    }
 }
 
 /// Terminate the child and every descendant in its private process group.
