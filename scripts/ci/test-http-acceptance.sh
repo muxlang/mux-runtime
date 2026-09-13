@@ -89,14 +89,19 @@ if grep -Fq 'HTTP/1.1 accepted' "$output_dir/stdout" || \
     exit 1
 fi
 
+fixture_token_prefix='mux-ci-'
+http1_token="${fixture_token_prefix}one"
+http2_token="${fixture_token_prefix}two"
+http3_token="${fixture_token_prefix}three"
+
 set +e
 MUX_FAKE_CURL_LOG="$curl_log" PATH="$bin_dir:$PATH" \
     MUX_HTTP1_URL='http://http1.example.test/probe' \
     MUX_HTTP2_URL='https://http2.example.test/probe' \
     MUX_HTTP3_URL='https://http3.example.test/probe' \
-    MUX_HTTP1_BEARER_TOKEN='http1-token' \
-    MUX_HTTP2_BEARER_TOKEN='http2-token' \
-    MUX_HTTP3_BEARER_TOKEN='http3-token' \
+    MUX_HTTP1_BEARER_TOKEN="$http1_token" \
+    MUX_HTTP2_BEARER_TOKEN="$http2_token" \
+    MUX_HTTP3_BEARER_TOKEN="$http3_token" \
     "$script_dir/run-http-acceptance.sh" >"$output_dir/success-stdout" \
     2>"$output_dir/success-stderr"
 success_status=$?
@@ -114,9 +119,9 @@ grep -Fq 'HTTP/3 accepted: HTTP/3' "$output_dir/success-stdout"
 grep -Fq -- '--http1.1' "$curl_log"
 grep -Fq -- '--http2' "$curl_log"
 grep -Fq -- '--http3-only' "$curl_log"
-grep -Fq -- 'Authorization: Bearer http1-token' "$curl_log"
-grep -Fq -- 'Authorization: Bearer http2-token' "$curl_log"
-grep -Fq -- 'Authorization: Bearer http3-token' "$curl_log"
+grep -Fq -- "Authorization: Bearer $http1_token" "$curl_log"
+grep -Fq -- "Authorization: Bearer $http2_token" "$curl_log"
+grep -Fq -- "Authorization: Bearer $http3_token" "$curl_log"
 
 for limit_variable in MUX_HTTP_ACCEPTANCE_TIMEOUT_SECS MUX_HTTP_ACCEPTANCE_MAX_BODY_BYTES; do
     set +e
