@@ -9920,9 +9920,16 @@ fn local_shutdown(stream: *mut Value, shutdown: Shutdown) -> *mut Value {
     };
     #[cfg(unix)]
     let result = with_local_stream(handle, |socket| {
-        socket
-            .shutdown(shutdown)
-            .map_err(|error| format!("local stream shutdown failed: {error}"))
+        socket.shutdown(shutdown).or_else(|error| {
+            // macOS can report ENOTCONN when the peer has already observed
+            // the opposite half-close. The requested state is already true,
+            // so make shutdown idempotent across Unix implementations.
+            if error.kind() == std::io::ErrorKind::NotConnected {
+                Ok(())
+            } else {
+                Err(format!("local stream shutdown failed: {error}"))
+            }
+        })
     });
     #[cfg(windows)]
     let result = {
@@ -13130,8 +13137,13 @@ mod tests {
                         result.map_err(|error| format!("server request failed: {error}"))?;
                     let mut body = request.into_body();
                     while let Some(chunk) = body.data().await {
-                        let chunk =
-                            chunk.map_err(|error| format!("request body failed: {error}"))?;
+                        let Ok(chunk) = chunk else {
+                            // The client resets the timed-out stream. That is
+                            // the expected cancellation path for this fixture;
+                            // it must not prevent the second stream from
+                            // proving that the connection remains usable.
+                            break;
+                        };
                         body.flow_control()
                             .release_capacity(chunk.len())
                             .map_err(|error| {
