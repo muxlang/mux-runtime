@@ -8418,6 +8418,7 @@ fn should_use_environment_proxy(value: &str) -> bool {
     let Some(host) = url.host_str() else {
         return true;
     };
+    let host = host.trim_start_matches('[').trim_end_matches(']');
     if host.eq_ignore_ascii_case("localhost") {
         return false;
     }

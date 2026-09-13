@@ -23,7 +23,7 @@ flags=(
   --show-leak-kinds=definite,indirect
 )
 
-json="$(cargo test --no-run --all-features --workspace --message-format=json)"
+json="$(cargo test --no-run --no-default-features --features core,json,csv,net,tls,regex,uuid,crypto,sql,sync,chrono-tz --workspace --message-format=json)"
 mapfile -t bins < <(printf '%s\n' "$json" \
   | jq -r 'select(.executable != null and .profile.test == true) | .executable')
 

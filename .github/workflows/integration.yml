@@ -88,9 +88,9 @@ jobs:
           --health-timeout 5s
           --health-retries 30
     env:
-      MUX_TEST_POSTGRES_URL: postgres://mux:pass@localhost:5432/muxdb
-      MUX_TEST_MYSQL_URL: mysql://root:pass@localhost:3306/muxdb
-      MUX_TEST_SQLSERVER_URL: sqlserver://sa:MuxPassw0rd!@localhost:1433/master?trustServerCertificate=true
+      MUX_TEST_POSTGRES_URL: postgres://mux:pass@127.0.0.1:5432/muxdb
+      MUX_TEST_MYSQL_URL: mysql://root:pass@127.0.0.1:3306/muxdb
+      MUX_TEST_SQLSERVER_URL: sqlserver://sa:MuxPassw0rd!@127.0.0.1:1433/master?trustServerCertificate=true
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install Rust toolchain
