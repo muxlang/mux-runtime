@@ -30,19 +30,25 @@ fn sval(s: &str) -> *mut Value {
     mux_rc_alloc(Value::String(s.to_string()))
 }
 
+unsafe fn owned_string(value: *mut Value) -> String {
+    let text = match &*value {
+        Value::String(text) => text.clone(),
+        other => format!("{other:?}"),
+    };
+    assert!(mux_rc_dec(value));
+    text
+}
+
 fn ok_data(r: *mut Value) -> *mut Value {
     if !unsafe { mux_result_is_ok(r) } {
         let error = unsafe { mux_result_data(r) };
-        let provider = unsafe { mux_sql_error_provider(error) };
-        let operation = unsafe { mux_sql_error_operation(error) };
-        let detail = unsafe { mux_sql_error_detail(error) };
+        let provider = unsafe { owned_string(mux_sql_error_provider(error)) };
+        let operation = unsafe { owned_string(mux_sql_error_operation(error)) };
+        let detail = unsafe { owned_string(mux_sql_error_detail(error)) };
         eprintln!(
-            "SQL operation failed: provider={provider:?}, operation={operation:?}, detail={detail:?}"
+            "SQL operation failed: provider={provider}, operation={operation}, detail={detail}"
         );
         unsafe {
-            assert!(mux_rc_dec(detail));
-            assert!(mux_rc_dec(operation));
-            assert!(mux_rc_dec(provider));
             assert!(mux_rc_dec(error));
             assert!(mux_rc_dec(r));
         }
