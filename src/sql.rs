@@ -3765,7 +3765,7 @@ fn is_sqlserver_uri(uri: &str) -> bool {
 fn sql_uri_error_kind(uri: &str) -> Option<SqlErrorKind> {
     if is_sqlserver_uri(uri) {
         return Some(match parse_sqlserver_uri(uri) {
-            Ok(_) => SqlErrorKind::Unsupported,
+            Ok(_) => return None,
             Err(_) => SqlErrorKind::Invalid,
         });
     }
@@ -8467,6 +8467,22 @@ mod tests {
         let parsed = parse_sqlserver_uri("sqlserver://host/db?encrypt=maybe")
             .expect_err("invalid encryption option should fail");
         assert_eq!(parsed.kind, Some(super::SqlErrorKind::Invalid));
+    }
+
+    #[test]
+    fn valid_sqlserver_uri_reaches_the_native_connector() {
+        assert_eq!(
+            super::sql_uri_error_kind(
+                "mssql://user:pass@localhost/master?trustServerCertificate=true"
+            ),
+            None
+        );
+        assert_eq!(
+            super::sql_uri_error_kind(
+                "sqlserver://user:pass@localhost/master?trustServerCertificate=true"
+            ),
+            None
+        );
     }
 
     #[test]
