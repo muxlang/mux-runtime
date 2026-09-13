@@ -2509,12 +2509,15 @@ fn quote_uses_backslash_escape(backend: SqlBackend, sql: &str, index: usize, quo
 /// operate on bytes so that punctuation inside literals/comments can be
 /// recognized, but ordinary SQL text must remain byte-for-byte equivalent.
 fn copy_sql_char(output: &mut String, sql: &str, index: usize) -> Result<usize, String> {
-    let character = sql
-        .get(index..)
-        .and_then(|suffix| suffix.chars().next())
-        .ok_or_else(|| "SQL scanner reached an invalid UTF-8 boundary".to_string())?;
+    let character = sql_char_at(sql, index)?;
     output.push(character);
     Ok(character.len_utf8())
+}
+
+fn sql_char_at(sql: &str, index: usize) -> Result<char, String> {
+    sql.get(index..)
+        .and_then(|suffix| suffix.chars().next())
+        .ok_or_else(|| "SQL scanner reached an invalid UTF-8 boundary".to_string())
 }
 
 /// Return the end of a PostgreSQL dollar-quoted string beginning at `index`.
@@ -2558,6 +2561,252 @@ fn dollar_quote_end(sql: &str, index: usize) -> Result<Option<usize>, String> {
     Ok(Some(body_start + relative_close + delimiter.len()))
 }
 
+struct SqlScanner<'a> {
+    sql: &'a str,
+    bytes: &'a [u8],
+    backend: SqlBackend,
+    index: usize,
+    quote: Option<(u8, bool)>,
+    block_comment_error: &'static str,
+}
+
+impl<'a> SqlScanner<'a> {
+    fn new(sql: &'a str, backend: SqlBackend) -> Self {
+        Self::with_block_comment_error(sql, backend, "SQL")
+    }
+
+    fn for_batch(sql: &'a str, backend: SqlBackend) -> Self {
+        Self::with_block_comment_error(sql, backend, "SQL batch")
+    }
+
+    fn with_block_comment_error(
+        sql: &'a str,
+        backend: SqlBackend,
+        block_comment_error: &'static str,
+    ) -> Self {
+        Self {
+            sql,
+            bytes: sql.as_bytes(),
+            backend,
+            index: 0,
+            quote: None,
+            block_comment_error,
+        }
+    }
+
+    fn current_byte(&self) -> Option<u8> {
+        self.bytes.get(self.index).copied()
+    }
+
+    fn next_byte(&self) -> Option<u8> {
+        self.bytes.get(self.index + 1).copied()
+    }
+
+    fn is_done(&self) -> bool {
+        self.index >= self.bytes.len()
+    }
+
+    fn copy_current_char(&mut self, output: &mut String) -> Result<(), String> {
+        self.index += copy_sql_char(output, self.sql, self.index)?;
+        Ok(())
+    }
+
+    fn append_range(output: &mut Option<&mut String>, sql: &str, start: usize, end: usize) {
+        if let Some(output) = output.as_deref_mut() {
+            output.push_str(&sql[start..end]);
+        }
+    }
+
+    fn consume_quoted(&mut self, output: &mut Option<&mut String>) -> Result<(), String> {
+        let Some((delimiter, backslash_escape)) = self.quote else {
+            return Err("SQL scanner lost its active quote state".to_string());
+        };
+        let start = self.index;
+        let byte = self.bytes[self.index];
+        self.index += sql_char_at(self.sql, self.index)?.len_utf8();
+
+        if backslash_escape && byte == b'\\' {
+            if !self.is_done() {
+                self.index += sql_char_at(self.sql, self.index)?.len_utf8();
+            }
+        } else if byte == delimiter {
+            if self.next_byte() == Some(delimiter) {
+                self.index += 1;
+            } else {
+                self.quote = None;
+            }
+        }
+        Self::append_range(output, self.sql, start, self.index);
+        Ok(())
+    }
+
+    fn consume_line_comment(&mut self, output: &mut Option<&mut String>) {
+        let start = self.index;
+        self.index += 2;
+        while !self.is_done() && self.current_byte() != Some(b'\n') {
+            self.index += 1;
+        }
+        Self::append_range(output, self.sql, start, self.index);
+    }
+
+    fn consume_block_comment(&mut self, output: &mut Option<&mut String>) -> Result<(), String> {
+        let start = self.index;
+        self.index += 2;
+        while self.index + 1 < self.bytes.len()
+            && !(self.bytes[self.index] == b'*' && self.bytes[self.index + 1] == b'/')
+        {
+            self.index += 1;
+        }
+        if self.index + 1 >= self.bytes.len() {
+            return Err(format!(
+                "{} contains an unterminated block comment",
+                self.block_comment_error
+            ));
+        }
+        self.index += 2;
+        Self::append_range(output, self.sql, start, self.index);
+        Ok(())
+    }
+
+    fn consume_opaque(&mut self, output: &mut Option<&mut String>) -> Result<bool, String> {
+        if self.quote.is_some() {
+            self.consume_quoted(output)?;
+            return Ok(true);
+        }
+
+        let byte = self.bytes[self.index];
+        if byte == b'\'' || byte == b'"' || byte == b'`' {
+            self.quote = Some((
+                byte,
+                quote_uses_backslash_escape(self.backend, self.sql, self.index, byte),
+            ));
+            self.index += 1;
+            Self::append_range(output, self.sql, self.index - 1, self.index);
+            return Ok(true);
+        }
+        if byte == b'-' && self.next_byte() == Some(b'-') {
+            self.consume_line_comment(output);
+            return Ok(true);
+        }
+        if byte == b'/' && self.next_byte() == Some(b'*') {
+            self.consume_block_comment(output)?;
+            return Ok(true);
+        }
+        if byte == b'$' {
+            if let Some(end) = dollar_quote_end(self.sql, self.index)? {
+                Self::append_range(output, self.sql, self.index, end);
+                self.index = end;
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    fn ensure_no_open_quote(&self, message: &str) -> Result<(), String> {
+        if self.quote.is_some() {
+            return Err(message.to_string());
+        }
+        Ok(())
+    }
+}
+
+fn consume_positional_placeholder(
+    scanner: &mut SqlScanner<'_>,
+    backend: SqlBackend,
+    index: &mut usize,
+    saw_question: &mut bool,
+    saw_dollar: &mut bool,
+    output: &mut String,
+) -> Result<bool, String> {
+    match scanner.current_byte() {
+        Some(b'?') => {
+            if *saw_dollar {
+                return Err("SQL mixes ? and $n placeholders".to_string());
+            }
+            *saw_question = true;
+            output.push_str(&sql_placeholder(backend, *index));
+            *index += 1;
+            scanner.index += 1;
+            Ok(true)
+        }
+        Some(b'$')
+            if scanner
+                .next_byte()
+                .is_some_and(|byte| byte.is_ascii_digit()) =>
+        {
+            if *saw_question {
+                return Err("SQL mixes ? and $n placeholders".to_string());
+            }
+            *saw_dollar = true;
+            let start = scanner.index + 1;
+            let mut end = start;
+            while scanner.bytes.get(end).is_some_and(u8::is_ascii_digit) {
+                end += 1;
+            }
+            let number = scanner.sql[start..end]
+                .parse::<usize>()
+                .map_err(|_| "SQL placeholder number is invalid".to_string())?;
+            if number == 0 || number != *index + 1 {
+                return Err("SQL $n placeholders must be contiguous starting at $1".to_string());
+            }
+            output.push_str(&sql_placeholder(backend, *index));
+            *index += 1;
+            scanner.index = end;
+            Ok(true)
+        }
+        _ => Ok(false),
+    }
+}
+
+fn consume_named_placeholder<'a>(
+    scanner: &mut SqlScanner<'a>,
+    backend: SqlBackend,
+    named: &HashMap<String, SqlParam>,
+    used_names: &mut HashSet<&'a str>,
+    params: &mut Vec<SqlParam>,
+    output: &mut String,
+) -> Result<bool, String> {
+    let Some(byte) = scanner.current_byte() else {
+        return Ok(false);
+    };
+    if byte == b'?'
+        || (byte == b'$'
+            && scanner
+                .next_byte()
+                .is_some_and(|next| next.is_ascii_digit()))
+    {
+        return Err("SQL mixes named and positional placeholders".to_string());
+    }
+    let is_named = byte == b':'
+        && scanner
+            .next_byte()
+            .is_some_and(|next| next.is_ascii_alphabetic() || next == b'_')
+        && (scanner.index == 0 || scanner.bytes[scanner.index - 1] != b':');
+    if !is_named {
+        return Ok(false);
+    }
+
+    let start = scanner.index + 1;
+    let mut end = start + 1;
+    while scanner
+        .bytes
+        .get(end)
+        .is_some_and(|next| next.is_ascii_alphanumeric() || *next == b'_')
+    {
+        end += 1;
+    }
+    let name = &scanner.sql[start..end];
+    let value = named
+        .get(name)
+        .cloned()
+        .ok_or_else(|| format!("missing SQL named parameter: {name}"))?;
+    used_names.insert(name);
+    output.push_str(&sql_placeholder(backend, params.len()));
+    params.push(value);
+    scanner.index = end;
+    Ok(true)
+}
+
 /// Rewrite positional SQL placeholders for the selected driver. Strings and
 /// comments are copied byte-for-byte, so a question mark in a literal is not
 /// mistaken for a parameter. Existing callers may use either `?` (portable
@@ -2569,106 +2818,29 @@ fn rewrite_positional_sql(
     expected: usize,
 ) -> Result<String, String> {
     validate_sql_size(sql)?;
-    let bytes = sql.as_bytes();
     let mut out = String::with_capacity(sql.len());
     let mut index = 0usize;
     let mut saw_question = false;
     let mut saw_dollar = false;
-    let mut i = 0usize;
-    let mut quote = None;
-    while i < bytes.len() {
-        let byte = bytes[i];
-        if let Some((delimiter, backslash_escape)) = quote {
-            if backslash_escape && byte == b'\\' {
-                let character_len = copy_sql_char(&mut out, sql, i)?;
-                i += character_len;
-                if i < bytes.len() {
-                    i += copy_sql_char(&mut out, sql, i)?;
-                }
-                continue;
-            }
-            let character_len = copy_sql_char(&mut out, sql, i)?;
-            if byte == delimiter {
-                if bytes.get(i + 1) == Some(&delimiter) {
-                    out.push(delimiter as char);
-                    i += 2;
-                    continue;
-                }
-                quote = None;
-            }
-            i += character_len;
+    let mut scanner = SqlScanner::new(sql, backend);
+    while !scanner.is_done() {
+        let mut opaque_output = Some(&mut out);
+        if scanner.consume_opaque(&mut opaque_output)? {
             continue;
         }
-        if byte == b'\'' || byte == b'"' || byte == b'`' {
-            quote = Some((byte, quote_uses_backslash_escape(backend, sql, i, byte)));
-            out.push(byte as char);
-            i += 1;
+        if consume_positional_placeholder(
+            &mut scanner,
+            backend,
+            &mut index,
+            &mut saw_question,
+            &mut saw_dollar,
+            &mut out,
+        )? {
             continue;
         }
-        if byte == b'-' && bytes.get(i + 1) == Some(&b'-') {
-            let start = i;
-            i += 2;
-            while i < bytes.len() && bytes[i] != b'\n' {
-                i += 1;
-            }
-            out.push_str(&sql[start..i]);
-            continue;
-        }
-        if byte == b'/' && bytes.get(i + 1) == Some(&b'*') {
-            let start = i;
-            i += 2;
-            while i + 1 < bytes.len() && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
-                i += 1;
-            }
-            if i + 1 >= bytes.len() {
-                return Err("SQL contains an unterminated block comment".to_string());
-            }
-            i += 2;
-            out.push_str(&sql[start..i]);
-            continue;
-        }
-        if byte == b'$' {
-            if let Some(end) = dollar_quote_end(sql, i)? {
-                out.push_str(&sql[i..end]);
-                i = end;
-                continue;
-            }
-        }
-        if byte == b'?' {
-            if saw_dollar {
-                return Err("SQL mixes ? and $n placeholders".to_string());
-            }
-            saw_question = true;
-            out.push_str(&sql_placeholder(backend, index));
-            index += 1;
-            i += 1;
-            continue;
-        }
-        if byte == b'$' && bytes.get(i + 1).is_some_and(u8::is_ascii_digit) {
-            if saw_question {
-                return Err("SQL mixes ? and $n placeholders".to_string());
-            }
-            saw_dollar = true;
-            let start = i + 1;
-            i = start;
-            while i < bytes.len() && bytes[i].is_ascii_digit() {
-                i += 1;
-            }
-            let number = sql[start..i]
-                .parse::<usize>()
-                .map_err(|_| "SQL placeholder number is invalid".to_string())?;
-            if number == 0 || number != index + 1 {
-                return Err("SQL $n placeholders must be contiguous starting at $1".to_string());
-            }
-            out.push_str(&sql_placeholder(backend, index));
-            index += 1;
-            continue;
-        }
-        i += copy_sql_char(&mut out, sql, i)?;
+        scanner.copy_current_char(&mut out)?;
     }
-    if quote.is_some() {
-        return Err("SQL contains an unterminated quoted string".to_string());
-    }
+    scanner.ensure_no_open_quote("SQL contains an unterminated quoted string")?;
     if index != expected {
         return Err(format!(
             "SQL expects {index} positional parameter(s), received {expected}"
@@ -2708,99 +2880,28 @@ fn rewrite_named_sql(
     named: &HashMap<String, SqlParam>,
 ) -> Result<(String, Vec<SqlParam>), String> {
     validate_sql_size(sql)?;
-    let bytes = sql.as_bytes();
     let mut out = String::with_capacity(sql.len());
     let mut params = Vec::new();
     let mut used_names = HashSet::new();
-    let mut i = 0usize;
-    let mut quote = None;
-    while i < bytes.len() {
-        let byte = bytes[i];
-        if let Some((delimiter, backslash_escape)) = quote {
-            if backslash_escape && byte == b'\\' {
-                let character_len = copy_sql_char(&mut out, sql, i)?;
-                i += character_len;
-                if i < bytes.len() {
-                    i += copy_sql_char(&mut out, sql, i)?;
-                }
-                continue;
-            }
-            let character_len = copy_sql_char(&mut out, sql, i)?;
-            if byte == delimiter {
-                if bytes.get(i + 1) == Some(&delimiter) {
-                    out.push(delimiter as char);
-                    i += 2;
-                    continue;
-                }
-                quote = None;
-            }
-            i += character_len;
+    let mut scanner = SqlScanner::new(sql, backend);
+    while !scanner.is_done() {
+        let mut opaque_output = Some(&mut out);
+        if scanner.consume_opaque(&mut opaque_output)? {
             continue;
         }
-        if byte == b'\'' || byte == b'"' || byte == b'`' {
-            quote = Some((byte, quote_uses_backslash_escape(backend, sql, i, byte)));
-            out.push(byte as char);
-            i += 1;
+        if consume_named_placeholder(
+            &mut scanner,
+            backend,
+            named,
+            &mut used_names,
+            &mut params,
+            &mut out,
+        )? {
             continue;
         }
-        if byte == b'-' && bytes.get(i + 1) == Some(&b'-') {
-            let start = i;
-            i += 2;
-            while i < bytes.len() && bytes[i] != b'\n' {
-                i += 1;
-            }
-            out.push_str(&sql[start..i]);
-            continue;
-        }
-        if byte == b'/' && bytes.get(i + 1) == Some(&b'*') {
-            let start = i;
-            i += 2;
-            while i + 1 < bytes.len() && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
-                i += 1;
-            }
-            if i + 1 >= bytes.len() {
-                return Err("SQL contains an unterminated block comment".to_string());
-            }
-            i += 2;
-            out.push_str(&sql[start..i]);
-            continue;
-        }
-        if byte == b'$' {
-            if let Some(end) = dollar_quote_end(sql, i)? {
-                out.push_str(&sql[i..end]);
-                i = end;
-                continue;
-            }
-        }
-        if byte == b'?' || (byte == b'$' && bytes.get(i + 1).is_some_and(u8::is_ascii_digit)) {
-            return Err("SQL mixes named and positional placeholders".to_string());
-        }
-        if byte == b':'
-            && bytes
-                .get(i + 1)
-                .is_some_and(|next| next.is_ascii_alphabetic() || *next == b'_')
-            && (i == 0 || bytes[i - 1] != b':')
-        {
-            let start = i + 1;
-            i = start + 1;
-            while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_') {
-                i += 1;
-            }
-            let name = &sql[start..i];
-            let value = named
-                .get(name)
-                .cloned()
-                .ok_or_else(|| format!("missing SQL named parameter: {name}"))?;
-            used_names.insert(name);
-            out.push_str(&sql_placeholder(backend, params.len()));
-            params.push(value);
-            continue;
-        }
-        i += copy_sql_char(&mut out, sql, i)?;
+        scanner.copy_current_char(&mut out)?;
     }
-    if quote.is_some() {
-        return Err("SQL contains an unterminated quoted string".to_string());
-    }
+    scanner.ensure_no_open_quote("SQL contains an unterminated quoted string")?;
     if params.is_empty() && !named.is_empty() {
         return Err("SQL has no named placeholders".to_string());
     }
@@ -3680,52 +3781,12 @@ fn sql_uri_error_kind(uri: &str) -> Option<SqlErrorKind> {
 
 fn split_sql_batch(sql: &str, backend: SqlBackend) -> Result<Vec<String>, String> {
     validate_sql_size(sql).map_err(|_| "SQL batch exceeds the 16 MiB limit".to_string())?;
-    let bytes = sql.as_bytes();
     let mut statements = Vec::new();
     let mut start = 0usize;
-    let mut i = 0usize;
-    let mut quote = None;
-    while i < bytes.len() {
-        let byte = bytes[i];
-        if let Some((delimiter, backslash_escape)) = quote {
-            if backslash_escape && byte == b'\\' {
-                i += 1;
-                if i < bytes.len() {
-                    i += 1;
-                }
-                continue;
-            }
-            if byte == delimiter && bytes.get(i + 1) == Some(&delimiter) {
-                i += 2;
-                continue;
-            }
-            if byte == delimiter {
-                quote = None;
-            }
-            i += 1;
-            continue;
-        }
-        if byte == b'\'' || byte == b'"' || byte == b'`' {
-            quote = Some((byte, quote_uses_backslash_escape(backend, sql, i, byte)));
-            i += 1;
-            continue;
-        }
-        if byte == b'-' && bytes.get(i + 1) == Some(&b'-') {
-            i += 2;
-            while i < bytes.len() && bytes[i] != b'\n' {
-                i += 1;
-            }
-            continue;
-        }
-        if byte == b'/' && bytes.get(i + 1) == Some(&b'*') {
-            i += 2;
-            while i + 1 < bytes.len() && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
-                i += 1;
-            }
-            if i + 1 >= bytes.len() {
-                return Err("SQL batch contains an unterminated block comment".to_string());
-            }
-            i += 2;
+    let mut scanner = SqlScanner::for_batch(sql, backend);
+    while !scanner.is_done() {
+        let mut no_output = None;
+        if scanner.consume_opaque(&mut no_output)? {
             continue;
         }
         // PostgreSQL dollar-quoted function bodies can contain semicolons,
@@ -3733,27 +3794,19 @@ fn split_sql_batch(sql: &str, backend: SqlBackend) -> Result<Vec<String>, String
         // opaque region so execute_batch's statement count agrees with the
         // provider's parser instead of rejecting a valid one-statement
         // function definition.
-        if byte == b'$' {
-            if let Some(end) = dollar_quote_end(sql, i)? {
-                i = end;
-                continue;
-            }
-        }
-        if byte == b';' {
-            let statement = sql[start..i].trim();
+        if scanner.current_byte() == Some(b';') {
+            let statement = sql[start..scanner.index].trim();
             if sql_statement_has_code(statement) {
                 statements.push(statement.to_string());
             }
             if statements.len() > 1024 {
                 return Err("SQL batch contains more than 1024 statements".to_string());
             }
-            start = i + 1;
+            start = scanner.index + 1;
         }
-        i += 1;
+        scanner.index += 1;
     }
-    if quote.is_some() {
-        return Err("SQL batch contains an unterminated quoted string".to_string());
-    }
+    scanner.ensure_no_open_quote("SQL batch contains an unterminated quoted string")?;
     let statement = sql[start..].trim();
     if sql_statement_has_code(statement) {
         statements.push(statement.to_string());
@@ -3874,7 +3927,7 @@ fn sqlite_query(
                 .map_err(|e| SqlFailure::sqlite("sqlite row read failed", e))?;
             values.push(sql_value_from_ref(value_ref));
         }
-        ordered_rows.push(materialize_row("sqlite", &columns, values).map_err(SqlFailure::from)?);
+        ordered_rows.push(materialize_row("sqlite", &columns, values)?);
     }
 
     Ok(SqlResultSet {
@@ -3982,9 +4035,7 @@ fn sqlite_cursor_next(
             let values = (0..columns.len())
                 .map(|index| sqlite_cursor_value(cursor.statement, index))
                 .collect();
-            Ok(Some(
-                materialize_row("sqlite", columns, values).map_err(SqlFailure::from)?,
-            ))
+            Ok(Some(materialize_row("sqlite", columns, values)?))
         }
         rusqlite::ffi::SQLITE_DONE => Ok(None),
         _ => Err(sqlite_cursor_failure(
@@ -4131,7 +4182,7 @@ fn postgres_query(
         for (idx, col) in stmt.columns().iter().enumerate() {
             values.push(postgres_query_value(&row, idx, col.type_())?);
         }
-        ordered_rows.push(materialize_row("postgres", &columns, values).map_err(SqlFailure::from)?);
+        ordered_rows.push(materialize_row("postgres", &columns, values)?);
     }
 
     Ok(SqlResultSet {
@@ -4224,9 +4275,7 @@ fn postgres_cursor_next(
     for (index, pg_type) in cursor.types.iter().enumerate() {
         values.push(postgres_query_value(&row, index, pg_type)?);
     }
-    Ok(Some(
-        materialize_row("postgres", columns, values).map_err(SqlFailure::from)?,
-    ))
+    Ok(Some(materialize_row("postgres", columns, values)?))
 }
 
 fn resultset_next_row(resultset: &mut SqlResultSet) -> Result<Option<Value>, SqlFailure> {
@@ -4467,7 +4516,7 @@ fn mysql_query(
         for (raw, binary) in raw_values.into_iter().zip(binary_columns.iter().copied()) {
             values.push(mysql_value_to_mux(raw, binary));
         }
-        ordered_rows.push(materialize_row("mysql", &columns, values).map_err(SqlFailure::from)?);
+        ordered_rows.push(materialize_row("mysql", &columns, values)?);
     }
 
     Ok(SqlResultSet {
@@ -4612,9 +4661,7 @@ fn mysql_cursor_next(
         .zip(cursor.binary_columns.iter().copied())
         .map(|(value, binary)| mysql_value_to_mux(value, binary))
         .collect();
-    Ok(Some(
-        materialize_row("mysql", columns, values).map_err(SqlFailure::from)?,
-    ))
+    Ok(Some(materialize_row("mysql", columns, values)?))
 }
 
 fn mysql_interrupted_error(failure: &SqlFailure) -> bool {
