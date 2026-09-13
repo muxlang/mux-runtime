@@ -1933,7 +1933,7 @@ fn load_file_migrations(directory: &str) -> Result<Vec<MigrationDefinition>, Str
         if !path.is_file() {
             continue;
         }
-        let Some(file_name) = path.file_name().and_then(|name| name.to_str()) else {
+        let Some(file_name) = path.file_name().and_then(std::ffi::OsStr::to_str) else {
             return Err("migration filenames must be valid UTF-8".to_string());
         };
         let Some(rest) = file_name.strip_prefix('V') else {

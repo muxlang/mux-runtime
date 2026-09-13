@@ -6012,14 +6012,13 @@ fn if_none_match_matches(header: &str, etag: &str) -> bool {
 fn http_request_header(request: *const Value, name: &str) -> Option<String> {
     let handle = request_handle(request).ok()?;
     let headers = lock_requests().get(&handle)?.headers.clone();
-    let value = headers
+    headers
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
         .values
         .iter()
         .find(|(header_name, _)| header_name.eq_ignore_ascii_case(name))
-        .map(|(_, value)| value.clone());
-    value
+        .map(|(_, value)| value.clone())
 }
 
 /// Compare credentials without making a valid prefix observable. The length
