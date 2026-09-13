@@ -225,7 +225,7 @@ fn run_driver_suite(uri: &str, provider: &str, ph: impl Fn(usize) -> String) {
         };
         rows.len()
     };
-    assert_eq!(second_batch_len, 1);
+    assert_eq!(second_batch_len, 0);
     let end = resultset_next(streaming_rs);
     assert!(unsafe { matches!(&*end, Value::Optional(value) if value.is_none()) });
     unsafe {

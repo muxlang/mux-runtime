@@ -16,6 +16,8 @@ allow = [
   "CDLA-Permissive-2.0",
   "ISC",
   "MIT",
+  "OpenSSL",
+  "Apache-2.0 WITH LLVM-exception",
   "Unicode-3.0",
   "Unicode-DFS-2016",
   "Zlib",
