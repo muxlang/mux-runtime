@@ -35,7 +35,7 @@ use std::io::{Cursor, Read, Write};
 #[cfg(feature = "http2")]
 use std::net::ToSocketAddrs;
 use std::net::{
-    Ipv4Addr, Ipv6Addr, Shutdown, TcpListener as StdTcpListener, TcpStream as StdTcpStream,
+    IpAddr, Ipv4Addr, Ipv6Addr, Shutdown, TcpListener as StdTcpListener, TcpStream as StdTcpStream,
     UdpSocket as StdUdpSocket,
 };
 #[cfg(unix)]
@@ -4576,6 +4576,7 @@ fn timeout_from_millis(timeout_ms: i64, label: &str) -> Result<Option<Duration>,
 /// Keep a single socket read from turning an untrusted Mux integer into an
 /// unbounded allocation. Callers can read larger streams in multiple chunks.
 const MAX_SOCKET_READ_BYTES: usize = 16 * 1024 * 1024;
+const MAX_UDP_DATAGRAM_BYTES: usize = 65_535;
 
 fn socket_read_size(size: i64) -> Result<usize, String> {
     let size = usize::try_from(size).map_err(|_| "invalid buffer size".to_string())?;
@@ -7997,7 +7998,9 @@ fn execute_http2_response(
     if request.body_reader.is_some()
         || request.options.max_redirects != 0
         || request.options.retries != 0
-        || (request.proxy.is_none() && environment_proxy)
+        || (request.proxy.is_none()
+            && environment_proxy
+            && should_use_environment_proxy(request.url))
         || request.headers.iter().any(|(name, _)| {
             matches!(
                 name.to_ascii_lowercase().as_str(),
@@ -8192,7 +8195,8 @@ fn execute_http_response(
                 ureq::Proxy::new(value)
                     .map_err(|error| format!("invalid HTTP proxy URL: {error}"))?,
             ),
-            None => ureq::Proxy::try_from_env(),
+            None if should_use_environment_proxy(request.url) => ureq::Proxy::try_from_env(),
+            None => None,
         };
         let agent: ureq::Agent = ureq::Agent::config_builder()
             .http_status_as_error(false)
@@ -8405,6 +8409,20 @@ fn http3_request_uri(url: &url::Url, authority: &str) -> String {
 fn is_https_url(url: &str) -> bool {
     url.get(..8)
         .is_some_and(|scheme| scheme.eq_ignore_ascii_case("https://"))
+}
+
+fn should_use_environment_proxy(value: &str) -> bool {
+    let Ok(url) = url::Url::parse(value) else {
+        return true;
+    };
+    let Some(host) = url.host_str() else {
+        return true;
+    };
+    if host.eq_ignore_ascii_case("localhost") {
+        return false;
+    }
+    host.parse::<IpAddr>()
+        .map_or(true, |address| !address.is_loopback())
 }
 
 fn http_timeout_remaining(deadline: Option<Instant>, now: Instant) -> Option<Duration> {
@@ -12310,13 +12328,10 @@ pub unsafe extern "C" fn mux_net_udp_recv_from(socket: *mut Value, size: i64) ->
         Err(err) => return net_result_err(err),
     };
     match with_udp_socket(handle, |sock| {
-        // Read one byte beyond the caller's requested payload size. Datagram
-        // sockets discard the remainder of an oversized packet, but the extra
-        // byte lets us report that loss portably on Unix and Windows alike.
-        let capacity = size
-            .checked_add(1)
-            .ok_or_else(|| "udp receive size exceeds the supported range".to_string())?;
-        let mut buf = vec![0u8; capacity];
+        // Windows reports WSAEMSGSIZE when the receive buffer is smaller than
+        // the datagram. Read into the maximum UDP payload and truncate after
+        // the syscall so truncation has the same semantics on every platform.
+        let mut buf = vec![0u8; MAX_UDP_DATAGRAM_BYTES];
         let received = sock
             .recv_from(&mut buf)
             .map_err(|e| format!("udp recv failed: {e}"))?;
@@ -12872,9 +12887,10 @@ mod tests {
         mux_net_sse_stream_send, mux_net_tcp_listener_bind, oauth_oidc_token_is_valid,
         parse_http_request_header_pairs, reap_finished_http_server_actors, receive_http_server_job,
         request_handle, request_uses_chunked_transfer_encoding, response_read,
-        response_read_to_end, sanitize_http_log_field, send_http_server_job, static_file_response,
-        stream_http_response_data, validate_http_buffered_body, validate_http_header_budget,
-        validate_http_request_host, validate_http_request_trailer, validated_http_response_headers,
+        response_read_to_end, sanitize_http_log_field, send_http_server_job,
+        should_use_environment_proxy, static_file_response, stream_http_response_data,
+        validate_http_buffered_body, validate_http_header_budget, validate_http_request_host,
+        validate_http_request_trailer, validated_http_response_headers,
         write_typed_http_response_to, HeaderData, HttpRequestEntry, HttpRequestExecution,
         HttpResponseEntry, HttpServerJob, HttpServerRequestSnapshot, OAuthClientEntry, OAuthRsaKey,
         OAuthSessionEntry, SseEventEntry, StreamingHeartbeat, StreamingSocketActor,
@@ -14105,6 +14121,27 @@ mod tests {
         assert!(!is_https_url("http://example.com/path"));
         assert!(!is_https_url("https:example.com/path"));
         assert!(!is_https_url("https"));
+    }
+
+    #[test]
+    fn environment_proxy_is_skipped_for_loopback_urls() {
+        for url in [
+            "http://localhost/",
+            "http://LOCALHOST:8080/",
+            "http://127.0.0.1/",
+            "http://127.255.255.255/",
+            "https://[::1]/",
+        ] {
+            assert!(!should_use_environment_proxy(url), "proxy used for {url}");
+        }
+        for url in [
+            "http://localhost.example/",
+            "http://192.0.2.1/",
+            "https://[2001:db8::1]/",
+            "not a URL",
+        ] {
+            assert!(should_use_environment_proxy(url), "proxy skipped for {url}");
+        }
     }
 
     #[test]
