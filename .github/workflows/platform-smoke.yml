@@ -1,0 +1,54 @@
+name: Platform Smoke
+
+# The source-gates and integration workflows run on Linux (the latter also
+# needs Linux service containers).  This matrix is the runtime's native-host
+# acceptance leg: it runs the same full unit/integration suite on the three
+# platforms the shipped compiler supports, without pretending that a Linux
+# container is evidence about macOS or Windows.
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  platform_smoke:
+    name: Runtime Tests (${{ matrix.label }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            label: linux-x86_64
+            python: python3
+          - os: macos-14
+            label: macos-arm64
+            python: python3
+          - os: windows-latest
+            label: windows-x86_64
+            python: python
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9 # untagged master commit; the repo's only tag (v1) is OLDER than this
+        with:
+          toolchain: 1.93.1
+      - name: Cache Cargo registry and build artifacts
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Compile every workspace target
+        # The Python runner builds argument lists instead of passing commands
+        # through Bash or PowerShell. It also stops child processes on timeout.
+        run: ${{ matrix.python }} scripts/ci/platform_smoke.py

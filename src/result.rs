@@ -1,4 +1,4 @@
-use crate::refcount::mux_rc_alloc;
+use crate::refcount::{deep_clone_value, mux_rc_alloc};
 use crate::Value;
 use std::ffi::CStr;
 use std::fmt;
@@ -73,9 +73,16 @@ pub unsafe extern "C" fn mux_result_ok_value(val: *mut Value) -> *mut Value {
         return std::ptr::null_mut();
     }
     unsafe {
-        let value = (*val).clone();
+        let value = deep_clone_value(&*val);
         mux_rc_alloc(Value::Result(Ok(Box::new(value))))
     }
+}
+
+/// Construct the successful unit variant used by `ok()` in a
+/// `result<void, E>` function.
+#[unsafe(no_mangle)]
+pub extern "C" fn mux_result_ok_unit() -> *mut Value {
+    mux_rc_alloc(Value::Result(Ok(Box::new(Value::Unit))))
 }
 
 /// # Safety
@@ -99,7 +106,7 @@ pub unsafe extern "C" fn mux_result_err_value(val: *mut Value) -> *mut Value {
         return std::ptr::null_mut();
     }
     unsafe {
-        let value = (*val).clone();
+        let value = deep_clone_value(&*val);
         mux_rc_alloc(Value::Result(Err(Box::new(value))))
     }
 }
@@ -144,8 +151,8 @@ pub unsafe extern "C" fn mux_result_data(val: *mut Value) -> *mut Value {
     }
     unsafe {
         match &*val {
-            Value::Result(Ok(v)) => mux_rc_alloc(*v.clone()),
-            Value::Result(Err(e)) => mux_rc_alloc(*e.clone()),
+            Value::Result(Ok(v)) => mux_rc_alloc(deep_clone_value(v)),
+            Value::Result(Err(e)) => mux_rc_alloc(deep_clone_value(e)),
             _ => std::ptr::null_mut(),
         }
     }

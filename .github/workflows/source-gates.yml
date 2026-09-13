@@ -59,6 +59,27 @@ jobs:
       - name: Formatting check
         run: cargo fmt --check
 
+  script_tests:
+    name: CI Script Tests
+    needs: detect-changes
+    if: ${{ needs.detect-changes.outputs.runtime_src == 'true' || github.event_name == 'push' }}
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Coverage script tests
+        run: ./scripts/ci/test-coverage.sh
+      - name: Platform smoke script tests
+        run: PYTHONDONTWRITEBYTECODE=1 python3 scripts/ci/test_platform_smoke.py
+      - name: Live SQL gate tests
+        run: ./scripts/ci/test-live-sql.sh
+      - name: HTTP acceptance configuration test
+        run: ./scripts/ci/test-http-acceptance.sh
+      - name: Shell syntax checks
+        run: bash -n scripts/ci/*.sh
+
   clippy:
     # Separated from rust_checks so a clippy failure is not buried behind
     # coverage/leak-probe, and so it does not need the postgres/mysql
@@ -109,6 +130,32 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
+
+  rustdoc:
+    # Keep public Rust documentation strict in CI. `cargo test` and Clippy do
+    # not build documentation, so a broken intra-doc link or newly introduced
+    # warning could otherwise ship even though the source gates are green.
+    name: Strict Rustdoc
+    needs: detect-changes
+    if: ${{ needs.detect-changes.outputs.runtime_src == 'true' || github.event_name == 'push' }}
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9 # untagged master commit; the repo's only tag (v1) is OLDER than this
+        with:
+          toolchain: 1.93.1
+      - name: Cache Cargo registry and build artifacts
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Strict rustdoc
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc --locked --all-features --workspace --no-deps
 
   cargo_deny:
     name: Cargo deny

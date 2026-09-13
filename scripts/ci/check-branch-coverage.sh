@@ -6,6 +6,7 @@ set -euo pipefail
 
 coverage_file="${1:-lcov.info}"
 minimum_percent="${2:-44}"
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
 if [[ ! -r "$coverage_file" ]]; then
     echo "coverage report is not readable: $coverage_file" >&2
@@ -17,13 +18,11 @@ if [[ ! "$minimum_percent" =~ ^[0-9]+$ || "$minimum_percent" -gt 100 ]]; then
     exit 1
 fi
 
-read -r branch_found branch_hit < <(
-    awk -F: '
-        /^BRF:/ { found += $2 }
-        /^BRH:/ { hit += $2 }
-        END { printf "%d %d\n", found, hit }
-    ' "$coverage_file"
-)
+if ! metrics="$(awk -f "$script_dir/parse-lcov-metrics.awk" "$coverage_file")"; then
+    echo "coverage report is malformed: $coverage_file" >&2
+    exit 1
+fi
+read -r _line_found _line_hit branch_found branch_hit <<< "$metrics"
 
 if (( branch_found == 0 )); then
     echo "coverage report contains no branch records: $coverage_file" >&2

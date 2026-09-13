@@ -5,6 +5,7 @@ use std::os::raw::c_char;
 use ordered_float;
 
 use crate::refcount::mux_rc_alloc;
+use crate::std::byte_result_err;
 use crate::Value;
 #[derive(Clone, Debug)]
 pub struct MuxString(pub String);
@@ -115,9 +116,7 @@ pub unsafe extern "C" fn mux_value_get_string(v: *mut Value) -> *mut c_char {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn mux_string_to_bool(s: *const c_char) -> *mut Value {
     if s.is_null() {
-        return mux_rc_alloc(Value::Result(Err(Box::new(Value::String(
-            "null input".to_string(),
-        )))));
+        return byte_result_err("null input");
     }
     let text = unsafe { CStr::from_ptr(s) }.to_string_lossy();
     match MuxString(text.to_string()).to_bool() {
@@ -136,6 +135,39 @@ pub unsafe extern "C" fn mux_string_to_int(s: *const c_char) -> *mut Value {
     match MuxString(rust_str.to_string()).to_int() {
         Ok(i) => mux_rc_alloc(Value::Result(Ok(Box::new(Value::Int(i))))),
         Err(e) => mux_rc_alloc(Value::Result(Err(Box::new(Value::String(e))))),
+    }
+}
+
+/// Parse a decimal or explicitly prefixed binary, octal, or hexadecimal
+/// integer as a checked byte.
+///
+/// # Safety
+/// `s` must be null or a valid, NUL-terminated C string that remains alive for
+/// the duration of this call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn mux_string_to_byte(s: *const c_char) -> *mut Value {
+    if s.is_null() {
+        return mux_rc_alloc(Value::Result(Err(Box::new(Value::String(
+            "null input".to_string(),
+        )))));
+    }
+    let text = unsafe { CStr::from_ptr(s) }.to_string_lossy();
+    let trimmed = text.trim();
+    let (digits, radix) = if let Some(value) = trimmed.strip_prefix("0b") {
+        (value, 2)
+    } else if let Some(value) = trimmed.strip_prefix("0o") {
+        (value, 8)
+    } else if let Some(value) = trimmed.strip_prefix("0x") {
+        (value, 16)
+    } else {
+        (trimmed, 10)
+    };
+    match i64::from_str_radix(digits, radix) {
+        Ok(value) if (0..=255).contains(&value) => {
+            mux_rc_alloc(Value::Result(Ok(Box::new(Value::Int(value)))))
+        }
+        Ok(value) => byte_result_err(format!("Byte value {value} is outside the range 0..255")),
+        Err(error) => byte_result_err(format!("Invalid byte literal '{trimmed}': {error}")),
     }
 }
 
@@ -380,6 +412,18 @@ pub extern "C" fn mux_char_to_int(c: i64) -> *mut Value {
     }
 }
 
+/// Return the Unicode scalar value of a character. Unlike `char.to_int()`,
+/// which intentionally parses only ASCII digits, this preserves every valid
+/// Unicode code point represented by the Mux character ABI.
+#[unsafe(no_mangle)]
+pub extern "C" fn mux_char_to_codepoint(c: i64) -> i64 {
+    if char_from_int(c).is_some() {
+        c
+    } else {
+        -1
+    }
+}
+
 /// Convert a character (i64) to a string
 #[unsafe(no_mangle)]
 pub extern "C" fn mux_char_to_string(c: i64) -> *mut c_char {
@@ -401,7 +445,7 @@ pub extern "C" fn mux_char_to_string(c: i64) -> *mut c_char {
 //
 // A string could previously only be measured, parsed whole, compared and
 // concatenated - there was no split, no indexing, no iteration. So a program
-// could receive text (io.read_file hands back a whole file as one string) and
+// could receive text (fs.read_file hands back a whole file as one string) and
 // had no way to take it apart (mux-compiler#389).
 //
 // Every position here is a CHARACTER position, matching `length`. Indexing by

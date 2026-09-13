@@ -5,8 +5,9 @@
 //!
 //! ```text
 //! full allocation (one malloc):
-//!   [ i64 refcount | fn_ptr : *fn | captures_ptr : *cap | i64 capture_count ]
-//!     ^header                ^--- closure struct returned to codegen ---^
+//!   [ i64 refcount | fn_ptr : *fn | captures_ptr : *cap | i64 capture_count |
+//!     boxed_fn_ptr : *fn ]
+//!     ^header                ^--- closure struct returned to codegen --------^
 //! ```
 //!
 //! The pointer that flows through generated code (`closure`) points at the
@@ -175,9 +176,9 @@ pub unsafe extern "C" fn mux_closure_release(closure: *mut c_void) {
         let captures_ptr = *(closure as *const *mut c_void).add(CAPTURES_FIELD_WORD);
         let capture_count = *(closure as *const i64).add(CAPTURE_COUNT_FIELD_WORD);
 
-        if !captures_ptr.is_null() && capture_count > 0 {
+        if !captures_ptr.is_null() {
             let slots = captures_ptr as *const *mut c_void;
-            for i in 0..capture_count as usize {
+            for i in 0..capture_count.max(0) as usize {
                 // A cell is shared with the variable it is the storage of, and
                 // with any other closure capturing that variable, so the
                 // closure drops its reference rather than freeing the cell.

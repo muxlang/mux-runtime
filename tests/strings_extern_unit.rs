@@ -47,6 +47,10 @@ fn string_parsing() {
         assert_err(mux_string_to_int(cs("nope").as_ptr()));
         assert_ok(mux_string_to_float(cs("3.5").as_ptr()));
         assert_err(mux_string_to_float(cs("nope").as_ptr()));
+        assert_eq!(ok_int(mux_string_to_byte(cs("0b101010").as_ptr())), 42);
+        assert_eq!(ok_int(mux_string_to_byte(cs("0o52").as_ptr())), 42);
+        assert_eq!(ok_int(mux_string_to_byte(cs("0x2a").as_ptr())), 42);
+        assert_err(mux_string_to_byte(cs("256").as_ptr()));
     }
 }
 
@@ -183,7 +187,7 @@ fn boxing_roundtrips() {
 }
 
 /// Splitting, which is the operation whose absence meant a program could read
-/// a file with `io.read_file` and then do nothing with the text.
+/// a file with `fs.read_file` and then do nothing with the text.
 #[test]
 fn string_split() {
     use mux_runtime::Value;

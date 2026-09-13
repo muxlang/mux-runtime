@@ -1,4 +1,4 @@
-use crate::refcount::mux_rc_alloc;
+use crate::refcount::{deep_clone_value, mux_rc_alloc};
 use crate::Value;
 use std::fmt;
 
@@ -61,7 +61,7 @@ pub unsafe extern "C" fn mux_optional_get_value(val: *mut Value) -> *mut Value {
     }
     unsafe {
         match &*val {
-            Value::Optional(Some(v)) => mux_rc_alloc(*v.clone()),
+            Value::Optional(Some(v)) => mux_rc_alloc(deep_clone_value(v)),
             _ => std::ptr::null_mut(),
         }
     }
@@ -112,7 +112,7 @@ pub unsafe extern "C" fn mux_optional_some_value(val: *mut Value) -> *mut Value 
         return mux_rc_alloc(Value::Optional(None));
     }
     unsafe {
-        let value = (*val).clone();
+        let value = deep_clone_value(&*val);
         mux_rc_alloc(Value::Optional(Some(Box::new(value))))
     }
 }
@@ -162,7 +162,7 @@ pub unsafe extern "C" fn mux_value_optional_discriminant(val: *mut Value) -> i32
     }
 }
 
-/// Return an optional value pointer unchanged for ABI compatibility.
+/// Return an optional value pointer unchanged for low-level FFI callers.
 ///
 /// This function deliberately does not inspect, retain, release, or otherwise
 /// access `val`. It is therefore safe for callers to pass null or another

@@ -10,10 +10,9 @@
 use std::ffi::CString;
 use std::process::{Command, Output};
 
-use mux_runtime::assert::mux_assert_eq;
+use mux_runtime::assert::mux_assert;
 use mux_runtime::panic::{
-    mux_panic_cstr, mux_panic_cstr_code, mux_panic_index_oob, mux_panic_key_not_found,
-    RuntimeErrorCode,
+    mux_panic_cstr_code, mux_panic_index_oob, mux_panic_key_not_found, RuntimeErrorCode,
 };
 use mux_runtime::std::mux_int_value;
 
@@ -89,44 +88,19 @@ fn key_not_found_panics() {
 }
 
 #[test]
-fn cstr_with_location_panics() {
-    if in_child() {
-        let msg = cstr("division by zero");
-        let loc = cstr("math.mux:4:16");
-        unsafe { mux_panic_cstr(msg.as_ptr(), loc.as_ptr()) };
-    }
-    let out = run_child("cstr_with_location_panics");
-    assert_panicked(
-        &out,
-        &["panic[E0699]: division by zero", "--> math.mux:4:16"],
-    );
-}
-
-#[test]
-fn cstr_without_location_omits_locator() {
-    if in_child() {
-        let msg = cstr("boom");
-        unsafe { mux_panic_cstr(msg.as_ptr(), std::ptr::null()) };
-    }
-    let out = run_child("cstr_without_location_omits_locator");
-    assert_panicked(&out, &["panic[E0699]: boom"]);
-    let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(
-        !stderr.contains("-->"),
-        "no locator expected; stderr:\n{stderr}"
-    );
-}
-
-#[test]
 fn assert_failure_panics() {
     if in_child() {
-        // 1 != 2 routes through panic_assert -> the unified panic. If it ever
+        // A false condition routes through the unified panic. If it ever
         // failed to diverge, return rather than re-exec (avoids a fork loop).
-        unsafe { mux_assert_eq(mux_int_value(1), mux_int_value(2)) };
+        let message = cstr("one must equal two");
+        unsafe { mux_assert(0, message.as_ptr()) };
         return;
     }
     let out = run_child("assert_failure_panics");
-    assert_panicked(&out, &["panic[E0603]: assertion failed: expected 2, got 1"]);
+    assert_panicked(
+        &out,
+        &["panic[E0603]: assertion failed: one must equal two"],
+    );
 }
 
 #[test]

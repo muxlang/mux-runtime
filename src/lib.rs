@@ -231,7 +231,7 @@ pub type EnumHashFn = extern "C" fn(*mut u8) -> u64;
 /// Value with value semantics. Unlike a raw `Opaque` (whose bytes may hold
 /// payload pointers the runtime cannot see), a `BoxedEnum` runs the compiler's
 /// glue on `Clone` and `Drop`, so a payload-carrying enum copies and frees
-/// correctly wherever the runtime manages it - crucially inside collections,
+/// correctly wherever the runtime manages it - especially inside collections,
 /// whose insert/read helpers `clone()` their elements (issue #309).
 ///
 /// The inline struct bytes are backed by a `Box<[u64]>` so the pointer handed to
@@ -363,6 +363,8 @@ pub enum Value {
     Float(ordered_float::OrderedFloat<f64>),
     String(String),
     List(Vec<Value>),
+    /// A contiguous owned byte sequence, distinct from `List<Value>`.
+    Bytes(Vec<u8>),
     Map(OrderedMap<Value, Value>),
     Set(OrderedSet<Value>),
     Tuple(Box<Tuple>),
@@ -382,6 +384,7 @@ impl PartialEq for Value {
             (Value::Float(a), Value::Float(b)) => a == b,
             (Value::String(a), Value::String(b)) => a == b,
             (Value::List(a), Value::List(b)) => a == b,
+            (Value::Bytes(a), Value::Bytes(b)) => a == b,
             (Value::Map(a), Value::Map(b)) => a == b,
             (Value::Set(a), Value::Set(b)) => a == b,
             (Value::Tuple(a), Value::Tuple(b)) => a == b,
@@ -412,6 +415,7 @@ impl hash::Hash for Value {
             Value::Float(f) => f.hash(state),
             Value::String(s) => s.hash(state),
             Value::List(l) => l.hash(state),
+            Value::Bytes(bytes) => bytes.hash(state),
             // Delegated, not hand-rolled: these combine entry hashes
             // commutatively, matching an equality that ignores insertion order.
             // Hashing in iteration order gave two maps that compare equal
@@ -440,9 +444,10 @@ impl PartialOrd for Value {
 impl Value {
     #[must_use]
     pub fn type_tag(&self) -> i32 {
-        // A BoxedEnum shares the Opaque tag (12): both wrap inline enum bytes and
-        // are indistinguishable to the language's type reflection.
-        const TAG_BY_ORDER: [i32; 14] = [11, 0, 1, 2, 3, 4, 5, 6, 10, 7, 8, 9, 12, 12];
+        // Bytes uses a new tag (13) while existing tags remain stable for ABI
+        // compatibility. A BoxedEnum shares the Opaque tag (12): both wrap
+        // inline enum bytes and are indistinguishable to type reflection.
+        const TAG_BY_ORDER: [i32; 15] = [11, 0, 1, 2, 3, 4, 13, 5, 6, 10, 7, 8, 9, 12, 12];
         TAG_BY_ORDER[self.variant_order() as usize]
     }
 
@@ -454,14 +459,15 @@ impl Value {
             Value::Float(_) => 3,
             Value::String(_) => 4,
             Value::List(_) => 5,
-            Value::Map(_) => 6,
-            Value::Set(_) => 7,
-            Value::Tuple(_) => 8,
-            Value::Optional(_) => 9,
-            Value::Result(_) => 10,
-            Value::Object(_) => 11,
-            Value::Opaque(_) => 12,
-            Value::BoxedEnum(_) => 13,
+            Value::Bytes(_) => 6,
+            Value::Map(_) => 7,
+            Value::Set(_) => 8,
+            Value::Tuple(_) => 9,
+            Value::Optional(_) => 10,
+            Value::Result(_) => 11,
+            Value::Object(_) => 12,
+            Value::Opaque(_) => 13,
+            Value::BoxedEnum(_) => 14,
         }
     }
 }
@@ -475,6 +481,7 @@ impl Ord for Value {
             (Value::Float(a), Value::Float(b)) => a.partial_cmp(b).unwrap_or(cmp::Ordering::Equal),
             (Value::String(a), Value::String(b)) => a.cmp(b),
             (Value::List(a), Value::List(b)) => a.cmp(b),
+            (Value::Bytes(a), Value::Bytes(b)) => a.cmp(b),
             (Value::Map(a), Value::Map(b)) => a.cmp(b),
             (Value::Set(a), Value::Set(b)) => a.cmp(b),
             (Value::Tuple(a), Value::Tuple(b)) => a.cmp(b),
@@ -536,6 +543,18 @@ impl fmt::Display for Value {
             Value::List(list) => {
                 write_delimited(f, "[", "]", list.iter(), |f, item| write!(f, "{item}"))
             }
+            Value::Bytes(bytes) => {
+                write!(f, "b\"")?;
+                for byte in bytes {
+                    match byte {
+                        b'\\' => write!(f, "\\\\")?,
+                        b'"' => write!(f, "\\\"")?,
+                        0x20..=0x7e => write!(f, "{}", char::from(*byte))?,
+                        _ => write!(f, "\\x{byte:02x}")?,
+                    }
+                }
+                write!(f, "\"")
+            }
             Value::Map(map) => write_delimited(f, "{", "}", map.iter(), |f, (key, val)| {
                 write!(f, "{key}: {val}")
             }),
@@ -573,35 +592,58 @@ impl From<String> for Value {
 pub mod assert;
 pub mod bool;
 pub mod boxing;
+pub mod byte;
+pub mod bytes;
+pub mod cli;
 pub mod closure;
+pub mod coverage;
+#[cfg(feature = "crypto")]
+pub mod crypto;
 #[cfg(feature = "csv")]
 pub mod data;
 pub mod datetime;
+pub mod datetime_types;
 pub mod float;
 pub mod int;
 pub mod io;
 #[cfg(feature = "json")]
 pub mod json;
 pub mod list;
+pub mod log;
 pub mod map;
 pub mod math;
 #[cfg(feature = "net")]
 pub mod net;
+pub mod net_types;
 pub mod object;
 pub mod optional;
 pub mod ordered;
 pub mod panic;
+pub mod path;
+#[cfg(feature = "net")]
+pub mod poller;
+pub mod process;
 pub mod random;
 pub mod refcount;
+#[cfg(feature = "regex")]
+pub mod regex;
 pub mod result;
 pub mod set;
 #[cfg(feature = "sql")]
 pub mod sql;
 pub mod std;
+pub mod stream;
 pub mod string;
 #[cfg(feature = "sync")]
 pub mod sync;
+pub mod sync_primitives;
+#[cfg(feature = "tls")]
+pub mod tls;
 pub mod tuple;
+#[cfg(feature = "url")]
+pub mod url;
+#[cfg(feature = "uuid")]
+pub mod uuid;
 
 pub use std::{mux_value_list_get_value, mux_value_list_length, mux_value_list_slice};
 
