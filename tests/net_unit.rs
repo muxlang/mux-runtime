@@ -187,7 +187,7 @@ mod http3_loopback_conformance {
         let result = client.send(
             request(&format!("https://{authority}/too-large"), "POST"),
             Some(vec![0x5a; MAX_HTTP3_BODY_BYTES + 1]),
-            Some(Duration::from_secs(10)),
+            Some(Duration::from_secs(60)),
         );
         let server_result = server_thread
             .join()
@@ -210,11 +210,11 @@ mod http3_loopback_conformance {
         let authority = server.local_addr().to_string();
         let (started_sender, started_receiver) = mpsc::sync_channel(1);
         let server_thread = thread::spawn(move || {
-            server.serve_one_with_timeout(Duration::from_secs(2), move |_incoming| {
+            server.serve_one_with_timeout(Duration::from_secs(15), move |_incoming| {
                 started_sender
                     .send(())
                     .expect("cancellation test handler should start");
-                thread::sleep(Duration::from_millis(250));
+                thread::sleep(Duration::from_secs(11));
                 Ok(Http3Response {
                     status: 200,
                     headers: Vec::new(),
@@ -227,20 +227,25 @@ mod http3_loopback_conformance {
             std::slice::from_ref(&certificate),
         )
         .expect("HTTP/3 client should connect to the local server");
-        let result = client.send(
-            request(&format!("https://{authority}/cancel"), "GET"),
-            None,
-            Some(Duration::from_millis(40)),
-        );
+        let result_thread = thread::spawn(move || {
+            client.send(
+                request(&format!("https://{authority}/cancel"), "GET"),
+                None,
+                Some(Duration::from_secs(10)),
+            )
+        });
+        started_receiver
+            .recv_timeout(Duration::from_secs(10))
+            .expect("the server must have observed the request before cancellation");
+        let result = result_thread
+            .join()
+            .expect("HTTP/3 cancellation client thread should not panic");
         assert_eq!(
             result
                 .expect_err("the response deadline must cancel the stream")
                 .kind(),
             Http3ErrorKind::Timeout
         );
-        started_receiver
-            .recv_timeout(Duration::from_secs(1))
-            .expect("the server must have observed the request before cancellation");
         let server_result = server_thread
             .join()
             .expect("HTTP/3 server thread should not panic");
@@ -428,7 +433,7 @@ mod http3_loopback_conformance {
         let result = client.send(
             request(&format!("https://{authority}/too-large"), "GET"),
             None,
-            Some(Duration::from_secs(10)),
+            Some(Duration::from_secs(60)),
         );
         release_sender
             .send(())

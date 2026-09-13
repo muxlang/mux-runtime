@@ -71,7 +71,7 @@ def run_command(command: Command, timeout_seconds: int) -> int:
         kwargs["start_new_session"] = True
 
     print("running:", " ".join(command), flush=True)
-    process = subprocess.Popen(command, **kwargs)
+    process = subprocess.Popen(command, shell=False, **kwargs)
     try:
         return process.wait(timeout=timeout_seconds)
     except subprocess.TimeoutExpired:

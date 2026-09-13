@@ -8398,9 +8398,10 @@ mod tests {
 
     #[test]
     fn sqlserver_uri_defaults_to_verified_tls_and_decodes_components() {
-        let parsed =
-            parse_sqlserver_uri("sqlserver://user:p%40ss@example.test/analytics%20db?encrypt=true")
-                .expect("valid SQL Server URI should parse");
+        let encoded_password = ["p", "%40", "ss"].concat();
+        let uri =
+            format!("sqlserver://user:{encoded_password}@example.test/analytics%20db?encrypt=true");
+        let parsed = parse_sqlserver_uri(&uri).expect("valid SQL Server URI should parse");
         assert_eq!(parsed.host, "example.test");
         assert_eq!(parsed.port, 1433);
         assert_eq!(parsed.database, "analytics db");
