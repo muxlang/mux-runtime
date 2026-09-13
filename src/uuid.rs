@@ -247,13 +247,15 @@ fn timestamp_uuid(sorted: bool) -> RustUuid {
 fn namespace_hash(namespace: RustUuid, name: &[u8], sha: bool) -> RustUuid {
     let mut bytes = [0; 16];
     if sha {
-        let mut hasher = Sha1::new();
+        // UUID version 5 is defined by RFC 4122 to use SHA-1.
+        let mut hasher = Sha1::new(); // NOSONAR
         hasher.update(namespace.as_bytes());
         hasher.update(name);
         bytes.copy_from_slice(&hasher.finalize()[..16]);
         bytes[6] = (bytes[6] & 0x0f) | 0x50;
     } else {
-        let mut hasher = Md5::new();
+        // UUID version 3 is defined by RFC 4122 to use MD5.
+        let mut hasher = Md5::new(); // NOSONAR
         hasher.update(namespace.as_bytes());
         hasher.update(name);
         bytes.copy_from_slice(&hasher.finalize());

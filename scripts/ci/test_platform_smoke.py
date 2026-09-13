@@ -41,7 +41,7 @@ class PlatformSmokeTests(unittest.TestCase):
     def test_timeout_must_be_positive(self) -> None:
         with contextlib.redirect_stderr(io.StringIO()):
             with self.assertRaises(SystemExit):
-                MODULE.parse_args(["--timeout-seconds", "0", "--cargo", "cargo"])
+                MODULE.parse_args(["--timeout-seconds", "0"])
 
     def test_timeout_returns_shell_independent_status(self) -> None:
         status = MODULE.run_command(

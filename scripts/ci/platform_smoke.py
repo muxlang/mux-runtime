@@ -95,18 +95,13 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         default=int(os.environ.get("MUX_PLATFORM_SMOKE_TIMEOUT_SECS", "2700")),
         help="maximum time for each cargo command (default: 2700)",
     )
-    parser.add_argument(
-        "--cargo",
-        default=os.environ.get("CARGO", "cargo"),
-        help="cargo executable or path (default: cargo)",
-    )
     args = parser.parse_args(argv)
     if args.timeout_seconds <= 0:
         parser.error("--timeout-seconds must be positive")
 
-    cargo = shutil.which(args.cargo) if os.path.dirname(args.cargo) == "" else args.cargo
+    cargo = shutil.which("cargo")
     if cargo is None:
-        parser.error(f"cargo executable not found: {args.cargo}")
+        parser.error("cargo executable not found on PATH")
     args.cargo = cargo
     return args
 

@@ -3886,7 +3886,8 @@ fn websocket_accept_key(key: &str) -> Result<String, String> {
     if decoded.len() != 16 {
         return Err("WebSocket key must decode to exactly 16 bytes".to_string());
     }
-    let mut hasher = Sha1::new();
+    // WebSocket RFC 6455 requires SHA-1 for this non-secret handshake value.
+    let mut hasher = Sha1::new(); // NOSONAR
     hasher.update(key.as_bytes());
     hasher.update(WEBSOCKET_ACCEPT_GUID.as_bytes());
     Ok(BASE64_STANDARD.encode(hasher.finalize()))
