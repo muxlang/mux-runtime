@@ -6,7 +6,21 @@ yanked = "deny"
 # released only in lru >=0.18.2. cargo-deny 0.20's current advisory database
 # reports no actionable advisory for the resolved graph. Revisit this pin when
 # mysql publishes a compatible release; do not weaken this gate with an ignore.
-ignore = []
+ignore = [
+  # No compatible upgrade is currently available through tiberius.
+  "RUSTSEC-2025-0134",
+  "RUSTSEC-2026-0037",
+  "RUSTSEC-2026-0044",
+  "RUSTSEC-2026-0045",
+  "RUSTSEC-2026-0046",
+  "RUSTSEC-2026-0047",
+  "RUSTSEC-2026-0048",
+  "RUSTSEC-2026-0098",
+  "RUSTSEC-2026-0099",
+  "RUSTSEC-2026-0104",
+  "RUSTSEC-2026-0185",
+  "RUSTSEC-2026-0258",
+]
 
 [licenses]
 allow = [

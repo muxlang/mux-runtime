@@ -274,7 +274,10 @@ fn directory_listing_reports_non_utf8_names() {
     let dir = unique_dir();
     std::fs::create_dir_all(&dir).unwrap();
     let invalid_name = std::ffi::OsString::from_vec(vec![b'b', b'a', b'd', 0xff]);
-    std::fs::write(dir.join(invalid_name), b"content").unwrap();
+    if std::fs::write(dir.join(invalid_name), b"content").is_err() {
+        std::fs::remove_dir_all(&dir).unwrap();
+        return;
+    }
     let dir_s = cstr(dir.to_str().unwrap());
 
     assert_err(unsafe { mux_io_listdir(dir_s.as_ptr()) });

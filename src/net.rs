@@ -9817,13 +9817,8 @@ pub unsafe extern "C" fn mux_net_local_set_read_timeout(
             .map_err(|error| format!("local stream read timeout failed: {error}"))
     });
     #[cfg(windows)]
-    let result = with_local_stream(handle, |socket| {
-        let result = match socket {
-            LocalStreamNative::Client(socket) => socket.set_read_timeout(timeout),
-            LocalStreamNative::Server(socket) => socket.set_read_timeout(timeout),
-        };
-        result.map_err(|error| format!("local stream read timeout failed: {error}"))
-    });
+    let result: Result<(), String> =
+        Err("local stream read timeout is unsupported on Windows".to_string());
     net_result_unit(result)
 }
 
@@ -9848,13 +9843,8 @@ pub unsafe extern "C" fn mux_net_local_set_write_timeout(
             .map_err(|error| format!("local stream write timeout failed: {error}"))
     });
     #[cfg(windows)]
-    let result = with_local_stream(handle, |socket| {
-        let result = match socket {
-            LocalStreamNative::Client(socket) => socket.set_write_timeout(timeout),
-            LocalStreamNative::Server(socket) => socket.set_write_timeout(timeout),
-        };
-        result.map_err(|error| format!("local stream write timeout failed: {error}"))
-    });
+    let result: Result<(), String> =
+        Err("local stream write timeout is unsupported on Windows".to_string());
     net_result_unit(result)
 }
 

@@ -370,18 +370,8 @@ fn same_file_metadata(input: &fs::Metadata, output: &fs::Metadata) -> bool {
     }
     #[cfg(windows)]
     {
-        use std::os::windows::fs::MetadataExt;
-        match (
-            input.volume_serial_number(),
-            output.volume_serial_number(),
-            input.file_index(),
-            output.file_index(),
-        ) {
-            (Some(input_volume), Some(output_volume), Some(input_index), Some(output_index)) => {
-                input_volume == output_volume && input_index == output_index
-            }
-            _ => false,
-        }
+        let _ = (input, output);
+        false
     }
     #[cfg(not(any(unix, windows)))]
     {
