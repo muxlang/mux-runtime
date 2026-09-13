@@ -773,81 +773,104 @@ pub unsafe extern "C" fn mux_cli_parser_add_subcommand(
 
 fn help_text(entry: &ParserEntry) -> String {
     let mut text = String::new();
+    append_program_description(&mut text, entry);
+    append_option_groups(&mut text, entry);
+    append_positionals(&mut text, entry);
+    append_commands(&mut text, entry);
+    text
+}
+
+fn append_program_description(text: &mut String, entry: &ParserEntry) {
     if !entry.program.is_empty() {
         text.push_str(&entry.program);
     }
-    if !entry.about.is_empty() {
-        if !text.is_empty() {
-            text.push_str("\n\n");
-        }
-        text.push_str(&entry.about);
+    if entry.about.is_empty() {
+        return;
     }
+    if !text.is_empty() {
+        text.push_str("\n\n");
+    }
+    text.push_str(&entry.about);
+}
+
+fn append_option_groups(text: &mut String, entry: &ParserEntry) {
     let mut groups: BTreeMap<String, Vec<&OptionSpec>> = BTreeMap::new();
     for option in &entry.options {
-        groups
-            .entry(
-                option
-                    .group
-                    .clone()
-                    .unwrap_or_else(|| "Options".to_string()),
-            )
-            .or_default()
-            .push(option);
+        let group = option
+            .group
+            .clone()
+            .unwrap_or_else(|| "Options".to_string());
+        groups.entry(group).or_default().push(option);
     }
     for (group, options) in groups {
         text.push_str("\n\n");
         text.push_str(&group);
         text.push_str(":\n");
         for option in options {
-            text.push_str("  --");
-            text.push_str(&option.name);
-            if let Some(short) = option.short {
-                text.push_str(", -");
-                text.push(short);
-            }
-            for alias in &option.aliases {
-                text.push_str(", --");
-                text.push_str(alias);
-            }
-            if option.takes_value {
-                text.push_str(" <value>");
-            }
-            if option.required {
-                text.push_str(" (required)");
-            }
-            text.push('\n');
+            append_option(text, option);
         }
     }
-    if !entry.positionals.is_empty() {
-        text.push_str("\nPositionals:\n");
-        for (name, required) in &entry.positionals {
-            text.push_str("  ");
-            text.push_str(name);
-            if *required {
-                text.push_str(" (required)");
-            }
-            text.push('\n');
-        }
+}
+
+fn append_option(text: &mut String, option: &OptionSpec) {
+    text.push_str("  --");
+    text.push_str(&option.name);
+    if let Some(short) = option.short {
+        text.push_str(", -");
+        text.push(short);
     }
-    if !entry.children.is_empty() {
-        text.push_str("\nCommands:\n");
-        let mut children = entry.children.iter().collect::<Vec<_>>();
-        children.sort_unstable_by(|(left, _), (right, _)| left.cmp(right));
-        for (name, child_id) in children {
-            let about = lock(&PARSERS)
-                .get(child_id)
-                .map(|child| child.about.clone())
-                .unwrap_or_default();
-            text.push_str("  ");
-            text.push_str(name);
-            if !about.is_empty() {
-                text.push_str("  ");
-                text.push_str(&about);
-            }
-            text.push('\n');
-        }
+    for alias in &option.aliases {
+        text.push_str(", --");
+        text.push_str(alias);
     }
-    text
+    if option.takes_value {
+        text.push_str(" <value>");
+    }
+    if option.required {
+        text.push_str(" (required)");
+    }
+    text.push('\n');
+}
+
+fn append_positionals(text: &mut String, entry: &ParserEntry) {
+    if entry.positionals.is_empty() {
+        return;
+    }
+    text.push_str("\nPositionals:\n");
+    for (name, required) in &entry.positionals {
+        text.push_str("  ");
+        text.push_str(name);
+        if *required {
+            text.push_str(" (required)");
+        }
+        text.push('\n');
+    }
+}
+
+fn append_commands(text: &mut String, entry: &ParserEntry) {
+    if entry.children.is_empty() {
+        return;
+    }
+    text.push_str("\nCommands:\n");
+    let mut children = entry.children.iter().collect::<Vec<_>>();
+    children.sort_unstable_by(|(left, _), (right, _)| left.cmp(right));
+    for (name, child_id) in children {
+        append_command(text, name, *child_id);
+    }
+}
+
+fn append_command(text: &mut String, name: &str, child_id: i64) {
+    let about = lock(&PARSERS)
+        .get(&child_id)
+        .map(|child| child.about.clone())
+        .unwrap_or_default();
+    text.push_str("  ");
+    text.push_str(name);
+    if !about.is_empty() {
+        text.push_str("  ");
+        text.push_str(&about);
+    }
+    text.push('\n');
 }
 
 fn completion_text(entry: &ParserEntry, shell: &str) -> Result<String, String> {
@@ -1221,158 +1244,291 @@ fn normalize_option_values(
     Ok(())
 }
 
+#[derive(Default)]
+struct ParseState {
+    values: HashMap<String, Vec<String>>,
+    positionals: Vec<String>,
+    subcommand: Option<String>,
+    subcommand_matches: Option<Box<MatchesEntry>>,
+}
+
 fn parse_args(entry: &ParserEntry, args: Vec<String>) -> Result<MatchesEntry, String> {
     let args = if entry.response_files {
         expand_response_files(args, 0)?
     } else {
         args
     };
-    let mut values: HashMap<String, Vec<String>> = HashMap::new();
-    let mut positionals = Vec::new();
-    let mut subcommand = None;
-    let mut subcommand_matches = None;
+    let mut state = ParseState::default();
+    parse_argument_list(entry, &args, &mut state)?;
+    apply_option_defaults(entry, &mut state.values)?;
+    normalize_options(entry, &mut state.values)?;
+    validate_option_relationships(entry, &state.values)?;
+    validate_positionals(entry, &state.positionals)?;
+    Ok(MatchesEntry {
+        values: state.values,
+        positionals: state.positionals,
+        help: help_text(entry),
+        subcommand: state.subcommand,
+        subcommand_matches: state.subcommand_matches,
+        names: 1,
+    })
+}
+
+fn parse_argument_list(
+    entry: &ParserEntry,
+    args: &[String],
+    state: &mut ParseState,
+) -> Result<(), String> {
     let mut end_options = false;
     let mut index = 0;
     while index < args.len() {
-        let arg = &args[index];
-        if !end_options && arg == "--" {
-            end_options = true;
-            index += 1;
-            continue;
-        }
-        if !end_options && arg.starts_with("--") && arg.len() > 2 {
-            let raw = &arg[2..];
-            let (name, inline) = raw
-                .split_once('=')
-                .map_or((raw, None), |(name, value)| (name, Some(value.to_string())));
-            let option = entry
-                .options
-                .iter()
-                .find(|option| {
-                    option.name == name || option.aliases.iter().any(|alias| alias == name)
-                })
-                .ok_or_else(|| format!("unknown option '--{name}'"))?;
-            let value = if option.takes_value {
-                if let Some(value) = inline {
-                    value
-                } else {
-                    index += 1;
-                    args.get(index)
-                        .cloned()
-                        .ok_or_else(|| format!("option '--{name}' requires a value"))?
-                }
-            } else {
-                if inline.is_some() {
-                    return Err(format!("option '--{name}' does not take a value"));
-                }
-                "true".to_string()
-            };
-            if !option.multiple && values.contains_key(&option.name) {
-                return Err(format!("option '--{name}' was provided more than once"));
-            }
-            values.entry(option.name.clone()).or_default().push(value);
-        } else if !end_options && arg.starts_with('-') && arg.len() > 1 {
-            let mut chars = arg[1..].chars().peekable();
-            while let Some(short) = chars.next() {
-                let option = entry
-                    .options
-                    .iter()
-                    .find(|option| option.short == Some(short))
-                    .ok_or_else(|| format!("unknown option '-{short}'"))?;
-                let value = if option.takes_value {
-                    let rest: String = chars.by_ref().collect();
-                    if rest.is_empty() {
-                        index += 1;
-                        args.get(index)
-                            .cloned()
-                            .ok_or_else(|| format!("option '-{short}' requires a value"))?
-                    } else {
-                        rest
-                    }
-                } else {
-                    "true".to_string()
-                };
-                if !option.takes_value && chars.peek().is_some() {
-                    values.entry(option.name.clone()).or_default().push(value);
-                    continue;
-                }
-                if !option.multiple && values.contains_key(&option.name) {
-                    return Err(format!("option '-{short}' was provided more than once"));
-                }
-                values.entry(option.name.clone()).or_default().push(value);
-            }
-        } else {
-            if subcommand.is_none() && positionals.is_empty() {
-                if let Some((name, child_id)) = entry.children.iter().find(|(name, _)| name == arg)
-                {
-                    let child = lock(&PARSERS)
-                        .get(child_id)
-                        .map(CloneForParse::clone_for_parse)
-                        .ok_or_else(|| format!("CLI subcommand '{name}' is unavailable"))?;
-                    let child_matches = parse_args(&child, args[index + 1..].to_vec())?;
-                    subcommand = Some(name.clone());
-                    subcommand_matches = Some(Box::new(child_matches));
-                    break;
-                }
-            }
-            positionals.push(arg.clone());
+        if !parse_argument(entry, args, &mut index, state, &mut end_options)? {
+            break;
         }
         index += 1;
     }
-    for option in &entry.options {
-        if !values.contains_key(&option.name) {
-            if let Some(env) = &option.env {
-                if let Ok(value) = std::env::var(env) {
-                    values.insert(option.name.clone(), vec![value]);
-                    continue;
-                }
-            }
-            if let Some(default) = &option.default {
-                values.insert(option.name.clone(), vec![default.clone()]);
-                continue;
-            }
-            if option.required {
-                return Err(format!("missing required option '--{}'", option.name));
-            }
+    Ok(())
+}
+
+fn parse_argument(
+    entry: &ParserEntry,
+    args: &[String],
+    index: &mut usize,
+    state: &mut ParseState,
+    end_options: &mut bool,
+) -> Result<bool, String> {
+    let arg = &args[*index];
+    if !*end_options && arg == "--" {
+        *end_options = true;
+        return Ok(true);
+    }
+    if !*end_options && arg.starts_with("--") && arg.len() > 2 {
+        parse_long_option(entry, args, index, state)?;
+        return Ok(true);
+    }
+    if !*end_options && arg.starts_with('-') && arg.len() > 1 {
+        parse_short_options(entry, args, index, state)?;
+        return Ok(true);
+    }
+    parse_positional(entry, args, *index, state)
+}
+
+fn parse_long_option(
+    entry: &ParserEntry,
+    args: &[String],
+    index: &mut usize,
+    state: &mut ParseState,
+) -> Result<(), String> {
+    let raw = &args[*index][2..];
+    let (name, inline) = raw
+        .split_once('=')
+        .map_or((raw, None), |(name, value)| (name, Some(value.to_string())));
+    let option = find_long_option(entry, name)?;
+    let value = long_option_value(option, inline, args, index, name)?;
+    record_option(&mut state.values, option, &format!("--{name}"), value)
+}
+
+fn find_long_option<'a>(entry: &'a ParserEntry, name: &str) -> Result<&'a OptionSpec, String> {
+    entry
+        .options
+        .iter()
+        .find(|option| option.name == name || option.aliases.iter().any(|alias| alias == name))
+        .ok_or_else(|| format!("unknown option '--{name}'"))
+}
+
+fn long_option_value(
+    option: &OptionSpec,
+    inline: Option<String>,
+    args: &[String],
+    index: &mut usize,
+    name: &str,
+) -> Result<String, String> {
+    match (option.takes_value, inline) {
+        (true, Some(value)) => Ok(value),
+        (true, None) => {
+            next_option_value(args, index, format!("option '--{name}' requires a value"))
+        }
+        (false, Some(_)) => Err(format!("option '--{name}' does not take a value")),
+        (false, None) => Ok("true".to_string()),
+    }
+}
+
+fn parse_short_options(
+    entry: &ParserEntry,
+    args: &[String],
+    index: &mut usize,
+    state: &mut ParseState,
+) -> Result<(), String> {
+    let mut chars = args[*index][1..].chars().peekable();
+    while let Some(short) = chars.next() {
+        let option = find_short_option(entry, short)?;
+        let takes_value = option.takes_value;
+        let option_name = option.name.clone();
+        let value = short_option_value(takes_value, &mut chars, args, index, short)?;
+        if !takes_value && chars.peek().is_some() {
+            state.values.entry(option_name).or_default().push(value);
+            continue;
+        }
+        record_option(&mut state.values, option, &format!("-{short}"), value)?;
+    }
+    Ok(())
+}
+
+fn find_short_option(entry: &ParserEntry, short: char) -> Result<&OptionSpec, String> {
+    entry
+        .options
+        .iter()
+        .find(|option| option.short == Some(short))
+        .ok_or_else(|| format!("unknown option '-{short}'"))
+}
+
+fn short_option_value(
+    takes_value: bool,
+    chars: &mut std::iter::Peekable<std::str::Chars<'_>>,
+    args: &[String],
+    index: &mut usize,
+    short: char,
+) -> Result<String, String> {
+    if !takes_value {
+        return Ok("true".to_string());
+    }
+    let rest: String = chars.by_ref().collect();
+    if rest.is_empty() {
+        next_option_value(args, index, format!("option '-{short}' requires a value"))
+    } else {
+        Ok(rest)
+    }
+}
+
+fn next_option_value(args: &[String], index: &mut usize, error: String) -> Result<String, String> {
+    *index += 1;
+    args.get(*index).cloned().ok_or(error)
+}
+
+fn record_option(
+    values: &mut HashMap<String, Vec<String>>,
+    option: &OptionSpec,
+    display_name: &str,
+    value: String,
+) -> Result<(), String> {
+    if !option.multiple && values.contains_key(&option.name) {
+        return Err(format!(
+            "option '{display_name}' was provided more than once"
+        ));
+    }
+    values.entry(option.name.clone()).or_default().push(value);
+    Ok(())
+}
+
+fn parse_positional(
+    entry: &ParserEntry,
+    args: &[String],
+    index: usize,
+    state: &mut ParseState,
+) -> Result<bool, String> {
+    let arg = &args[index];
+    if state.subcommand.is_none() && state.positionals.is_empty() {
+        if let Some((name, child_id)) = entry.children.iter().find(|(name, _)| name == arg) {
+            let child = lock(&PARSERS)
+                .get(child_id)
+                .map(CloneForParse::clone_for_parse)
+                .ok_or_else(|| format!("CLI subcommand '{name}' is unavailable"))?;
+            let child_matches = parse_args(&child, args[index + 1..].to_vec())?;
+            state.subcommand = Some(name.clone());
+            state.subcommand_matches = Some(Box::new(child_matches));
+            return Ok(false);
         }
     }
+    state.positionals.push(arg.clone());
+    Ok(true)
+}
+
+fn apply_option_defaults(
+    entry: &ParserEntry,
+    values: &mut HashMap<String, Vec<String>>,
+) -> Result<(), String> {
     for option in &entry.options {
-        normalize_option_values(option, &mut values)?;
+        if values.contains_key(&option.name) {
+            continue;
+        }
+        if let Some(env) = &option.env {
+            if let Ok(value) = std::env::var(env) {
+                values.insert(option.name.clone(), vec![value]);
+                continue;
+            }
+        }
+        if let Some(default) = &option.default {
+            values.insert(option.name.clone(), vec![default.clone()]);
+            continue;
+        }
+        if option.required {
+            return Err(format!("missing required option '--{}'", option.name));
+        }
     }
+    Ok(())
+}
+
+fn normalize_options(
+    entry: &ParserEntry,
+    values: &mut HashMap<String, Vec<String>>,
+) -> Result<(), String> {
+    for option in &entry.options {
+        normalize_option_values(option, values)?;
+    }
+    Ok(())
+}
+
+fn validate_option_relationships(
+    entry: &ParserEntry,
+    values: &HashMap<String, Vec<String>>,
+) -> Result<(), String> {
     for option in &entry.options {
         if !values.contains_key(&option.name) {
             continue;
         }
-        for conflicting in &option.conflicts {
-            if values.contains_key(conflicting) {
-                return Err(format!(
-                    "option '--{}' conflicts with '--{}'",
-                    option.name, conflicting
-                ));
-            }
-        }
-        for required in &option.requires {
-            if !values.contains_key(required) {
-                return Err(format!(
-                    "option '--{}' requires '--{}'",
-                    option.name, required
-                ));
-            }
+        validate_conflicts(option, values)?;
+        validate_requirements(option, values)?;
+    }
+    Ok(())
+}
+
+fn validate_conflicts(
+    option: &OptionSpec,
+    values: &HashMap<String, Vec<String>>,
+) -> Result<(), String> {
+    for conflicting in &option.conflicts {
+        if values.contains_key(conflicting) {
+            return Err(format!(
+                "option '--{}' conflicts with '--{}'",
+                option.name, conflicting
+            ));
         }
     }
+    Ok(())
+}
+
+fn validate_requirements(
+    option: &OptionSpec,
+    values: &HashMap<String, Vec<String>>,
+) -> Result<(), String> {
+    for required in &option.requires {
+        if !values.contains_key(required) {
+            return Err(format!(
+                "option '--{}' requires '--{}'",
+                option.name, required
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_positionals(entry: &ParserEntry, positionals: &[String]) -> Result<(), String> {
     for (index, (name, required)) in entry.positionals.iter().enumerate() {
         if *required && positionals.get(index).is_none() {
             return Err(format!("missing required positional '{name}'"));
         }
     }
-    Ok(MatchesEntry {
-        values,
-        positionals,
-        help: help_text(entry),
-        subcommand,
-        subcommand_matches,
-        names: 1,
-    })
+    Ok(())
 }
 
 #[unsafe(no_mangle)]

@@ -450,65 +450,93 @@ fn scan_json_numbers(input: &str) -> Result<Vec<String>, String> {
     while index < bytes.len() {
         match bytes[index] {
             b'"' => {
-                index += 1;
-                while index < bytes.len() {
-                    match bytes[index] {
-                        b'\\' => index = index.saturating_add(2),
-                        b'"' => {
-                            index += 1;
-                            break;
-                        }
-                        _ => index += 1,
-                    }
-                }
+                index = skip_json_string(bytes, index);
             }
             b'-' | b'0'..=b'9' => {
                 let start = index;
-                if bytes[index] == b'-' {
-                    index += 1;
-                }
-                if index < bytes.len() && bytes[index] == b'0' {
-                    index += 1;
-                } else {
-                    while index < bytes.len() && bytes[index].is_ascii_digit() {
-                        index += 1;
-                    }
-                }
-                if index < bytes.len() && bytes[index] == b'.' {
-                    let fraction_start = index;
-                    index += 1;
-                    let digits_start = index;
-                    while index < bytes.len() && bytes[index].is_ascii_digit() {
-                        index += 1;
-                    }
-                    if digits_start == index {
-                        index = fraction_start;
-                    }
-                }
-                if index < bytes.len() && matches!(bytes[index], b'e' | b'E') {
-                    let exponent_start = index;
-                    index += 1;
-                    if index < bytes.len() && matches!(bytes[index], b'+' | b'-') {
-                        index += 1;
-                    }
-                    let digits_start = index;
-                    while index < bytes.len() && bytes[index].is_ascii_digit() {
-                        index += 1;
-                    }
-                    if digits_start == index {
-                        index = exponent_start;
-                    }
-                }
-                if start < index {
-                    numbers.push(input[start..index].to_string());
-                } else {
-                    index += 1;
-                }
+                index = scan_json_number(bytes, index);
+                numbers.push(input[start..index].to_string());
             }
             _ => index += 1,
         }
     }
     Ok(numbers)
+}
+
+fn skip_json_string(bytes: &[u8], mut index: usize) -> usize {
+    index += 1;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'\\' => index = index.saturating_add(2),
+            b'"' => return index + 1,
+            _ => index += 1,
+        }
+    }
+    index
+}
+
+fn scan_json_number(bytes: &[u8], start: usize) -> usize {
+    let mut index = scan_json_integer(bytes, start);
+    index = scan_json_fraction(bytes, index);
+    scan_json_exponent(bytes, index)
+}
+
+fn scan_json_integer(bytes: &[u8], mut index: usize) -> usize {
+    if bytes[index] == b'-' {
+        index += 1;
+    }
+    if index < bytes.len() && bytes[index] == b'0' {
+        index += 1;
+    } else {
+        while index < bytes.len() && bytes[index].is_ascii_digit() {
+            index += 1;
+        }
+    }
+    index
+}
+
+fn scan_json_fraction(bytes: &[u8], index: usize) -> usize {
+    if bytes.get(index) != Some(&b'.') {
+        return index;
+    }
+    let fraction_start = index;
+    let digits_start = index + 1;
+    let end = scan_ascii_digits(bytes, digits_start);
+    if digits_start == end {
+        fraction_start
+    } else {
+        end
+    }
+}
+
+fn scan_json_exponent(bytes: &[u8], index: usize) -> usize {
+    if !bytes
+        .get(index)
+        .is_some_and(|byte| matches!(*byte, b'e' | b'E'))
+    {
+        return index;
+    }
+    let exponent_start = index;
+    let mut digits_start = index + 1;
+    if bytes
+        .get(digits_start)
+        .is_some_and(|byte| matches!(*byte, b'+' | b'-'))
+    {
+        digits_start += 1;
+    }
+    let end = scan_ascii_digits(bytes, digits_start);
+    if digits_start == end {
+        exponent_start
+    } else {
+        end
+    }
+}
+
+fn scan_ascii_digits(bytes: &[u8], mut index: usize) -> usize {
+    while index < bytes.len() && bytes[index].is_ascii_digit() {
+        index += 1;
+    }
+    index
 }
 
 /// Check the lexical token budget without allocating a token vector.  The
