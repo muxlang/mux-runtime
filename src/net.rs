@@ -6012,9 +6012,10 @@ fn if_none_match_matches(header: &str, etag: &str) -> bool {
 fn http_request_header(request: *const Value, name: &str) -> Option<String> {
     let handle = request_handle(request).ok()?;
     let headers = lock_requests().get(&handle)?.headers.clone();
-    headers
+    let headers = headers
         .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    headers
         .values
         .iter()
         .find(|(header_name, _)| header_name.eq_ignore_ascii_case(name))
