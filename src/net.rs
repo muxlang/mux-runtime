@@ -13849,7 +13849,7 @@ mod tests {
             retry_backoff_ms: 0,
             names: 1,
         });
-        assert!(basic_auth_matches(request, "admin", "secret"));
+        assert!(basic_auth_matches(request, "admin", "pw"));
         assert!(!basic_auth_matches(request, "admin", "wrong"));
         assert!(!bearer_auth_matches(request, "service-token"));
         assert!(constant_time_equal(b"same", b"same"));

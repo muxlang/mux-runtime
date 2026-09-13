@@ -50,7 +50,7 @@ unsafe fn direct_string(value: *mut Value) -> String {
 #[test]
 fn parse_components_join_and_redaction_are_validated() {
     unsafe {
-        let source = string_value("https://alice:secret@example.com:8443/a%20b?x=1&x=two#frag");
+        let source = string_value("https://alice:pw@example.com:8443/a%20b?x=1&x=two#frag");
         let url = result_data(mux_url_parse(source));
         assert!(mux_rc_dec(source));
 
@@ -73,7 +73,7 @@ fn parse_components_join_and_redaction_are_validated() {
         assert!(mux_rc_dec(relative));
         assert_eq!(
             direct_string(mux_url_to_string(joined)),
-            "https://alice:secret@example.com:8443/next?q=ok"
+            "https://alice:pw@example.com:8443/next?q=ok"
         );
         assert!(mux_rc_dec(joined));
         assert!(mux_rc_dec(url));
@@ -175,12 +175,12 @@ fn idna_and_host_port_mutation_are_explicit() {
         let user = string_value("alice");
         let updated_user = result_data(mux_url_with_username(updated_port, user));
         assert!(mux_rc_dec(user));
-        let password = string_value("secret");
+        let password = string_value("pw");
         let updated_credentials = result_data(mux_url_with_password(updated_user, password));
         assert!(mux_rc_dec(password));
         assert_eq!(
             direct_string(mux_url_to_string(updated_credentials)),
-            "https://alice:secret@example.org:8443/path"
+            "https://alice:pw@example.org:8443/path"
         );
         assert!(mux_rc_dec(updated_credentials));
         assert!(mux_rc_dec(updated_user));
