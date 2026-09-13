@@ -270,8 +270,8 @@ fn run_driver_suite(uri: &str, provider: &str, ph: impl Fn(usize) -> String) {
     // Named parameters can be repeated without requiring duplicate map keys.
     // The scanner rewrites the same logical value for each provider-specific
     // placeholder occurrence.
-    let named_query = sval("SELECT :value AS first, :value AS second");
-    let named_params = named_value("value", Value::Int(21));
+    let named_query = sval("SELECT id AS first, id AS second FROM mux_cov_t WHERE id = :value");
+    let named_params = named_value("value", Value::Int(1));
     let named_result = ok_data(mux_sql_connection_query_named(
         conn,
         named_query,
@@ -288,8 +288,8 @@ fn run_driver_suite(uri: &str, provider: &str, ph: impl Fn(usize) -> String) {
     let named_row_handle = mux_rc_alloc(named_row);
     let first = ok_data(mux_sql_row_at(named_row_handle, 0));
     let second = ok_data(mux_sql_row_at(named_row_handle, 1));
-    assert!(unsafe { matches!(&*first, Value::Int(value) if *value == 21) });
-    assert!(unsafe { matches!(&*second, Value::Int(value) if *value == 21) });
+    assert!(unsafe { matches!(&*first, Value::Int(value) if *value == 1) });
+    assert!(unsafe { matches!(&*second, Value::Int(value) if *value == 1) });
     unsafe {
         assert!(mux_rc_dec(second));
         assert!(mux_rc_dec(first));
