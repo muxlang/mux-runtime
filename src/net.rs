@@ -13836,7 +13836,7 @@ mod tests {
             headers: Arc::new(Mutex::new(HeaderData {
                 values: vec![(
                     "authorization".to_string(),
-                    "Basic YWRtaW46c2VjcmV0".to_string(),
+                    "Basic YWRtaW46cHc=".to_string(),
                 )],
             })),
             body: None,
