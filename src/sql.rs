@@ -3753,11 +3753,9 @@ fn route_connect_failure(uri: &str) -> Result<SqlConnection, SqlFailure> {
 }
 
 fn is_sqlserver_uri(uri: &str) -> bool {
-    uri.get(..12)
-        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("sqlserver://"))
-        || uri
-            .get(..8)
-            .is_some_and(|prefix| prefix.eq_ignore_ascii_case("mssql://"))
+    uri.split_once("://").is_some_and(|(scheme, _)| {
+        scheme.eq_ignore_ascii_case("sqlserver") || scheme.eq_ignore_ascii_case("mssql")
+    })
 }
 
 /// Classify a connection URI before attempting a provider operation. This is

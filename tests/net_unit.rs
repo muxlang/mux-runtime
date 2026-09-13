@@ -1556,7 +1556,7 @@ fn typed_http_server_roundtrip_uses_request_and_response_handles() {
 fn ok_data(r: *mut Value) -> *mut Value {
     let data = unsafe {
         if !mux_result_is_ok(r) {
-            eprintln!("network operation failed: {:?}", mux_result_data(r));
+            eprintln!("network operation failed: {:?}", &*mux_result_data(r));
         }
         assert!(mux_result_is_ok(r), "expected Ok result");
         mux_result_data(r)
