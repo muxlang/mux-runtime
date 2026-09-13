@@ -12861,12 +12861,6 @@ pub unsafe extern "C" fn mux_net_udp_local_addr(socket: *mut Value) -> *mut Valu
 
 #[cfg(test)]
 mod tests {
-    #[cfg(feature = "http3")]
-    use super::{
-        BASE64_STANDARD, Http3ClientTransport, Http3Error, Http3ErrorKind, Http3Response,
-        Http3ServerTransport, http3_connection_error_can_fallback,
-        http3_pre_dispatch_connection_error_can_fallback,
-    };
     use super::{
         basic_auth_matches, bearer_auth_matches, configure_http_server_socket_timeouts,
         constant_time_equal, cors_response_headers, default_http_request_options,
@@ -12886,6 +12880,12 @@ mod tests {
         OAuthSessionEntry, SseEventEntry, StreamingHeartbeat, StreamingSocketActor,
         BASE64_URL_SAFE, HTTP_SERVER_POOL_POLL_INTERVAL, MAX_HTTP_BODY_BYTES,
         MAX_HTTP_HEADERS_COUNT, MAX_HTTP_HEADER_BYTES, OAUTH_JWKS_CACHE,
+    };
+    #[cfg(feature = "http3")]
+    use super::{
+        http3_connection_error_can_fallback, http3_pre_dispatch_connection_error_can_fallback,
+        Http3ClientTransport, Http3Error, Http3ErrorKind, Http3Response, Http3ServerTransport,
+        BASE64_STANDARD,
     };
     use crate::Value;
     use base64::Engine as _;
