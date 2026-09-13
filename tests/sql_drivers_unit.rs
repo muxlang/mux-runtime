@@ -31,7 +31,23 @@ fn sval(s: &str) -> *mut Value {
 }
 
 fn ok_data(r: *mut Value) -> *mut Value {
-    assert!(unsafe { mux_result_is_ok(r) }, "expected Ok result");
+    if !unsafe { mux_result_is_ok(r) } {
+        let error = unsafe { mux_result_data(r) };
+        let provider = unsafe { mux_sql_error_provider(error) };
+        let operation = unsafe { mux_sql_error_operation(error) };
+        let detail = unsafe { mux_sql_error_detail(error) };
+        eprintln!(
+            "SQL operation failed: provider={provider:?}, operation={operation:?}, detail={detail:?}"
+        );
+        unsafe {
+            assert!(mux_rc_dec(detail));
+            assert!(mux_rc_dec(operation));
+            assert!(mux_rc_dec(provider));
+            assert!(mux_rc_dec(error));
+            assert!(mux_rc_dec(r));
+        }
+        panic!("expected Ok result");
+    }
     let data = unsafe { mux_result_data(r) };
     assert!(!data.is_null());
     assert!(unsafe { mux_rc_dec(r) });
