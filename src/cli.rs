@@ -992,7 +992,8 @@ fn tokenize_response_file(source: &str) -> Result<Vec<String>, String> {
     let mut quote = None;
     let mut escaped = false;
     let mut comment = false;
-    for character in source.chars() {
+    let mut characters = source.chars().peekable();
+    while let Some(character) = characters.next() {
         if comment {
             if character == '\n' {
                 comment = false;
@@ -1006,14 +1007,26 @@ fn tokenize_response_file(source: &str) -> Result<Vec<String>, String> {
         }
         if let Some(active_quote) = quote {
             match character {
-                '\\' => escaped = true,
+                '\\' if characters.peek().is_none_or(|next| {
+                    next.is_whitespace() || matches!(*next, '\\' | '\'' | '"' | '#')
+                }) =>
+                {
+                    escaped = true;
+                }
+                '\\' => current.push('\\'),
                 value if value == active_quote => quote = None,
                 value => current.push(value),
             }
             continue;
         }
         match character {
-            '\\' => escaped = true,
+            '\\' if characters.peek().is_none_or(|next| {
+                next.is_whitespace() || matches!(*next, '\\' | '\'' | '"' | '#')
+            }) =>
+            {
+                escaped = true;
+            }
+            '\\' => current.push('\\'),
             '\'' | '"' => quote = Some(character),
             '#' if current.is_empty() => comment = true,
             value if value.is_whitespace() => {
@@ -1747,6 +1760,14 @@ mod tests {
         .expect_err("oversized response file should fail");
         assert!(error.contains("exceeds the 4-byte limit"));
         fs::remove_file(path).expect("remove response file");
+    }
+
+    #[test]
+    fn response_file_tokens_preserve_windows_path_separators() {
+        assert_eq!(
+            super::tokenize_response_file(r"@C:\\Users\\mux\\child.rsp"),
+            Ok(vec![r"@C:\Users\mux\child.rsp".to_string()])
+        );
     }
 
     #[test]
