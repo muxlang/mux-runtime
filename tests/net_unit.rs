@@ -1557,7 +1557,10 @@ fn ok_data(r: *mut Value) -> *mut Value {
     let data = unsafe {
         if !mux_result_is_ok(r) {
             let error = mux_result_data(r);
-            let message = mux_net_error_message(error);
+            let message = match &*error {
+                Value::Object(_) => mux_net_error_message(error),
+                other => mux_rc_alloc(Value::String(other.to_string())),
+            };
             eprintln!("network operation failed: {:?}", &*message);
             assert!(mux_rc_dec(message));
             assert!(mux_rc_dec(error));
