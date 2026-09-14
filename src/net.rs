@@ -86,6 +86,7 @@ struct HttpResponseEntry {
     headers: Arc<Mutex<HeaderData>>,
     body: Vec<u8>,
     body_reader: Option<Box<dyn Read + Send>>,
+    body_remaining: Option<usize>,
     streamed_bytes: usize,
     position: usize,
     names: usize,
@@ -7340,6 +7341,7 @@ fn unauthorized_response(scheme: &str, method: &str, url: &str) -> *mut Value {
         })),
         body: b"unauthorized".to_vec(),
         body_reader: None,
+        body_remaining: None,
         streamed_bytes: 0,
         position: 0,
         names: 1,
@@ -8525,6 +8527,11 @@ fn oauth_session_handle(value: *const Value) -> Result<i64, String> {
 }
 
 fn response_entry_from_data(data: HttpResponseData) -> HttpResponseEntry {
+    let body_remaining = data.headers.iter().find_map(|(name, value)| {
+        (name.eq_ignore_ascii_case("content-length"))
+            .then(|| value.trim().parse::<usize>().ok())
+            .flatten()
+    });
     HttpResponseEntry {
         status: data.status,
         headers: Arc::new(Mutex::new(HeaderData {
@@ -8532,6 +8539,7 @@ fn response_entry_from_data(data: HttpResponseData) -> HttpResponseEntry {
         })),
         body: data.body,
         body_reader: data.body_reader,
+        body_remaining,
         streamed_bytes: 0,
         position: 0,
         names: 1,
@@ -9321,6 +9329,7 @@ pub extern "C" fn mux_net_http_response_new() -> *mut Value {
         headers: Arc::new(Mutex::new(HeaderData::default())),
         body: Vec::new(),
         body_reader: None,
+        body_remaining: None,
         streamed_bytes: 0,
         position: 0,
         names: 1,
@@ -9361,6 +9370,7 @@ pub unsafe extern "C" fn mux_net_http_response_from_config(
             headers: header_data,
             body: body.clone(),
             body_reader: None,
+            body_remaining: None,
             streamed_bytes: 0,
             position: 0,
             names: 1,
@@ -9581,7 +9591,15 @@ fn response_read(response: *const Value, limit: i64) -> Result<Vec<u8>, String> 
         .get_mut(&handle)
         .ok_or_else(|| "invalid HttpResponse handle".to_string())?;
     if let Some(reader) = entry.body_reader.as_mut() {
+        if entry.body_remaining == Some(0) {
+            return Ok(Vec::new());
+        }
         if entry.streamed_bytes >= MAX_HTTP_BODY_BYTES {
+            if entry.body_remaining.is_some_and(|remaining| remaining > 0) {
+                return Err(format!(
+                    "response body exceeds the {MAX_HTTP_BODY_BYTES}-byte limit"
+                ));
+            }
             let mut extra = [0_u8; 1];
             let count = reader
                 .read(&mut extra)
@@ -9593,12 +9611,18 @@ fn response_read(response: *const Value, limit: i64) -> Result<Vec<u8>, String> 
             }
             return Ok(Vec::new());
         }
-        let allowed = limit.min(MAX_HTTP_BODY_BYTES - entry.streamed_bytes);
+        let allowed = entry
+            .body_remaining
+            .map_or(limit, |remaining| limit.min(remaining))
+            .min(MAX_HTTP_BODY_BYTES - entry.streamed_bytes);
         let mut bytes = vec![0_u8; allowed];
         let count = reader
             .read(&mut bytes)
             .map_err(|error| format!("failed to read response body: {error}"))?;
         bytes.truncate(count);
+        if let Some(remaining) = entry.body_remaining.as_mut() {
+            *remaining = remaining.saturating_sub(count);
+        }
         entry.streamed_bytes = entry.streamed_bytes.saturating_add(count);
         return Ok(bytes);
     }
@@ -14175,6 +14199,7 @@ mod tests {
             headers: Arc::new(Mutex::new(super::HeaderData::default())),
             body: Vec::new(),
             body_reader: Some(Box::new(Cursor::new(b"streamed body".to_vec()))),
+            body_remaining: None,
             streamed_bytes: 0,
             position: 0,
             names: 1,
@@ -14193,6 +14218,7 @@ mod tests {
             headers: Arc::new(Mutex::new(super::HeaderData::default())),
             body: Vec::new(),
             body_reader: Some(Box::new(Cursor::new(vec![0_u8; MAX_HTTP_BODY_BYTES + 1]))),
+            body_remaining: None,
             streamed_bytes: 0,
             position: 0,
             names: 1,
