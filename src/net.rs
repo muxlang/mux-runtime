@@ -12210,9 +12210,13 @@ pub unsafe extern "C" fn mux_net_tcp_shutdown_read(stream: *mut Value) -> *mut V
         Err(err) => return net_result_err(err),
     };
     net_result_unit(with_tcp_stream(handle, |socket| {
-        socket
-            .shutdown(Shutdown::Read)
-            .map_err(|e| format!("tcp read shutdown failed: {e}"))
+        socket.shutdown(Shutdown::Read).or_else(|error| {
+            if error.kind() == std::io::ErrorKind::NotConnected {
+                Ok(())
+            } else {
+                Err(format!("tcp read shutdown failed: {error}"))
+            }
+        })
     }))
 }
 
@@ -12226,9 +12230,13 @@ pub unsafe extern "C" fn mux_net_tcp_shutdown_write(stream: *mut Value) -> *mut 
         Err(err) => return net_result_err(err),
     };
     net_result_unit(with_tcp_stream(handle, |socket| {
-        socket
-            .shutdown(Shutdown::Write)
-            .map_err(|e| format!("tcp write shutdown failed: {e}"))
+        socket.shutdown(Shutdown::Write).or_else(|error| {
+            if error.kind() == std::io::ErrorKind::NotConnected {
+                Ok(())
+            } else {
+                Err(format!("tcp write shutdown failed: {error}"))
+            }
+        })
     }))
 }
 

@@ -15,7 +15,7 @@ use mux_runtime::net::*;
 use mux_runtime::poller::*;
 use mux_runtime::refcount::{mux_rc_alloc, mux_rc_dec};
 use mux_runtime::result::{mux_result_data, mux_result_is_ok};
-use mux_runtime::std::mux_net_error_address;
+use mux_runtime::std::{mux_net_error_address, mux_net_error_message};
 use mux_runtime::stream::{
     mux_io_reader_from_bytes, mux_io_reader_from_tcp, mux_io_reader_read, mux_io_writer_from_tcp,
     mux_io_writer_write,
@@ -1556,7 +1556,11 @@ fn typed_http_server_roundtrip_uses_request_and_response_handles() {
 fn ok_data(r: *mut Value) -> *mut Value {
     let data = unsafe {
         if !mux_result_is_ok(r) {
-            eprintln!("network operation failed: {:?}", &*mux_result_data(r));
+            let error = mux_result_data(r);
+            let message = mux_net_error_message(error);
+            eprintln!("network operation failed: {:?}", &*message);
+            assert!(mux_rc_dec(message));
+            assert!(mux_rc_dec(error));
         }
         assert!(mux_result_is_ok(r), "expected Ok result");
         mux_result_data(r)
