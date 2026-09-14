@@ -109,23 +109,6 @@ pub fn panic_with_code(code: RuntimeErrorCode, msg: &str) -> ! {
     emit_panic(code, msg, None)
 }
 
-/// FFI entry point for a panic with a C-string message and an optional
-/// `file:line:col` location.
-///
-/// # Safety
-/// Each non-null pointer must point to a valid NUL-terminated C string that
-/// remains readable for the duration of this call. Null pointers are accepted
-/// and produce the default message or omit the location.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn mux_panic_cstr(msg: *const c_char, loc: *const c_char) -> ! {
-    let message = decode_cstr(msg).unwrap_or_else(|| "(no message)".to_string());
-    emit_panic(
-        RuntimeErrorCode::InternalRuntime,
-        &message,
-        decode_cstr(loc),
-    );
-}
-
 /// FFI entry point for a typed runtime failure. Unknown values intentionally
 /// collapse to `E0699` so a newer code generator cannot make an older runtime
 /// print an unstable or misleading code.

@@ -177,6 +177,17 @@ pub extern "C" fn mux_float_eq(a: f64, b: f64) -> bool {
     Float(ordered_float::OrderedFloat(a)) == Float(ordered_float::OrderedFloat(b))
 }
 
+/// Hash a float using the same canonical `OrderedFloat` semantics used by Mux
+/// values. In particular, positive and negative zero hash alike and all NaN
+/// values share one hash, matching their equality behavior.
+#[unsafe(no_mangle)]
+pub extern "C" fn mux_float_hash(value: f64) -> i64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    ordered_float::OrderedFloat(value).hash(&mut hasher);
+    hasher.finish() as i64
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn mux_float_lt(a: f64, b: f64) -> bool {
     Float(ordered_float::OrderedFloat(a)) < Float(ordered_float::OrderedFloat(b))

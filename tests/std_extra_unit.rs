@@ -4,6 +4,7 @@
 
 use std::ffi::CString;
 
+use mux_runtime::io::mux_io_read_file;
 use mux_runtime::optional::{mux_optional_get_value, mux_optional_is_none, mux_optional_is_some};
 use mux_runtime::refcount::{mux_rc_alloc, mux_rc_dec};
 use mux_runtime::result::{mux_result_is_err, mux_result_is_ok};
@@ -31,6 +32,33 @@ fn some_none_ok_err_wrappers() {
         assert!(mux_rc_dec(err));
 
         assert!(mux_rc_dec(i));
+    }
+}
+
+#[test]
+fn data_error_categories_cross_abi_as_enums() {
+    unsafe {
+        let message = mux_rc_alloc(Value::String("invalid input".to_string()));
+        let json = mux_json_error_from_message(message);
+        let csv = mux_csv_error_from_message(message);
+        let byte = mux_byte_error_from_message(message);
+        let bytes = mux_bytes_error_from_message(message);
+
+        let json_kind = mux_json_error_kind(json);
+        let csv_kind = mux_csv_error_kind(csv);
+        let byte_kind = mux_byte_error_kind(byte);
+        let bytes_kind = mux_bytes_error_kind(bytes);
+        for kind in [json_kind, csv_kind, byte_kind, bytes_kind] {
+            assert!(
+                matches!(&*kind, Value::Opaque(value) if value.as_ref() == 1_i32.to_ne_bytes())
+            );
+            assert!(mux_rc_dec(kind));
+        }
+        assert!(mux_rc_dec(json));
+        assert!(mux_rc_dec(csv));
+        assert!(mux_rc_dec(byte));
+        assert!(mux_rc_dec(bytes));
+        assert!(mux_rc_dec(message));
     }
 }
 
@@ -141,16 +169,146 @@ fn env_access() {
         // A variable we set is visible.
         std::env::set_var("MUX_TEST_ENV_VAR", "present");
         let got = mux_env_get(CString::new("MUX_TEST_ENV_VAR").unwrap().as_ptr());
-        assert!(mux_optional_is_some(got));
+        assert!(mux_result_is_ok(got));
+        let got_value = mux_runtime::result::mux_result_data(got);
+        assert!(mux_optional_is_some(got_value));
+        assert!(mux_rc_dec(got_value));
         assert!(mux_rc_dec(got));
 
         let missing = mux_env_get(CString::new("MUX_DEFINITELY_UNSET_XYZ").unwrap().as_ptr());
-        assert!(mux_optional_is_none(missing));
+        assert!(mux_result_is_ok(missing));
+        let missing_value = mux_runtime::result::mux_result_data(missing);
+        assert!(mux_optional_is_none(missing_value));
+        assert!(mux_rc_dec(missing_value));
         assert!(mux_rc_dec(missing));
 
         let null_key = mux_env_get(std::ptr::null());
-        assert!(mux_optional_is_none(null_key));
+        assert!(mux_result_is_err(null_key));
+        let error = mux_runtime::result::mux_result_data(null_key);
+        assert!(matches!(&*error, Value::Object(_)));
+        let kind = mux_env_error_kind(error);
+        assert!(matches!(&*kind, Value::Opaque(value) if value.as_ref() == 0_i32.to_ne_bytes()));
+        let detail = mux_env_error_message(error);
+        assert!(matches!(&*detail, Value::String(value) if value.contains("must not be null")));
+        assert!(mux_rc_dec(detail));
+        assert!(mux_rc_dec(kind));
+        assert!(mux_rc_dec(error));
         assert!(mux_rc_dec(null_key));
+    }
+}
+
+#[test]
+fn filesystem_errors_are_structured() {
+    unsafe {
+        let result = mux_io_read_file(std::ptr::null());
+        assert!(mux_result_is_err(result));
+        let error = mux_runtime::result::mux_result_data(result);
+        assert!(matches!(&*error, Value::Object(_)));
+        let kind = mux_fs_error_kind(error);
+        assert!(matches!(&*kind, Value::Opaque(value) if value.as_ref() == 0_i32.to_ne_bytes()));
+        let detail = mux_fs_error_message(error);
+        assert!(matches!(&*detail, Value::String(value) if value.contains("path is null")));
+        let path = mux_fs_error_path(error);
+        assert!(matches!(&*path, Value::String(value) if value.is_empty()));
+        assert!(mux_rc_dec(path));
+        assert!(mux_rc_dec(detail));
+        assert!(mux_rc_dec(kind));
+        assert!(mux_rc_dec(error));
+        assert!(mux_rc_dec(result));
+
+        let missing_path = std::env::temp_dir().join(format!(
+            "mux-definitely-missing-file-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&missing_path);
+        let missing_path_text = missing_path.to_string_lossy().into_owned();
+        let missing_path = CString::new(missing_path_text.clone()).unwrap();
+        let missing = mux_io_read_file(missing_path.as_ptr());
+        assert!(mux_result_is_err(missing));
+        let missing_error = mux_runtime::result::mux_result_data(missing);
+        let missing_kind = mux_fs_error_kind(missing_error);
+        assert!(
+            matches!(&*missing_kind, Value::Opaque(value) if value.as_ref() == 2_i32.to_ne_bytes())
+        );
+        let missing_path_value = mux_fs_error_path(missing_error);
+        assert!(
+            matches!(&*missing_path_value, Value::String(value) if value == &missing_path_text)
+        );
+        assert!(mux_rc_dec(missing_path_value));
+        assert!(mux_rc_dec(missing_kind));
+        assert!(mux_rc_dec(missing_error));
+        assert!(mux_rc_dec(missing));
+
+        let synthetic_detail = CString::new("failed at '/not/a/field' (quoted)").unwrap();
+        let synthetic_detail_value = mux_rc_alloc(Value::String(
+            synthetic_detail.to_string_lossy().into_owned(),
+        ));
+        let synthetic_error = mux_fs_error_from_message(synthetic_detail_value);
+        assert!(mux_rc_dec(synthetic_detail_value));
+        let synthetic_path = mux_fs_error_path(synthetic_error);
+        assert!(matches!(&*synthetic_path, Value::String(value) if value.is_empty()));
+        assert!(mux_rc_dec(synthetic_path));
+        assert!(mux_rc_dec(synthetic_error));
+    }
+}
+
+#[test]
+fn env_mutation_and_contains_report_results() {
+    unsafe {
+        let key = CString::new("MUX_TEST_ENV_MUTATION").unwrap();
+        let value = CString::new("set-value").unwrap();
+        let set = mux_env_set(key.as_ptr(), value.as_ptr());
+        assert!(mux_result_is_ok(set));
+        assert!(mux_rc_dec(set));
+
+        let contains = mux_env_contains(key.as_ptr());
+        assert!(mux_result_is_ok(contains));
+        assert!(mux_rc_dec(contains));
+
+        let remove = mux_env_remove(key.as_ptr());
+        assert!(mux_result_is_ok(remove));
+        assert!(mux_rc_dec(remove));
+
+        let invalid = CString::new("BAD=KEY").unwrap();
+        let error = mux_env_set(invalid.as_ptr(), value.as_ptr());
+        assert!(mux_result_is_err(error));
+        let error_value = mux_runtime::result::mux_result_data(error);
+        let key = mux_env_error_key(error_value);
+        assert!(matches!(&*key, Value::String(value) if value == "BAD=KEY"));
+        assert!(mux_rc_dec(key));
+        assert!(mux_rc_dec(error_value));
+        assert!(mux_rc_dec(error));
+    }
+}
+
+#[test]
+fn env_entries_are_a_sorted_result() {
+    unsafe {
+        let entries = mux_env_entries();
+        assert!(mux_result_is_ok(entries));
+        let value = mux_runtime::result::mux_result_data(entries);
+        match &*value {
+            mux_runtime::Value::List(items) => {
+                for pair in items.windows(2) {
+                    let mux_runtime::Value::Tuple(left) = &pair[0] else {
+                        panic!("expected key/value tuple")
+                    };
+                    let mux_runtime::Value::Tuple(right) = &pair[1] else {
+                        panic!("expected key/value tuple")
+                    };
+                    let mux_runtime::Value::String(left_key) = &left.0 else {
+                        panic!("expected string key")
+                    };
+                    let mux_runtime::Value::String(right_key) = &right.0 else {
+                        panic!("expected string key")
+                    };
+                    assert!(left_key <= right_key);
+                }
+            }
+            other => panic!("expected list, got {other:?}"),
+        }
+        assert!(mux_runtime::refcount::mux_rc_dec(value));
+        assert!(mux_rc_dec(entries));
     }
 }
 

@@ -50,6 +50,10 @@ fn open_missing_and_null() {
     let missing = CString::new("/no/such/file/at/all.xyz").unwrap();
     assert!(unsafe { mux_open_file(missing.as_ptr()) }.is_null());
     assert!(unsafe { mux_open_file(std::ptr::null()) }.is_null());
+    let content = CString::new("data").unwrap();
+    // A malformed legacy file-handle call must report failure rather than
+    // dereferencing a null pointer at the FFI boundary.
+    assert!(!unsafe { mux_write_file(std::ptr::null_mut(), content.as_ptr()) });
     // close on null is a no-op
     unsafe { mux_close_file(std::ptr::null_mut()) };
 }

@@ -162,10 +162,11 @@ pub(crate) fn snapshot_key(value: &Value) -> Value {
 }
 
 #[allow(clippy::mutable_key_type)]
-fn deep_clone_value(val: &Value) -> Value {
+pub(crate) fn deep_clone_value(val: &Value) -> Value {
     match val {
         Value::Unit | Value::Int(_) | Value::Bool(_) | Value::Float(_) => val.clone(),
         Value::String(s) => Value::String(s.clone()),
+        Value::Bytes(bytes) => Value::Bytes(bytes.clone()),
         Value::List(items) => {
             let mut out = Vec::with_capacity(items.len());
             for item in items {

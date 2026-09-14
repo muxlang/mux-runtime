@@ -14,7 +14,7 @@
 </div>
 
 Compiled Mux programs link against this library at compile time. It is plain,
-stable Rust with **no LLVM dependency** - so runtime and standard-library work
+stable Rust with **no LLVM dependency**, so runtime and standard-library work
 needs only a Rust toolchain, not the compiler's LLVM 22 + clang setup.
 
 > **crates.io is frozen.** Versions through 0.5.0 remain published and are not
@@ -51,8 +51,34 @@ ABI:
 The compiler and runtime registries are intentionally separate because they
 are independently built. Unknown codes received over the FFI are rendered as
 `E0699` for compatibility with older runtimes.
-- Optional features: `json`, `csv`, `net`, `sql`, `sync` (see `[features]` in
-  `Cargo.toml`; `full` enables everything and is the default)
+- Optional features mirror the runtime-backed stdlib packages:
+  `json`, `csv`, `net`, `tls`, `http2`, `http3`, `url`, `uuid`, `crypto`, `sql`, `sync`, and
+  `regex` (see `[features]` in `Cargo.toml`; `full` enables every package and
+  is the default). `core` contains the feature-independent runtime, while
+  `chrono-tz` adds timezone database support to `datetime`.
+
+The opt-in `http3` feature provides synchronous typed client and server
+transports built on Quinn and h3. HTTPS requests try HTTP/3 first, then use the
+existing HTTP/2 and HTTP/1.1 paths when QUIC is unavailable. The request queue
+and in-flight h3 stream are cancelled when the caller's deadline expires. The
+server listener accepts DER certificates and serves one bounded request at a
+time through a blocking handler callback. Request and response bodies are
+bounded, and connection, protocol, timeout, and size failures retain typed
+error categories. Long-lived SSE and WebSocket server actors emit bounded
+heartbeats at the configured interval; setting that interval to zero disables
+the server heartbeat. `HttpServer.serve_until_cancelled` accepts a
+`CancellationToken`, stops admitting connections after cancellation, and
+drains queued worker jobs before returning. With multiple workers, connection
+actors retain sockets and exchange bounded owned request and response snapshots;
+each worker receives its own snapshot of sendable captures, while resource
+handles in captures are rejected.
+
+The HTTP package also exposes a synchronous `OAuthClient` for public OAuth 2.0
+and OIDC clients. It validates HTTPS discovery metadata, builds S256 PKCE and
+nonce authorization URLs, and performs bounded token exchange, refresh,
+introspection, and revocation requests. `OAuthSession` owns token-response
+values and exposes refresh, introspection, revocation, expiry, and explicit
+close. These APIs do not store browser sessions or client secrets.
 
 ---
 
@@ -115,6 +141,33 @@ git dependency, not a public compatibility promise.
 
 Full release steps:
 [muxlang/mux-context release process](https://github.com/muxlang/mux-context/blob/main/docs/release-process.md#mux-runtime).
+
+### Live SQL checks
+
+The integration workflow starts PostgreSQL and MySQL service containers and
+runs `scripts/ci/run-live-sql.sh`. That gate requires both
+`MUX_TEST_POSTGRES_URL` and `MUX_TEST_MYSQL_URL`; missing variables fail before
+Cargo starts instead of producing skipped driver tests. SQL Server uses the
+native TDS provider with verified TLS by default. Set the optional
+`MUX_TEST_SQLSERVER_URL`, for example
+`sqlserver://user:pass@host:1433/db?trustServerCertificate=true`, to run the SQL
+Server acceptance test. It checks TDS connect, `SELECT`, leased result-set EOF
+and close, transaction commit/rollback, prepared-statement reuse, pool lease
+return, and connection reuse. The variable is unset in ordinary local runs, so
+they do not need SQL Server.
+
+The runtime exposes `mux_sql_connection_capabilities` and
+`mux_sql_pool_capabilities` as typed result values. Their maps contain
+`provider`, `query_timeout`, and `query_cancellation`. MySQL supports both
+query-interruption flags by using a second authenticated session to issue
+`KILL QUERY`; the primary connection remains reusable after an interruption.
+
+To run only that fixture in a hosted environment:
+
+```bash
+MUX_TEST_SQLSERVER_URL='sqlserver://user:pass@host:1433/db?trustServerCertificate=true' \
+  ./scripts/ci/run-live-sqlserver.sh
+```
 
 ---
 

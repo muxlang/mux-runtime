@@ -6,7 +6,7 @@ mod common;
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 
-use common::{assert_err, assert_ok};
+use common::{assert_err, assert_ok, ok_int};
 use mux_runtime::refcount::mux_rc_dec;
 use mux_runtime::std::{mux_free_string, mux_int_value, mux_value_get_float, mux_value_get_int};
 use ordered_float::OrderedFloat;
@@ -23,6 +23,8 @@ fn int_extern_remainder() {
     unsafe {
         use mux_runtime::int::*;
         assert_eq!(read_cstr(mux_int_to_string(-7)), "-7");
+        assert_eq!(ok_int(mux_int_to_byte(255)), 255);
+        assert_err(mux_int_to_byte(256));
 
         let v = mux_int_value(9);
         assert_eq!(mux_int_from_value(v), 9);

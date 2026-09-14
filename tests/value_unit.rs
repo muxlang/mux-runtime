@@ -180,6 +180,7 @@ fn type_tags_for_all_variants() {
     map.insert(Value::Int(1), Value::Int(2));
     let mut set = mux_runtime::ordered::OrderedSet::new();
     set.insert(Value::Int(1));
+    assert_eq!(Value::Bytes(vec![1, 2, 3]).type_tag(), 13);
     assert_eq!(Value::Map(map).type_tag(), 5);
     assert_eq!(Value::Set(set).type_tag(), 6);
     assert_eq!(

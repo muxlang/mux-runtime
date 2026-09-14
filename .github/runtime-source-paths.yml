@@ -2,6 +2,7 @@ runtime_src:
   - 'src/**'
   - 'examples/**'
   - 'benches/**'
+  - 'scripts/**'
   - 'Cargo.toml'
   - 'Cargo.lock'
   # CI edits must run the jobs they change instead of shipping unexercised.

@@ -21,20 +21,21 @@ extern "C" fn thread_body() {}
 /// Allocate a closure matching exactly what the compiler produces, so it can be
 /// retained/released by the runtime's closure lifetime functions:
 ///
-///   [ i64 refcount=1 | `fn_ptr` | `captures_ptr=null` | i64 `capture_count=0` ]
+///   [ i64 refcount=1 | `fn_ptr` | `captures_ptr=null` | i64 `capture_count=0` | `boxed_fn=null` ]
 ///
 /// The pointer handed to the runtime points AT the closure struct (the `fn_ptr`
 /// field), i.e. 8 bytes past the refcount header. It is allocated with
 /// `libc::malloc` because `mux_closure_release` frees it with `libc::free` once
 /// the last reference is dropped. Capture-free, so `captures_ptr` is null.
 unsafe fn make_capture_free_closure(func: extern "C" fn()) -> *mut c_void {
-    // 4 machine words: refcount, fn_ptr, captures_ptr, capture_count.
-    let base = libc::malloc(4 * std::mem::size_of::<usize>()).cast::<usize>();
+    // 5 machine words: refcount, fn_ptr, captures_ptr, capture_count, boxed_fn.
+    let base = libc::malloc(5 * std::mem::size_of::<usize>()).cast::<usize>();
     assert!(!base.is_null());
     *base.add(0) = 1; // refcount header
     *base.add(1).cast::<*mut c_void>() = func as *const () as *mut c_void; // fn_ptr
     *base.add(2).cast::<*mut c_void>() = std::ptr::null_mut(); // captures_ptr
     *base.add(3) = 0; // capture_count
+    *base.add(4).cast::<*mut c_void>() = std::ptr::null_mut(); // boxed_fn
     base.add(1).cast::<c_void>() // closure struct pointer (at fn_ptr)
 }
 

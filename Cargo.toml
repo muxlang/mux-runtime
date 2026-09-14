@@ -41,16 +41,61 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 
 [features]
 default = ["full"]
+# Feature-independent runtime primitives used by compiled Mux programs.
 core = []
 # `preserve_order` makes serde_json parse objects into an insertion-ordered map
 # rather than a sorted one. Without it the key order is gone before our own
 # conversion ever runs, so `Json::Object` could not preserve what it never saw.
-json = ["dep:serde_json", "serde_json/preserve_order", "dep:indexmap"]
+# Package mapping: json -> std.data.json; csv -> std.data.csv.
+json = ["dep:serde", "dep:serde_json", "serde_json/preserve_order", "dep:indexmap"]
 csv = ["dep:csv"]
-net = ["json", "dep:ureq", "dep:httparse"]
-sql = ["dep:rusqlite", "dep:postgres", "dep:mysql"]
+# net includes std.net, std.net.http, and std.net.websocket. It also enables
+# std.net.url because HTTP address handling uses the URL package.
+net = ["json", "dep:ureq", "dep:httparse", "dep:mio", "dep:socket2", "dep:base64", "dep:sha1", "dep:ring", "dep:cap-std", "url"]
+http2 = ["dep:h2", "dep:tokio", "dep:bytes", "dep:http", "dep:rustls", "dep:webpki-roots"]
+# HTTP/3 uses h3 for framing and QPACK over Quinn's QUIC transport.
+http3 = [
+    "net",
+    "dep:bytes",
+    "dep:http",
+    "dep:h3",
+    "dep:h3-quinn",
+    "dep:quinn",
+    "dep:tokio",
+    "dep:rustls",
+    "dep:webpki-roots",
+]
+# tls includes the network transport and std.net.tls.
+tls = ["net", "http2", "dep:rustls", "dep:webpki-roots"]
+regex = ["dep:regex", "dep:regex-syntax"]
+url = ["dep:url", "dep:idna"]
+uuid = ["dep:uuid", "dep:md-5", "dep:sha1"]
+crypto = [
+    "dep:sha2",
+    "dep:sha3",
+    "dep:blake3",
+    "dep:hmac",
+    "dep:aes-gcm",
+    "dep:chacha20poly1305",
+    "dep:base64",
+]
+# sql -> std.sql; sync -> std.sync; the remaining package names map directly
+# to std.crypto, std.regex, and std.uuid.
+sql = [
+    "dep:rusqlite",
+    "dep:postgres",
+    "dep:mysql",
+    "dep:sha2",
+    "dep:tiberius",
+    "dep:tokio",
+    "dep:tokio-util",
+    "dep:futures-util",
+    "json",
+    "url",
+    "uuid",
+]
 sync = []
-full = ["core", "json", "csv", "net", "sql", "sync"]
+full = ["core", "json", "csv", "net", "tls", "http3", "regex", "uuid", "crypto", "sql", "sync", "chrono-tz"]
 # Debug/CI-only: track live reference-counted Value blocks and abort a compiled
 # program at exit if any survive teardown, catching leaked module globals
 # (mux-compiler#284) exactly rather than via Valgrind's still-reachable heuristic.
@@ -58,6 +103,7 @@ full = ["core", "json", "csv", "net", "sql", "sync"]
 # the compiler's full-feature parity test is unaffected. Enable it only for the
 # runtime linked into the compiler's leak-check CI leg.
 rc-leak-check = []
+chrono-tz = ["dep:chrono-tz"]
 
 [dependencies]
 ordered-float = "5.5"
@@ -65,16 +111,50 @@ hashbrown = "0.17"
 libc = "0.2"
 chrono = "0.4"
 serde_json = { version = "1.0", optional = true }
+serde = { version = "1.0", optional = true }
 indexmap = { version = "2", optional = true }
 csv = { version = "1", optional = true }
 ureq = { version = "3.4", optional = true }
 httparse = { version = "1.10", optional = true }
-rusqlite = { version = "0.40", features = ["bundled"], optional = true }
+mio = { version = "1.2.1", optional = true, features = ["net", "os-poll"] }
+socket2 = { version = "0.6.1", optional = true }
+regex = { version = "1.12", optional = true }
+regex-syntax = { version = "0.8", optional = true }
+url = { version = "2.5.8", optional = true }
+idna = { version = "1.1", optional = true }
+uuid = { version = "1.23.4", default-features = false, features = ["std", "rng", "v4", "v7", "v8"], optional = true }
+md-5 = { version = "0.11", optional = true }
+sha1 = { version = "0.10.7", optional = true }
+ring = { version = "0.17", optional = true }
+sha2 = { version = "0.11", optional = true }
+sha3 = { version = "0.10", optional = true }
+blake3 = { version = "1", optional = true }
+hmac = { version = "0.13", optional = true }
+aes-gcm = { version = "0.10", optional = true }
+chacha20poly1305 = { version = "0.10", optional = true }
+getrandom = "0.4"
+base64 = { version = "0.23", optional = true }
+h2 = { version = "0.4.15", optional = true }
+tokio = { version = "1", default-features = false, features = ["macros", "net", "rt", "rt-multi-thread", "sync", "time"], optional = true }
+tokio-util = { version = "0.7", default-features = false, features = ["compat"], optional = true }
+bytes = { version = "1", optional = true }
+cap-std = { version = "4.0.2", optional = true }
+http = { version = "1.1", optional = true }
+h3 = { version = "0.0.8", optional = true }
+h3-quinn = { version = "0.0.10", optional = true }
+quinn = { version = "=0.11.9", default-features = false, features = ["runtime-tokio", "rustls-ring"], optional = true }
+rusqlite = { version = "0.40", features = ["bundled", "hooks"], optional = true }
 postgres = { version = "0.19", optional = true }
 mysql = { version = "28", optional = true }
+tiberius = { version = "0.12.3", default-features = false, features = ["rustls", "tds73", "tokio"], optional = true }
+futures-util = { version = "0.3", default-features = false, features = ["io", "sink"], optional = true }
+rustls = { version = "0.23", optional = true }
+webpki-roots = { version = "1", optional = true }
+chrono-tz = { version = "0.10", optional = true }
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Kernel", "Win32_System_Threading"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Kernel", "Win32_System_Threading", "Win32_Storage_FileSystem"] }
+named_pipe = "0.4.1"
 
 [dev-dependencies]
 ordered-float = "5.5"
@@ -85,3 +165,4 @@ criterion = { version = "0.8", features = ["html_reports"] }
 [[bench]]
 name = "hot_paths"
 harness = false
+required-features = ["json"]

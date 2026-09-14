@@ -1,14 +1,16 @@
 use crate::object::{alloc_object, get_object_ptr, get_object_type_id, register_object_type};
-use crate::refcount::{mux_rc_alloc, mux_rc_dec};
+use crate::refcount::{mux_rc_alloc, mux_rc_dec, mux_rc_inc};
 use crate::TypeId;
 use crate::Value;
-use std::cell::RefCell;
+use std::cell::{RefCell, UnsafeCell};
 use std::collections::HashMap;
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicI64, AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
 use std::thread;
 use std::time::Duration;
+
+const MAX_SYNC_TIMEOUT_MS: i64 = u32::MAX as i64;
 
 #[cfg(unix)]
 mod sync_backend {
@@ -138,6 +140,39 @@ mod sync_backend {
     /// by the calling thread and associated with `cond_ptr`.
     pub unsafe fn condvar_wait(cond_ptr: *mut MuxCondVar, mutex_ptr: *mut MuxMutex) -> i32 {
         unsafe { libc::pthread_cond_wait(cond_ptr, mutex_ptr) }
+    }
+
+    /// Waits for a bounded number of milliseconds, returning `0` when the
+    /// condition was signalled and `ETIMEDOUT` when the deadline elapsed.
+    ///
+    /// # Safety
+    /// Both pointers must be non-null and point to initialized objects that
+    /// remain alive for the duration of the call. `mutex_ptr` must be locked
+    /// by the calling thread and associated with `cond_ptr`.
+    pub unsafe fn condvar_wait_timeout(
+        cond_ptr: *mut MuxCondVar,
+        mutex_ptr: *mut MuxMutex,
+        timeout_ms: u64,
+    ) -> i32 {
+        let mut now = std::mem::MaybeUninit::<libc::timespec>::uninit();
+        let clock_rc = unsafe { libc::clock_gettime(libc::CLOCK_REALTIME, now.as_mut_ptr()) };
+        if clock_rc != 0 {
+            // Keep the backend contract platform-neutral; the caller only
+            // needs to distinguish timeout from an ordinary native failure.
+            return -1;
+        }
+        let now = unsafe { now.assume_init() };
+        let seconds = timeout_ms / 1_000;
+        let nanos = (timeout_ms % 1_000) * 1_000_000;
+        let mut deadline = libc::timespec {
+            tv_sec: now.tv_sec.saturating_add(seconds as libc::time_t),
+            tv_nsec: now.tv_nsec.saturating_add(nanos as libc::c_long),
+        };
+        if deadline.tv_nsec >= 1_000_000_000 {
+            deadline.tv_sec = deadline.tv_sec.saturating_add(1);
+            deadline.tv_nsec -= 1_000_000_000;
+        }
+        unsafe { libc::pthread_cond_timedwait(cond_ptr, mutex_ptr, &deadline) }
     }
 
     /// Wakes one waiter on a POSIX condition variable.
@@ -344,6 +379,26 @@ mod sync_backend {
         0
     }
 
+    /// Waits for a bounded number of milliseconds, returning `0` when the
+    /// condition was signalled and `ERROR_TIMEOUT` when the deadline elapsed.
+    ///
+    /// # Safety
+    /// Both pointers must be non-null and point to initialized objects that
+    /// remain alive for the duration of the call. `mutex_ptr` must be locked
+    /// by the calling thread and associated with `cond_ptr`.
+    pub unsafe fn condvar_wait_timeout(
+        cond_ptr: *mut MuxCondVar,
+        mutex_ptr: *mut MuxMutex,
+        timeout_ms: u64,
+    ) -> i32 {
+        let millis = timeout_ms.min(u32::MAX as u64) as u32;
+        let ok = unsafe { SleepConditionVariableCS(cond_ptr, mutex_ptr, millis) };
+        if ok == 0 {
+            return unsafe { GetLastError() as i32 };
+        }
+        0
+    }
+
     /// Wakes one waiter on a Windows condition variable.
     ///
     /// # Safety
@@ -373,6 +428,8 @@ mod sync_backend {
 /// - `function_ptr` always points to a valid function with signature:
 ///   - `extern "C" fn()` if `captures_ptr` is null
 ///   - `extern "C" fn(*mut c_void)` if `captures_ptr` is non-null
+/// - `boxed_function_ptr` is null for void-only callbacks. Otherwise it points
+///   to a function with the same capture arity returning `*mut Value`.
 ///
 /// These invariants are critical for safe transmutation in `mux_sync_spawn`.
 /// If the compiler's closure representation changes, this must be updated.
@@ -380,18 +437,76 @@ mod sync_backend {
 struct ClosureRepr {
     function_ptr: *mut c_void,
     captures_ptr: *mut c_void,
+    capture_count: i64,
+    boxed_function_ptr: *mut c_void,
 }
 
 // Compile-time assertion: ClosureRepr layout assumptions
 const _: () = {
     const fn assert_closure_layout() {
-        let _ = std::mem::transmute::<ClosureRepr, [*mut c_void; 2]>;
+        let _ = std::mem::transmute::<ClosureRepr, [*mut c_void; 4]>;
     }
     assert_closure_layout();
 };
 
+/// Invoke a synchronous lock callback with a borrowed `&T` payload slot.
+///
+/// Mux references are pointers to slots containing a boxed `Value`, not
+/// pointers directly to an unboxed scalar. Passing the address of the entry's
+/// payload field therefore gives the callback the same representation as an
+/// ordinary `&T` parameter. The callback is never retained and the native lock
+/// remains held until this function returns.
+unsafe fn invoke_payload_callback(
+    callback: *mut c_void,
+    payload_slot: *mut Value,
+) -> Result<(), String> {
+    if callback.is_null() {
+        return Err("callback is null".to_string());
+    }
+    if payload_slot.is_null() {
+        return Err("lock payload is null".to_string());
+    }
+    // SAFETY: callers provide a compiler-produced ClosureRepr with the layout
+    // documented above, and both callback and payload remain live for this
+    // synchronous invocation.
+    let repr = unsafe { &*(callback as *const ClosureRepr) };
+    if repr.function_ptr.is_null() {
+        return Err("callback function is null".to_string());
+    }
+    if repr.captures_ptr.is_null() {
+        let function: extern "C" fn(*mut Value) = unsafe { std::mem::transmute(repr.function_ptr) };
+        function(payload_slot);
+    } else {
+        let function: extern "C" fn(*mut c_void, *mut Value) =
+            unsafe { std::mem::transmute(repr.function_ptr) };
+        function(repr.captures_ptr, payload_slot);
+    }
+    Ok(())
+}
+
 struct ThreadEntry {
     handle: Option<thread::JoinHandle<()>>,
+    result: Arc<ThreadResult>,
+}
+
+struct ThreadResult {
+    value: Mutex<Option<usize>>,
+}
+
+impl Drop for ThreadResult {
+    fn drop(&mut self) {
+        let value = self
+            .value
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take();
+        if let Some(value) = value {
+            // A boxed callback transfers one owned Value reference to the
+            // result slot. If a thread is detached or its handle is dropped
+            // without joining, the slot remains responsible for releasing it.
+            unsafe { mux_rc_dec(value as *mut Value) };
+        }
+    }
 }
 
 struct ClosureReleaseGuard(usize);
@@ -407,11 +522,16 @@ impl Drop for ClosureReleaseGuard {
 struct MutexEntry {
     ptr: *mut sync_backend::MuxMutex,
     active_holds: AtomicUsize,
+    /// The payload is a single owned Value reference. Its address is stable
+    /// for the lifetime of the Arc entry and is passed to synchronous lock
+    /// callbacks as the callback's `&T` slot.
+    payload: UnsafeCell<*mut Value>,
 }
 
 struct RwLockEntry {
     ptr: *mut sync_backend::MuxRwLock,
     active_holds: AtomicUsize,
+    payload: UnsafeCell<*mut Value>,
 }
 
 struct CondVarEntry {
@@ -441,6 +561,9 @@ impl Drop for MutexEntry {
             );
             return;
         }
+        // SAFETY: no lock operation can still hold an Arc to this entry while
+        // Drop runs, so the payload slot is no longer being accessed.
+        unsafe { mux_rc_dec(*self.payload.get()) };
         // SAFETY: the entry owns this initialized native mutex and is dropped
         // only after all operation and lock-owner pins have been released.
         unsafe { sync_backend::destroy_mutex(self.ptr) };
@@ -455,6 +578,9 @@ impl Drop for RwLockEntry {
             );
             return;
         }
+        // SAFETY: no lock operation can still hold an Arc to this entry while
+        // Drop runs, so the payload slot is no longer being accessed.
+        unsafe { mux_rc_dec(*self.payload.get()) };
         // SAFETY: the entry owns this initialized native lock and is dropped
         // only after all operation and lock-owner pins have been released.
         unsafe { sync_backend::destroy_rwlock(self.ptr) };
@@ -563,11 +689,11 @@ static THREAD_TYPE_ID: LazyLock<TypeId> = LazyLock::new(|| {
 });
 
 fn ok_unit() -> *mut Value {
-    mux_rc_alloc(Value::Result(Ok(Box::new(Value::Unit))))
+    crate::std::sync_result_ok(Value::Unit)
 }
 
 fn err_string(message: impl Into<String>) -> *mut Value {
-    mux_rc_alloc(Value::Result(Err(Box::new(Value::String(message.into())))))
+    crate::std::sync_result_err(message)
 }
 
 extern "C" fn destroy_mutex_object(ptr: *mut c_void) {
@@ -696,24 +822,56 @@ pub unsafe extern "C" fn mux_sync_spawn(closure: *mut c_void) -> *mut Value {
 
         // Read ClosureRepr fields before spawning so the thread does not hold a
         // raw pointer into memory that the caller may free after this call returns.
-        let (function_addr, captures_addr) = unsafe {
+        let (function_addr, captures_addr, boxed_function_addr) = unsafe {
             let r = &*(closure as *const ClosureRepr);
-            (r.function_ptr as usize, r.captures_ptr as usize)
+            (
+                r.function_ptr as usize,
+                r.captures_ptr as usize,
+                r.boxed_function_ptr as usize,
+            )
         };
+        let result = Arc::new(ThreadResult {
+            value: Mutex::new(None),
+        });
+        let worker_result = Arc::clone(&result);
         // Releases the retained closure reference when dropped. Owning it in a
         // guard (rather than releasing after the body) means the reference is
         // released on EVERY thread exit path - normal return AND unwinding if the
         // closure body panics - so the closure and its captures never leak.
         let handle = thread::Builder::new().spawn(move || {
             let _release = ClosureReleaseGuard(closure_addr);
-            if captures_addr == 0 {
-                let func: extern "C" fn() = unsafe { std::mem::transmute(function_addr) };
-                func();
-            } else {
-                let func: extern "C" fn(*mut c_void) =
-                    unsafe { std::mem::transmute(function_addr) };
-                func(captures_addr as *mut c_void);
-            }
+            let value = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                if boxed_function_addr != 0 {
+                    if captures_addr == 0 {
+                        let func: extern "C" fn() -> *mut Value =
+                            unsafe { std::mem::transmute(boxed_function_addr) };
+                        func() as usize
+                    } else {
+                        let func: extern "C" fn(*mut c_void) -> *mut Value =
+                            unsafe { std::mem::transmute(boxed_function_addr) };
+                        func(captures_addr as *mut c_void) as usize
+                    }
+                } else {
+                    if captures_addr == 0 {
+                        let func: extern "C" fn() = unsafe { std::mem::transmute(function_addr) };
+                        func();
+                    } else {
+                        let func: extern "C" fn(*mut c_void) =
+                            unsafe { std::mem::transmute(function_addr) };
+                        func(captures_addr as *mut c_void);
+                    }
+                    mux_rc_alloc(Value::Unit) as usize
+                }
+            }));
+            let Ok(value) = value else {
+                // Mux has process-wide panic semantics. A panic on a worker
+                // thread is never recoverable through join().
+                std::process::abort();
+            };
+            *worker_result
+                .value
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(value);
         });
 
         let join_handle = match handle {
@@ -734,15 +892,29 @@ pub unsafe extern "C" fn mux_sync_spawn(closure: *mut c_void) -> *mut Value {
             id,
             ThreadEntry {
                 handle: Some(join_handle),
+                result,
             },
         );
         drop(threads);
 
         let obj_ptr = alloc_object(*THREAD_TYPE_ID);
-        let data_ptr = unsafe { get_object_ptr(obj_ptr) };
-        if !data_ptr.is_null() {
-            unsafe { *data_ptr.cast::<i64>() = id };
+        if obj_ptr.is_null() {
+            let _ = THREADS
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .remove(&id);
+            return err_string("could not allocate Thread handle");
         }
+        let data_ptr = unsafe { get_object_ptr(obj_ptr) };
+        if data_ptr.is_null() {
+            unsafe { mux_rc_dec(obj_ptr) };
+            let _ = THREADS
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .remove(&id);
+            return err_string("could not initialize Thread handle");
+        }
+        unsafe { *data_ptr.cast::<i64>() = id };
         let value = unsafe { (*obj_ptr).clone() };
         unsafe { mux_rc_dec(obj_ptr) };
         mux_rc_alloc(Value::Result(Ok(Box::new(value))))
@@ -763,12 +935,12 @@ pub unsafe extern "C" fn mux_thread_join(thread_handle: *mut Value) -> *mut Valu
         Err(e) => return e,
     };
 
-    let join_handle = {
+    let (join_handle, result) = {
         let mut threads = THREADS
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         match threads.remove(&id) {
-            Some(entry) => entry.handle,
+            Some(entry) => (entry.handle, entry.result),
             None => return err_string(format!("Thread handle {id} not found")),
         }
     };
@@ -778,13 +950,30 @@ pub unsafe extern "C" fn mux_thread_join(thread_handle: *mut Value) -> *mut Valu
     };
 
     match handle.join() {
-        Ok(()) => ok_unit(),
+        Ok(()) => {
+            let value = result
+                .value
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .take();
+            let Some(value) = value else {
+                return err_string("Thread completed without a result");
+            };
+            let value = value as *mut Value;
+            let owned = if value.is_null() {
+                return err_string("Thread returned a null result");
+            } else {
+                unsafe { (*value).clone() }
+            };
+            unsafe { mux_rc_dec(value) };
+            mux_rc_alloc(Value::Result(Ok(Box::new(owned))))
+        }
         Err(_) => err_string("Thread panicked during execution"),
     }
 }
 
 #[unsafe(no_mangle)]
-/// Detach a spawned thread and return an owned result value.
+/// Detach a spawned thread and discard its eventual result.
 ///
 /// # Safety
 /// A null handle returns an error. Otherwise `thread_handle` must point to a
@@ -823,6 +1012,36 @@ fn init_pthread_condvar() -> Result<*mut sync_backend::MuxCondVar, String> {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn mux_mutex_new() -> *mut Value {
+    let payload = mux_rc_alloc(Value::Unit);
+    let handle = make_mutex_handle(payload);
+    // `make_mutex_handle` retains the caller's payload reference for the
+    // entry; release the temporary reference created for this default value.
+    unsafe { mux_rc_dec(payload) };
+    handle
+}
+
+/// Construct a Mutex while retaining one reference to the caller-owned payload.
+/// The payload is accessed only while the native mutex is held.
+///
+/// # Safety
+/// `payload` must be null or a live `Value` reference from the runtime. When
+/// non-null, the reference must remain valid through this call; the runtime
+/// retains its own reference before returning.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn mux_mutex_with_value(payload: *mut Value) -> *mut Value {
+    if payload.is_null() {
+        return err_string("Mutex payload is null");
+    }
+    make_mutex_handle(payload)
+}
+
+fn make_mutex_handle(payload: *mut Value) -> *mut Value {
+    if payload.is_null() {
+        return err_string("Mutex payload is null");
+    }
+    // SAFETY: the caller owns a live payload reference for the duration of
+    // this retain, and the entry owns the retained reference thereafter.
+    unsafe { mux_rc_inc(payload) };
     match init_pthread_mutex() {
         Ok(ptr) => {
             let id = NEXT_MUTEX_ID.fetch_add(1, Ordering::Relaxed);
@@ -834,24 +1053,68 @@ pub extern "C" fn mux_mutex_new() -> *mut Value {
                 Arc::new(MutexEntry {
                     ptr,
                     active_holds: AtomicUsize::new(0),
+                    payload: UnsafeCell::new(payload),
                 }),
             );
 
             let obj_ptr = alloc_object(*MUTEX_TYPE_ID);
-            let data_ptr = unsafe { get_object_ptr(obj_ptr) };
-            if !data_ptr.is_null() {
-                unsafe { *data_ptr.cast::<i64>() = id };
+            if obj_ptr.is_null() {
+                MUTEXES
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .remove(&id);
+                return err_string("could not allocate Mutex handle");
             }
+            let data_ptr = unsafe { get_object_ptr(obj_ptr) };
+            if data_ptr.is_null() {
+                unsafe { mux_rc_dec(obj_ptr) };
+                MUTEXES
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .remove(&id);
+                return err_string("could not initialize Mutex handle");
+            }
+            unsafe { *data_ptr.cast::<i64>() = id };
             let value = unsafe { (*obj_ptr).clone() };
             unsafe { mux_rc_dec(obj_ptr) };
             mux_rc_alloc(value)
         }
-        Err(e) => err_string(format!("Failed to initialize Mutex: {e}")),
+        Err(e) => {
+            unsafe { mux_rc_dec(payload) };
+            err_string(format!("Failed to initialize Mutex: {e}"))
+        }
     }
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn mux_rwlock_new() -> *mut Value {
+    let payload = mux_rc_alloc(Value::Unit);
+    let handle = make_rwlock_handle(payload);
+    unsafe { mux_rc_dec(payload) };
+    handle
+}
+
+/// Construct an RwLock while retaining one reference to the caller-owned
+/// payload. Read callbacks receive a shared reference; write callbacks receive
+/// a mutable reference. Both are borrowed only until the callback returns.
+///
+/// # Safety
+/// `payload` must be null or a live `Value` reference from the runtime. When
+/// non-null, the reference must remain valid through this call; the runtime
+/// retains its own reference before returning.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn mux_rwlock_with_value(payload: *mut Value) -> *mut Value {
+    if payload.is_null() {
+        return err_string("RwLock payload is null");
+    }
+    make_rwlock_handle(payload)
+}
+
+fn make_rwlock_handle(payload: *mut Value) -> *mut Value {
+    if payload.is_null() {
+        return err_string("RwLock payload is null");
+    }
+    unsafe { mux_rc_inc(payload) };
     match init_pthread_rwlock() {
         Ok(ptr) => {
             let id = NEXT_RWLOCK_ID.fetch_add(1, Ordering::Relaxed);
@@ -863,19 +1126,36 @@ pub extern "C" fn mux_rwlock_new() -> *mut Value {
                 Arc::new(RwLockEntry {
                     ptr,
                     active_holds: AtomicUsize::new(0),
+                    payload: UnsafeCell::new(payload),
                 }),
             );
 
             let obj_ptr = alloc_object(*RWLOCK_TYPE_ID);
-            let data_ptr = unsafe { get_object_ptr(obj_ptr) };
-            if !data_ptr.is_null() {
-                unsafe { *data_ptr.cast::<i64>() = id };
+            if obj_ptr.is_null() {
+                RWLOCKS
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .remove(&id);
+                return err_string("could not allocate RwLock handle");
             }
+            let data_ptr = unsafe { get_object_ptr(obj_ptr) };
+            if data_ptr.is_null() {
+                unsafe { mux_rc_dec(obj_ptr) };
+                RWLOCKS
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .remove(&id);
+                return err_string("could not initialize RwLock handle");
+            }
+            unsafe { *data_ptr.cast::<i64>() = id };
             let value = unsafe { (*obj_ptr).clone() };
             unsafe { mux_rc_dec(obj_ptr) };
             mux_rc_alloc(value)
         }
-        Err(e) => err_string(format!("Failed to initialize RwLock: {e}")),
+        Err(e) => {
+            unsafe { mux_rc_dec(payload) };
+            err_string(format!("Failed to initialize RwLock: {e}"))
+        }
     }
 }
 
@@ -890,10 +1170,23 @@ pub extern "C" fn mux_condvar_new() -> *mut Value {
             condvars.insert(id, Arc::new(CondVarEntry { ptr }));
 
             let obj_ptr = alloc_object(*CONDVAR_TYPE_ID);
-            let data_ptr = unsafe { get_object_ptr(obj_ptr) };
-            if !data_ptr.is_null() {
-                unsafe { *data_ptr.cast::<i64>() = id };
+            if obj_ptr.is_null() {
+                CONDVARS
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .remove(&id);
+                return err_string("could not allocate CondVar handle");
             }
+            let data_ptr = unsafe { get_object_ptr(obj_ptr) };
+            if data_ptr.is_null() {
+                unsafe { mux_rc_dec(obj_ptr) };
+                CONDVARS
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .remove(&id);
+                return err_string("could not initialize CondVar handle");
+            }
+            unsafe { *data_ptr.cast::<i64>() = id };
             let value = unsafe { (*obj_ptr).clone() };
             unsafe { mux_rc_dec(obj_ptr) };
             mux_rc_alloc(value)
@@ -915,6 +1208,20 @@ pub unsafe extern "C" fn mux_mutex_lock(mutex_handle: *mut Value) -> *mut Value 
         Ok(id) => id,
         Err(e) => return e,
     };
+    // Mux mutexes are deliberately non-reentrant.  Windows critical sections
+    // otherwise admit recursive acquisition, while the Unix normal mutex
+    // would block forever; reject both cases before entering the native
+    // backend so the API has one portable result.
+    let already_held = HELD_MUTEXES.with(|held| {
+        held.borrow()
+            .get(&id)
+            .is_some_and(|entries| !entries.is_empty())
+    });
+    if already_held {
+        return err_string(format!(
+            "Mutex handle {id} is already locked by this thread"
+        ));
+    }
     let entry = match mutex_entry(id) {
         Ok(entry) => entry,
         Err(error) => return error,
@@ -974,6 +1281,43 @@ pub unsafe extern "C" fn mux_mutex_unlock(mutex_handle: *mut Value) -> *mut Valu
     held_entry.active = false;
     held_entry.entry.active_holds.fetch_sub(1, Ordering::AcqRel);
     ok_unit()
+}
+
+#[unsafe(no_mangle)]
+/// Acquire a mutex, run a borrowed payload callback, and release it.
+///
+/// # Safety
+/// `mutex_handle` must point to a live Mutex value and `callback` must point
+/// to a compiler-produced ClosureRepr that remains valid until this function
+/// returns. The callback must not retain or use the lock handle after return.
+pub unsafe extern "C" fn mux_mutex_with_lock(
+    mutex_handle: *mut Value,
+    callback: *mut c_void,
+) -> *mut Value {
+    let id = match extract_handle_id(mutex_handle, *MUTEX_TYPE_ID, "Mutex") {
+        Ok(id) => id,
+        Err(e) => return e,
+    };
+    let entry = match mutex_entry(id) {
+        Ok(entry) => entry,
+        Err(error) => return error,
+    };
+    let locked = unsafe { mux_mutex_lock(mutex_handle) };
+    if unsafe { locked.as_ref() }.is_none_or(|value| matches!(value, Value::Result(Err(_)))) {
+        return locked;
+    }
+    unsafe { mux_rc_dec(locked) };
+
+    // SAFETY: `entry` pins the payload and the lock is held for this thread;
+    // the payload slot cannot be concurrently accessed until unlock below.
+    let callback_result =
+        unsafe { invoke_payload_callback(callback, entry.payload.get().cast::<Value>()) };
+    let unlocked = unsafe { mux_mutex_unlock(mutex_handle) };
+    if let Err(error) = callback_result {
+        unsafe { mux_rc_dec(unlocked) };
+        return err_string(error);
+    }
+    unlocked
 }
 
 #[unsafe(no_mangle)]
@@ -1085,6 +1429,78 @@ pub unsafe extern "C" fn mux_rwlock_unlock(rwlock_handle: *mut Value) -> *mut Va
 }
 
 #[unsafe(no_mangle)]
+/// Acquire a read lock, run a borrowed payload callback, and release it.
+///
+/// # Safety
+/// `rwlock_handle` must point to a live RwLock value and `callback` must point
+/// to a compiler-produced ClosureRepr that remains valid until this function
+/// returns. The callback must not retain or use the lock handle after return.
+pub unsafe extern "C" fn mux_rwlock_with_read(
+    rwlock_handle: *mut Value,
+    callback: *mut c_void,
+) -> *mut Value {
+    let id = match extract_handle_id(rwlock_handle, *RWLOCK_TYPE_ID, "RwLock") {
+        Ok(id) => id,
+        Err(e) => return e,
+    };
+    let entry = match rwlock_entry(id) {
+        Ok(entry) => entry,
+        Err(error) => return error,
+    };
+    let locked = unsafe { mux_rwlock_read_lock(rwlock_handle) };
+    if unsafe { locked.as_ref() }.is_none_or(|value| matches!(value, Value::Result(Err(_)))) {
+        return locked;
+    }
+    unsafe { mux_rc_dec(locked) };
+
+    // SAFETY: `entry` pins the payload for the duration of the held read lock.
+    let callback_result =
+        unsafe { invoke_payload_callback(callback, entry.payload.get().cast::<Value>()) };
+    let unlocked = unsafe { mux_rwlock_unlock(rwlock_handle) };
+    if let Err(error) = callback_result {
+        unsafe { mux_rc_dec(unlocked) };
+        return err_string(error);
+    }
+    unlocked
+}
+
+#[unsafe(no_mangle)]
+/// Acquire a write lock, run a borrowed payload callback, and release it.
+///
+/// # Safety
+/// `rwlock_handle` must point to a live RwLock value and `callback` must point
+/// to a compiler-produced ClosureRepr that remains valid until this function
+/// returns. The callback must not retain or use the lock handle after return.
+pub unsafe extern "C" fn mux_rwlock_with_write(
+    rwlock_handle: *mut Value,
+    callback: *mut c_void,
+) -> *mut Value {
+    let id = match extract_handle_id(rwlock_handle, *RWLOCK_TYPE_ID, "RwLock") {
+        Ok(id) => id,
+        Err(e) => return e,
+    };
+    let entry = match rwlock_entry(id) {
+        Ok(entry) => entry,
+        Err(error) => return error,
+    };
+    let locked = unsafe { mux_rwlock_write_lock(rwlock_handle) };
+    if unsafe { locked.as_ref() }.is_none_or(|value| matches!(value, Value::Result(Err(_)))) {
+        return locked;
+    }
+    unsafe { mux_rc_dec(locked) };
+
+    // SAFETY: `entry` pins the payload for the duration of the held write lock.
+    let callback_result =
+        unsafe { invoke_payload_callback(callback, entry.payload.get().cast::<Value>()) };
+    let unlocked = unsafe { mux_rwlock_unlock(rwlock_handle) };
+    if let Err(error) = callback_result {
+        unsafe { mux_rc_dec(unlocked) };
+        return err_string(error);
+    }
+    unlocked
+}
+
+#[unsafe(no_mangle)]
 /// Wait on a condition variable while releasing and reacquiring its mutex.
 ///
 /// # Safety
@@ -1132,6 +1548,72 @@ pub unsafe extern "C" fn mux_condvar_wait(
         return err_string(format!("mux_condvar_wait failed with error code {rc}"));
     }
     ok_unit()
+}
+
+#[unsafe(no_mangle)]
+/// Wait on a condition variable with a millisecond timeout while releasing
+/// and reacquiring its mutex. The successful result is `true` when signalled
+/// and `false` when the timeout elapsed.
+///
+/// # Safety
+/// Null or invalid handles return an error. Otherwise both pointers must
+/// point to live, initialized condition-variable and mutex handle `Value`s
+/// for the duration of this call. The mutex must be held by the calling
+/// thread and associated with the condition variable; both values are
+/// borrowed.
+pub unsafe extern "C" fn mux_condvar_wait_timeout(
+    condvar_handle: *mut Value,
+    mutex_handle: *mut Value,
+    timeout_ms: i64,
+) -> *mut Value {
+    if timeout_ms < 0 {
+        return err_string("CondVar timeout must not be negative");
+    }
+    if timeout_ms > MAX_SYNC_TIMEOUT_MS {
+        return err_string("CondVar timeout is too large");
+    }
+    let cond_id = match extract_handle_id(condvar_handle, *CONDVAR_TYPE_ID, "CondVar") {
+        Ok(id) => id,
+        Err(e) => return e,
+    };
+    let mutex_id = match extract_handle_id(mutex_handle, *MUTEX_TYPE_ID, "Mutex") {
+        Ok(id) => id,
+        Err(e) => return e,
+    };
+    let mutex_is_held = HELD_MUTEXES.with(|held| {
+        held.borrow()
+            .get(&mutex_id)
+            .is_some_and(|entries| !entries.is_empty())
+    });
+    if !mutex_is_held {
+        return err_string(format!(
+            "CondVar wait requires Mutex handle {mutex_id} to be locked by this thread"
+        ));
+    }
+    let cond_entry = match condvar_entry(cond_id) {
+        Ok(entry) => entry,
+        Err(error) => return error,
+    };
+    let mutex_entry = match mutex_entry(mutex_id) {
+        Ok(entry) => entry,
+        Err(error) => return error,
+    };
+    let rc = unsafe {
+        sync_backend::condvar_wait_timeout(cond_entry.ptr, mutex_entry.ptr, timeout_ms as u64)
+    };
+    #[cfg(unix)]
+    let timed_out = rc == libc::ETIMEDOUT;
+    #[cfg(windows)]
+    let timed_out = rc == 1460; // ERROR_TIMEOUT
+    if timed_out {
+        return crate::std::sync_result_ok(Value::Bool(false));
+    }
+    if rc != 0 {
+        return err_string(format!(
+            "mux_condvar_wait_timeout failed with error code {rc}"
+        ));
+    }
+    crate::std::sync_result_ok(Value::Bool(true))
 }
 
 #[unsafe(no_mangle)]
@@ -1198,6 +1680,36 @@ pub extern "C" fn mux_sync_sleep(ms: i64) {
 mod tests {
     use super::*;
     use crate::refcount::{mux_rc_alloc, mux_rc_dec};
+
+    #[repr(C)]
+    struct TestCallback {
+        function_ptr: *mut c_void,
+        captures_ptr: *mut c_void,
+        capture_count: i64,
+        boxed_function_ptr: *mut c_void,
+    }
+
+    unsafe extern "C" fn increment_int_payload(slot: *mut Value) {
+        if slot.is_null() {
+            return;
+        }
+        // A Mux `&T` is a pointer to a slot containing the boxed payload.
+        let payload = unsafe { *slot.cast::<*mut Value>() };
+        if let Some(Value::Int(value)) = unsafe { payload.as_mut() } {
+            *value += 1;
+        }
+    }
+
+    unsafe extern "C" fn observe_int_payload(slot: *mut Value) {
+        if slot.is_null() {
+            return;
+        }
+        // A read callback receives the same borrowed slot representation as
+        // a write callback, but this callback intentionally does not mutate
+        // it. The test below verifies that the shared-lock path invokes it.
+        let payload = unsafe { *slot.cast::<*mut Value>() };
+        assert!(matches!(unsafe { payload.as_ref() }, Some(Value::Int(_))));
+    }
 
     fn release_result(result: *mut Value) {
         assert!(!result.is_null());
@@ -1306,6 +1818,67 @@ mod tests {
     }
 
     #[test]
+    fn condvar_wait_timeout_reports_timeout_without_error() {
+        let condvar = mux_condvar_new();
+        let mutex = mux_mutex_new();
+        assert!(!condvar.is_null());
+        assert!(!mutex.is_null());
+        release_result(unsafe { mux_mutex_lock(mutex) });
+        let result = unsafe { mux_condvar_wait_timeout(condvar, mutex, 1) };
+        assert!(matches!(
+            unsafe { result.as_ref() },
+            Some(Value::Result(Ok(value))) if matches!(value.as_ref(), Value::Bool(false))
+        ));
+        release_result(result);
+        release_result(unsafe { mux_mutex_unlock(mutex) });
+        assert!(unsafe { mux_rc_dec(condvar) });
+        assert!(unsafe { mux_rc_dec(mutex) });
+    }
+
+    #[test]
+    fn mutex_rejects_recursive_acquisition() {
+        let mutex = mux_mutex_new();
+        assert!(!mutex.is_null());
+        release_result(unsafe { mux_mutex_lock(mutex) });
+
+        let recursive = unsafe { mux_mutex_lock(mutex) };
+        assert!(matches!(
+            unsafe { recursive.as_ref() },
+            Some(Value::Result(Err(_)))
+        ));
+        release_result(recursive);
+
+        release_result(unsafe { mux_mutex_unlock(mutex) });
+        assert!(unsafe { mux_rc_dec(mutex) });
+    }
+
+    #[test]
+    fn condvar_wait_timeout_reports_notification() {
+        let condvar = mux_condvar_new();
+        let mutex = mux_mutex_new();
+        assert!(!condvar.is_null());
+        assert!(!mutex.is_null());
+        release_result(unsafe { mux_mutex_lock(mutex) });
+        let signal_condvar = unsafe { clone_handle(condvar) };
+        let signal_addr = signal_condvar as usize;
+        let signaler = thread::spawn(move || {
+            thread::sleep(Duration::from_millis(5));
+            release_result(unsafe { mux_condvar_signal(signal_addr as *mut Value) });
+            assert!(unsafe { mux_rc_dec(signal_addr as *mut Value) });
+        });
+        let result = unsafe { mux_condvar_wait_timeout(condvar, mutex, 100) };
+        assert!(matches!(
+            unsafe { result.as_ref() },
+            Some(Value::Result(Ok(value))) if matches!(value.as_ref(), Value::Bool(true))
+        ));
+        release_result(result);
+        signaler.join().unwrap();
+        release_result(unsafe { mux_mutex_unlock(mutex) });
+        assert!(unsafe { mux_rc_dec(condvar) });
+        assert!(unsafe { mux_rc_dec(mutex) });
+    }
+
+    #[test]
     fn condvar_wait_survives_owner_handle_cleanup() {
         use std::sync::mpsc::channel;
 
@@ -1383,5 +1956,98 @@ mod tests {
         release_result(unsafe { mux_mutex_lock(mutex) });
         release_result(unsafe { mux_mutex_unlock(mutex) });
         assert!(unsafe { mux_rc_dec(mutex) });
+    }
+
+    #[test]
+    fn callback_lock_rejects_null_and_releases_the_lock() {
+        let mutex = mux_mutex_new();
+        assert!(!mutex.is_null());
+        let result = unsafe { mux_mutex_with_lock(mutex, std::ptr::null_mut()) };
+        assert!(!result.is_null());
+        assert!(unsafe { matches!(&*result, Value::Result(Err(_))) });
+        assert!(unsafe { mux_rc_dec(result) });
+        release_result(unsafe { mux_mutex_lock(mutex) });
+        release_result(unsafe { mux_mutex_unlock(mutex) });
+        assert!(unsafe { mux_rc_dec(mutex) });
+
+        let rwlock = mux_rwlock_new();
+        assert!(!rwlock.is_null());
+        let result = unsafe { mux_rwlock_with_read(rwlock, std::ptr::null_mut()) };
+        assert!(unsafe { matches!(&*result, Value::Result(Err(_))) });
+        assert!(unsafe { mux_rc_dec(result) });
+        release_result(unsafe { mux_rwlock_read_lock(rwlock) });
+        release_result(unsafe { mux_rwlock_unlock(rwlock) });
+        assert!(unsafe { mux_rc_dec(rwlock) });
+    }
+
+    #[test]
+    fn typed_lock_callback_borrows_and_updates_payload() {
+        let payload = mux_rc_alloc(Value::Int(41));
+        let mutex = unsafe { mux_mutex_with_value(payload) };
+        assert!(!mutex.is_null());
+        // The lock retained its own reference to the payload, so releasing
+        // this caller-owned reference must not free the value yet.
+        assert!(!unsafe { mux_rc_dec(payload) });
+
+        let mut callback = TestCallback {
+            function_ptr: increment_int_payload as *mut c_void,
+            captures_ptr: std::ptr::null_mut(),
+            capture_count: 0,
+            boxed_function_ptr: std::ptr::null_mut(),
+        };
+        let result = unsafe {
+            mux_mutex_with_lock(mutex, (&mut callback as *mut TestCallback).cast::<c_void>())
+        };
+        release_result(result);
+
+        let id = unsafe { extract_handle_id(mutex, *MUTEX_TYPE_ID, "Mutex") }.unwrap();
+        let entry = mutex_entry(id).unwrap();
+        let value = unsafe { &**entry.payload.get() };
+        assert!(matches!(value, Value::Int(42)));
+        drop(entry);
+        assert!(unsafe { mux_rc_dec(mutex) });
+    }
+
+    #[test]
+    fn typed_rwlock_callbacks_borrow_and_update_payload() {
+        let payload = mux_rc_alloc(Value::Int(10));
+        let rwlock = unsafe { mux_rwlock_with_value(payload) };
+        assert!(!rwlock.is_null());
+        // The lock retained its own reference to the payload, so releasing
+        // this caller-owned reference must not free the value yet.
+        assert!(!unsafe { mux_rc_dec(payload) });
+
+        let mut read_callback = TestCallback {
+            function_ptr: observe_int_payload as *mut c_void,
+            captures_ptr: std::ptr::null_mut(),
+            capture_count: 0,
+            boxed_function_ptr: std::ptr::null_mut(),
+        };
+        release_result(unsafe {
+            mux_rwlock_with_read(
+                rwlock,
+                (&mut read_callback as *mut TestCallback).cast::<c_void>(),
+            )
+        });
+
+        let mut write_callback = TestCallback {
+            function_ptr: increment_int_payload as *mut c_void,
+            captures_ptr: std::ptr::null_mut(),
+            capture_count: 0,
+            boxed_function_ptr: std::ptr::null_mut(),
+        };
+        release_result(unsafe {
+            mux_rwlock_with_write(
+                rwlock,
+                (&mut write_callback as *mut TestCallback).cast::<c_void>(),
+            )
+        });
+
+        let id = unsafe { extract_handle_id(rwlock, *RWLOCK_TYPE_ID, "RwLock") }.unwrap();
+        let entry = rwlock_entry(id).unwrap();
+        let value = unsafe { &**entry.payload.get() };
+        assert!(matches!(value, Value::Int(11)));
+        drop(entry);
+        assert!(unsafe { mux_rc_dec(rwlock) });
     }
 }

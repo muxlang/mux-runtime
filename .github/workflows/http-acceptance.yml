@@ -1,0 +1,34 @@
+name: Hosted HTTP Acceptance
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: hosted-http-acceptance
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  protocol_acceptance:
+    name: HTTP/1.1, HTTP/2, and HTTP/3 wire acceptance
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      MUX_HTTP1_URL: ${{ secrets.MUX_HTTP1_URL }}
+      MUX_HTTP2_URL: ${{ secrets.MUX_HTTP2_URL }}
+      MUX_HTTP3_URL: ${{ secrets.MUX_HTTP3_URL }}
+      MUX_HTTP1_BEARER_TOKEN: ${{ secrets.MUX_HTTP1_BEARER_TOKEN }}
+      MUX_HTTP2_BEARER_TOKEN: ${{ secrets.MUX_HTTP2_BEARER_TOKEN }}
+      MUX_HTTP3_BEARER_TOKEN: ${{ secrets.MUX_HTTP3_BEARER_TOKEN }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check curl HTTP/2 and HTTP/3 support
+        run: |
+          set -euo pipefail
+          curl --version
+          curl --version | awk '/^Features:/ { for (i = 2; i <= NF; i++) if ($i == "HTTP2") found = 1 } END { exit(found ? 0 : 1) }'
+          curl --version | awk '/^Features:/ { for (i = 2; i <= NF; i++) if ($i == "HTTP3") found = 1 } END { exit(found ? 0 : 1) }'
+      - name: Run configured protocol probes
+        run: ./scripts/ci/run-http-acceptance.sh

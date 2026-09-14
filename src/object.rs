@@ -18,6 +18,9 @@ pub struct ObjectType {
     /// If None, `copy_object` returns null and the caller must handle the
     /// "type does not support copying" case.
     pub copy: Option<extern "C" fn(*mut c_void, *mut c_void)>,
+    /// Resource handles retain their existing object data when copied. Their
+    /// destructor runs after the last handle is dropped.
+    pub shared: bool,
     /// Equality of two instances. Registered for a class that implements
     /// `Equatable`, and it is the class's own `eq` method, so a map or set
     /// matches instances the way the `==` operator does.
@@ -57,6 +60,7 @@ impl ObjectType {
             size,
             destructor,
             copy,
+            shared: false,
             equals: None,
             compare: None,
             hash: None,
@@ -80,6 +84,23 @@ pub fn register_object_type_with_copy(
     copy: Option<extern "C" fn(*mut c_void, *mut c_void)>,
 ) -> TypeId {
     let obj_type = ObjectType::new(name.to_string(), size, destructor, copy);
+    let id = obj_type.id;
+    TYPE_REGISTRY
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .insert(id, obj_type);
+    id
+}
+
+/// Register a resource whose copies refer to the same underlying handle.
+/// Ordinary classes must register a copy callback instead.
+pub fn register_shared_object_type(
+    name: &str,
+    size: usize,
+    destructor: Option<extern "C" fn(*mut c_void)>,
+) -> TypeId {
+    let mut obj_type = ObjectType::new(name.to_string(), size, destructor, None);
+    obj_type.shared = true;
     let id = obj_type.id;
     TYPE_REGISTRY
         .lock()
@@ -180,23 +201,27 @@ pub unsafe fn get_object_type_id(obj: *const Value) -> TypeId {
 
 /// # Safety
 /// The `src` pointer must be valid and point to a `Value::Object`.
-/// Returns a new object that is a copy of the source, or null if the type
-/// does not support copying (no copy callback registered).
+/// Returns a new object that is a copy of the source. Shared resource types
+/// retain their object data; ordinary classes use their copy callback.
+/// Returns null if the type does not support either kind of copying.
 pub unsafe fn copy_object(src: *const Value) -> *mut Value {
     if src.is_null() {
         return std::ptr::null_mut();
     }
 
     let type_id = unsafe { get_object_type_id(src) };
-    let copy_fn = {
+    let (copy_fn, shared) = {
         let registry = TYPE_REGISTRY
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         let Some(obj_type) = registry.get(&type_id) else {
             return std::ptr::null_mut();
         };
-        obj_type.copy
+        (obj_type.copy, obj_type.shared)
     };
+    if shared {
+        return mux_rc_alloc(unsafe { &*src }.clone());
+    }
     let Some(copy_fn) = copy_fn else {
         return std::ptr::null_mut();
     };

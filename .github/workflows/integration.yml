@@ -46,9 +46,8 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: read
-    # Postgres + MySQL back the sql driver coverage; the gated driver tests are
-    # skipped when their *_URL env vars are unset, so this is the only job that
-    # exercises them.
+    # Postgres, MySQL, and SQL Server back the SQL driver coverage. The gated
+    # driver tests are skipped when their *_URL variables are unset.
     services:
       postgres:
         image: postgres:16
@@ -75,9 +74,23 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 15
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: Y
+          MSSQL_SA_PASSWORD: MuxPassw0rd!
+          MSSQL_PID: Developer
+        ports:
+          - 1433:1433
+        options: >-
+          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P 'MuxPassw0rd!' -Q 'SELECT 1'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 30
     env:
-      MUX_TEST_POSTGRES_URL: postgres://mux:pass@localhost:5432/muxdb
-      MUX_TEST_MYSQL_URL: mysql://root:pass@localhost:3306/muxdb
+      MUX_TEST_POSTGRES_URL: postgres://mux:pass@127.0.0.1:5432/muxdb
+      MUX_TEST_MYSQL_URL: mysql://root:pass@127.0.0.1:3306/muxdb
+      MUX_TEST_SQLSERVER_URL: mssql://sa:MuxPassw0rd%21@127.0.0.1:1433/master?trustServerCertificate=true
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install Rust toolchain
@@ -125,14 +138,23 @@ jobs:
           grep -q '^BRF:' lcov.info
           grep -q '^BRH:' lcov.info
           ! grep -q 'functions have mismatched data' coverage.log
-      - name: Enforce branch coverage floor
-        run: ./scripts/ci/check-branch-coverage.sh lcov.info 50
+      - name: Enforce line and branch coverage floors
+        run: ./scripts/ci/check-coverage.sh lcov.info 50 50
+      - name: Run live SQL driver fixture
+        run: ./scripts/ci/run-live-sql.sh
+      - name: Run live SQL Server driver fixture
+        run: ./scripts/ci/run-live-sqlserver.sh
+      - name: Summarize coverage
+        id: coverage_summary
+        run: ./scripts/ci/summarize-coverage.sh lcov.info coverage-summary.md
       - name: Upload coverage report
-        if: ${{ always() && steps.coverage.outcome == 'success' }}
+        if: ${{ always() && steps.coverage.outcome == 'success' && steps.coverage_summary.outcome == 'success' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: coverage-lcov
-          path: lcov.info
+          path: |
+            lcov.info
+            coverage-summary.md
           if-no-files-found: error
       # Companion to the compiler's RC Leak Check leg (muxlang/mux-compiler#295),
       # for runtime code itself (issue #22, part 1). The Valgrind job ignores

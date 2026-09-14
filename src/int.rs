@@ -3,6 +3,7 @@ use std::fmt;
 use std::os::raw::c_char;
 
 use crate::refcount::mux_rc_alloc;
+use crate::std::byte_result_err;
 use crate::Value;
 
 #[derive(Clone, Debug, PartialEq, PartialOrd)]
@@ -63,6 +64,18 @@ pub extern "C" fn mux_int_to_string(i: i64) -> *mut c_char {
     match CString::new(s) {
         Ok(c) => c.into_raw(),
         Err(_) => std::ptr::null_mut(),
+    }
+}
+
+/// Convert a signed integer to a checked byte value represented by the
+/// runtime's scalar integer payload. Values outside 0..=255 return a Result
+/// error instead of silently truncating.
+#[unsafe(no_mangle)]
+pub extern "C" fn mux_int_to_byte(i: i64) -> *mut Value {
+    if (0..=255).contains(&i) {
+        mux_rc_alloc(Value::Result(Ok(Box::new(Value::Int(i)))))
+    } else {
+        byte_result_err(format!("Byte value {i} is outside the range 0..255"))
     }
 }
 
