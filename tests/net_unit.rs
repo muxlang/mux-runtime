@@ -2137,7 +2137,7 @@ fn http_client_against_local_server() {
     fn write_response(stream: &mut std::net::TcpStream) -> std::io::Result<()> {
         let body = b"{\"ok\":true}";
         let head = format!(
-            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: keep-alive\r\n\r\n",
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
             body.len()
         );
         stream.write_all(head.as_bytes())?;
@@ -2154,8 +2154,7 @@ fn http_client_against_local_server() {
         };
         if read_request(&mut stream).is_ok() {
             let _ = write_response(&mut stream);
-            let mut client_close = [0_u8; 1];
-            let _ = stream.read(&mut client_close);
+            std::thread::sleep(std::time::Duration::from_millis(100));
         }
     }
 
