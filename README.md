@@ -131,7 +131,7 @@ references, so a program that does not touch `sql` carries no SQLite.
 
 The compiler identifies this repo by commit, not by a runtime release number.
 `mux version` reports the locked commit as build metadata, for example
-`runtime v0.6.1+g4e2dc14`. A coupled change is one PR here and one in
+`runtime v0.6.1+g8806dc7`. A coupled change is one PR here and one in
 `mux-compiler`; there is no publish step between them.
 
 Record user-visible changes under a dated changelog heading as part of the
