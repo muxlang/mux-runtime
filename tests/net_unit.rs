@@ -1557,12 +1557,20 @@ fn ok_data(r: *mut Value) -> *mut Value {
     let data = unsafe {
         if !mux_result_is_ok(r) {
             let error = mux_result_data(r);
-            let message = match &*error {
-                Value::Object(_) => mux_net_error_message(error),
-                other => mux_rc_alloc(Value::String(other.to_string())),
-            };
-            eprintln!("network operation failed: {:?}", &*message);
-            assert!(mux_rc_dec(message));
+            let http_message = mux_http_error_message(error);
+            let is_http_error = matches!(&*http_message, Value::String(message) if message != "invalid HttpError handle");
+            if is_http_error {
+                eprintln!("network operation failed: {:?}", &*http_message);
+                assert!(mux_rc_dec(http_message));
+            } else {
+                assert!(mux_rc_dec(http_message));
+                let message = match &*error {
+                    Value::Object(_) => mux_net_error_message(error),
+                    other => mux_rc_alloc(Value::String(other.to_string())),
+                };
+                eprintln!("network operation failed: {:?}", &*message);
+                assert!(mux_rc_dec(message));
+            }
             assert!(mux_rc_dec(error));
         }
         assert!(mux_result_is_ok(r), "expected Ok result");
