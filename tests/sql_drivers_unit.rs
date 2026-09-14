@@ -1028,6 +1028,7 @@ fn mysql_binary_columns_preserve_valid_utf8_bytes() {
     });
     unsafe {
         assert!(mux_rc_dec(values));
+        assert!(mux_rc_dec(row));
         assert!(mux_rc_dec(next));
         assert!(mux_rc_dec(resultset));
         assert!(mux_rc_dec(query));
