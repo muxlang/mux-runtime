@@ -39,6 +39,9 @@ edit for this fix.
 
 ## Remaining issues
 
+- Coupled runtime/compiler/example pull requests use the `paired-compiler:<branch>`
+  and `paired-examples:<branch>` labels so downstream smoke tests exercise the
+  matching revisions instead of unrelated repository defaults.
 - Hosted workflow execution remains a CI responsibility; local helper tests,
   runtime tests, and Clippy pass.
 - Pre-existing dirty and untracked changes outside the assigned CI paths were
