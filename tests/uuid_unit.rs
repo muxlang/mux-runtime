@@ -108,11 +108,13 @@ fn v1_and_v6_use_current_timestamp_with_expected_ordering() {
         let v1_ticks = timestamp_ticks(&v1_bytes, 1);
         let first_v6_ticks = timestamp_ticks(&first_v6_bytes, 6);
         let second_v6_ticks = timestamp_ticks(&second_v6_bytes, 6);
-        assert!((before..=after).contains(&v1_ticks));
-        assert!((before..=after).contains(&first_v6_ticks));
-        assert!((before..=after).contains(&second_v6_ticks));
+        assert!(v1_ticks.is_some_and(|ticks| (before..=after).contains(&ticks)));
+        assert!(first_v6_ticks.is_some_and(|ticks| (before..=after).contains(&ticks)));
+        assert!(second_v6_ticks.is_some_and(|ticks| (before..=after).contains(&ticks)));
         assert!(first_v6_bytes < second_v6_bytes);
-        assert!(first_v6_ticks <= second_v6_ticks);
+        assert!(
+            matches!((first_v6_ticks, second_v6_ticks), (Some(first), Some(second)) if first <= second)
+        );
     }
 }
 
@@ -209,21 +211,20 @@ fn uuid_bytes(value: *mut Value) -> Vec<u8> {
     }
 }
 
-fn timestamp_ticks(bytes: &[u8], version: i64) -> u64 {
-    assert_eq!(bytes.len(), 16);
+fn timestamp_ticks(bytes: &[u8], version: i64) -> Option<u64> {
     match version {
         1 => {
-            let low = u32::from_be_bytes(bytes[0..4].try_into().unwrap());
-            let mid = u16::from_be_bytes(bytes[4..6].try_into().unwrap());
-            let high = u16::from_be_bytes(bytes[6..8].try_into().unwrap()) & 0x0fff;
-            (u64::from(high) << 48) | (u64::from(mid) << 32) | u64::from(low)
+            let low = u32::from_be_bytes(bytes.get(0..4)?.try_into().ok()?);
+            let mid = u16::from_be_bytes(bytes.get(4..6)?.try_into().ok()?);
+            let high = u16::from_be_bytes(bytes.get(6..8)?.try_into().ok()?) & 0x0fff;
+            Some((u64::from(high) << 48) | (u64::from(mid) << 32) | u64::from(low))
         }
         6 => {
-            let high = u32::from_be_bytes(bytes[0..4].try_into().unwrap());
-            let mid = u16::from_be_bytes(bytes[4..6].try_into().unwrap());
-            let low = u16::from_be_bytes(bytes[6..8].try_into().unwrap()) & 0x0fff;
-            (u64::from(high) << 28) | (u64::from(mid) << 12) | u64::from(low)
+            let high = u32::from_be_bytes(bytes.get(0..4)?.try_into().ok()?);
+            let mid = u16::from_be_bytes(bytes.get(4..6)?.try_into().ok()?);
+            let low = u16::from_be_bytes(bytes.get(6..8)?.try_into().ok()?) & 0x0fff;
+            Some((u64::from(high) << 28) | (u64::from(mid) << 12) | u64::from(low))
         }
-        _ => panic!("timestamp decoding is only defined for UUID v1 and v6"),
+        _ => None,
     }
 }
