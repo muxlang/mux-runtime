@@ -88,8 +88,7 @@ fn versions_namespaces_and_monotonic_v7_work() {
 #[test]
 fn v1_and_v6_use_current_timestamp_with_expected_ordering() {
     let before = gregorian_ticks_now().saturating_sub(10_000_000);
-    // SAFETY: each constructor returns an owned UUID handle, released below.
-    let (v1, first_v6, second_v6) = unsafe { (mux_uuid_v1(), mux_uuid_v6(), mux_uuid_v6()) };
+    let (v1, first_v6, second_v6) = (mux_uuid_v1(), mux_uuid_v6(), mux_uuid_v6());
     let after = gregorian_ticks_now().saturating_add(10_000_000);
 
     assert_eq!(uuid_version(v1), Some(1));
