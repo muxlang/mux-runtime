@@ -104,6 +104,11 @@ fn v1_and_v6_use_current_timestamp_with_expected_ordering() {
         assert!(mux_rc_dec(first_v6));
         assert!(mux_rc_dec(second_v6));
     }
+    let (Some(v1_bytes), Some(first_v6_bytes), Some(second_v6_bytes)) =
+        (v1_bytes, first_v6_bytes, second_v6_bytes)
+    else {
+        panic!("UUID conversion should return bytes");
+    };
 
     let v1_ticks = timestamp_ticks(&v1_bytes, 1);
     let first_v6_ticks = timestamp_ticks(&first_v6_bytes, 6);
@@ -203,17 +208,17 @@ fn uuid_version(value: *mut Value) -> Option<i64> {
     unsafe { version(mux_uuid_version(value)) }
 }
 
-fn uuid_bytes(value: *mut Value) -> Vec<u8> {
+fn uuid_bytes(value: *mut Value) -> Option<Vec<u8>> {
     // SAFETY: value is a live UUID handle and this call returns an owned value.
     let bytes = unsafe { mux_uuid_to_bytes(value) };
     // SAFETY: bytes is the live owned result returned above.
     let result = unsafe {
-        let Value::Bytes(bytes_value) = &*bytes else {
-            panic!("expected UUID bytes")
-        };
-        bytes_value.clone()
+        match &*bytes {
+            Value::Bytes(bytes_value) => Some(bytes_value.clone()),
+            _ => None,
+        }
     };
-    // SAFETY: bytes is released exactly once after its contents are cloned.
+    // SAFETY: bytes is the owned result above and is released exactly once after copying.
     assert!(unsafe { mux_rc_dec(bytes) });
     result
 }
