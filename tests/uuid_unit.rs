@@ -87,35 +87,35 @@ fn versions_namespaces_and_monotonic_v7_work() {
 
 #[test]
 fn v1_and_v6_use_current_timestamp_with_expected_ordering() {
+    let before = gregorian_ticks_now().saturating_sub(10_000_000);
+    // SAFETY: each constructor returns an owned UUID handle, released below.
+    let (v1, first_v6, second_v6) = unsafe { (mux_uuid_v1(), mux_uuid_v6(), mux_uuid_v6()) };
+    let after = gregorian_ticks_now().saturating_add(10_000_000);
+
+    assert_eq!(uuid_version(v1), Some(1));
+    assert_eq!(uuid_version(first_v6), Some(6));
+    assert_eq!(uuid_version(second_v6), Some(6));
+
+    let v1_bytes = uuid_bytes(v1);
+    let first_v6_bytes = uuid_bytes(first_v6);
+    let second_v6_bytes = uuid_bytes(second_v6);
+    // SAFETY: each live UUID handle is released exactly once here.
     unsafe {
-        let before = gregorian_ticks_now().saturating_sub(10_000_000);
-        let v1 = mux_uuid_v1();
-        let first_v6 = mux_uuid_v6();
-        let second_v6 = mux_uuid_v6();
-        let after = gregorian_ticks_now().saturating_add(10_000_000);
-
-        assert_eq!(version(mux_uuid_version(v1)), Some(1));
-        assert_eq!(version(mux_uuid_version(first_v6)), Some(6));
-        assert_eq!(version(mux_uuid_version(second_v6)), Some(6));
-
-        let v1_bytes = uuid_bytes(v1);
-        let first_v6_bytes = uuid_bytes(first_v6);
-        let second_v6_bytes = uuid_bytes(second_v6);
         assert!(mux_rc_dec(v1));
         assert!(mux_rc_dec(first_v6));
         assert!(mux_rc_dec(second_v6));
-
-        let v1_ticks = timestamp_ticks(&v1_bytes, 1);
-        let first_v6_ticks = timestamp_ticks(&first_v6_bytes, 6);
-        let second_v6_ticks = timestamp_ticks(&second_v6_bytes, 6);
-        assert!(v1_ticks.is_some_and(|ticks| (before..=after).contains(&ticks)));
-        assert!(first_v6_ticks.is_some_and(|ticks| (before..=after).contains(&ticks)));
-        assert!(second_v6_ticks.is_some_and(|ticks| (before..=after).contains(&ticks)));
-        assert!(first_v6_bytes < second_v6_bytes);
-        assert!(
-            matches!((first_v6_ticks, second_v6_ticks), (Some(first), Some(second)) if first <= second)
-        );
     }
+
+    let v1_ticks = timestamp_ticks(&v1_bytes, 1);
+    let first_v6_ticks = timestamp_ticks(&first_v6_bytes, 6);
+    let second_v6_ticks = timestamp_ticks(&second_v6_bytes, 6);
+    assert!(v1_ticks.is_some_and(|ticks| (before..=after).contains(&ticks)));
+    assert!(first_v6_ticks.is_some_and(|ticks| (before..=after).contains(&ticks)));
+    assert!(second_v6_ticks.is_some_and(|ticks| (before..=after).contains(&ticks)));
+    assert!(first_v6_bytes < second_v6_bytes);
+    assert!(
+        matches!((first_v6_ticks, second_v6_ticks), (Some(first), Some(second)) if first <= second)
+    );
 }
 
 #[test]
@@ -199,16 +199,24 @@ fn gregorian_ticks_now() -> u64 {
         .saturating_add(u64::from(elapsed.subsec_nanos() / 100))
 }
 
+fn uuid_version(value: *mut Value) -> Option<i64> {
+    // SAFETY: callers pass a live UUID handle returned by an owned constructor.
+    unsafe { version(mux_uuid_version(value)) }
+}
+
 fn uuid_bytes(value: *mut Value) -> Vec<u8> {
-    unsafe {
-        let bytes = mux_uuid_to_bytes(value);
+    // SAFETY: value is a live UUID handle and this call returns an owned value.
+    let bytes = unsafe { mux_uuid_to_bytes(value) };
+    // SAFETY: bytes is the live owned result returned above.
+    let result = unsafe {
         let Value::Bytes(bytes_value) = &*bytes else {
             panic!("expected UUID bytes")
         };
-        let result = bytes_value.clone();
-        assert!(mux_rc_dec(bytes));
-        result
-    }
+        bytes_value.clone()
+    };
+    // SAFETY: bytes is released exactly once after its contents are cloned.
+    assert!(unsafe { mux_rc_dec(bytes) });
+    result
 }
 
 fn timestamp_ticks(bytes: &[u8], version: i64) -> Option<u64> {
