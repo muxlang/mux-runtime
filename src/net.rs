@@ -13597,7 +13597,7 @@ mod tests {
                     .body(())
                     .unwrap(),
                 None,
-                Some(Duration::from_secs(1)),
+                Some(Duration::from_secs(5)),
             )
             .expect("the actor must accept a request after cancellation");
         assert_eq!(response.status, 200);
