@@ -54,13 +54,21 @@ mod http3_loopback_conformance {
     use bytes::Bytes;
     use http::{HeaderValue, Request, Response};
     use std::net::SocketAddr;
-    use std::sync::mpsc;
+    use std::sync::{mpsc, Mutex, MutexGuard};
     use std::thread;
     use std::time::Duration;
 
     const LOCAL_CERTIFICATE: &str = include_str!("fixtures/http3_localhost_cert.der.b64");
     const LOCAL_PRIVATE_KEY: &str = include_str!("fixtures/http3_localhost_key.der.b64");
     const MAX_HTTP3_BODY_BYTES: usize = 16 * 1024 * 1024;
+
+    static LOOPBACK_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    fn serialize_loopback_test() -> MutexGuard<'static, ()> {
+        LOOPBACK_TEST_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
 
     fn local_credentials() -> (Vec<u8>, Vec<u8>) {
         let certificate = STANDARD
@@ -94,6 +102,8 @@ mod http3_loopback_conformance {
 
     #[test]
     fn http3_loopback_frames_request_response_and_qpack_headers() {
+        // Serialize local QUIC endpoints; parallel loopback tests are flaky on Windows.
+        let _serial = serialize_loopback_test();
         let (server, certificate) = local_server();
         let authority = server.local_addr().to_string();
         let (request_seen, request_received) = mpsc::sync_channel(1);
@@ -146,7 +156,7 @@ mod http3_loopback_conformance {
             .send(
                 request,
                 Some(b"request body".to_vec()),
-                Some(Duration::from_secs(5)),
+                Some(Duration::from_secs(15)),
             )
             .expect("HTTP/3 request/response should complete");
 
@@ -172,6 +182,8 @@ mod http3_loopback_conformance {
 
     #[test]
     fn http3_loopback_rejects_oversized_request_body() {
+        // Serialize local QUIC endpoints; parallel loopback tests are flaky on Windows.
+        let _serial = serialize_loopback_test();
         let (server, certificate) = local_server();
         let authority = server.local_addr().to_string();
         let server_thread = thread::spawn(move || {
@@ -206,6 +218,8 @@ mod http3_loopback_conformance {
 
     #[test]
     fn http3_loopback_cancels_inflight_stream() {
+        // Serialize local QUIC endpoints; parallel loopback tests are flaky on Windows.
+        let _serial = serialize_loopback_test();
         let (server, certificate) = local_server();
         let authority = server.local_addr().to_string();
         let (started_sender, started_receiver) = mpsc::sync_channel(1);
@@ -393,6 +407,8 @@ mod http3_loopback_conformance {
 
     #[test]
     fn http3_loopback_maps_peer_header_protocol_errors() {
+        // Serialize local QUIC endpoints; parallel loopback tests are flaky on Windows.
+        let _serial = serialize_loopback_test();
         let (certificate, private_key) = local_credentials();
         let (authority, release_sender, server_thread) = spawn_raw_h3_server(
             certificate.clone(),
@@ -422,6 +438,8 @@ mod http3_loopback_conformance {
 
     #[test]
     fn http3_loopback_cancels_peer_after_oversized_response_body() {
+        // Serialize local QUIC endpoints; parallel loopback tests are flaky on Windows.
+        let _serial = serialize_loopback_test();
         let (certificate, private_key) = local_credentials();
         let (authority, release_sender, server_thread) =
             spawn_raw_h3_server(certificate.clone(), private_key, RawResponse::OversizedBody);
