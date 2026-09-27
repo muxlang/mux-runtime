@@ -67,7 +67,7 @@ mod http3_loopback_conformance {
     fn serialize_loopback_test() -> MutexGuard<'static, ()> {
         LOOPBACK_TEST_LOCK
             .lock()
-            .unwrap_or_else(|error| error.into_inner())
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     fn local_credentials() -> (Vec<u8>, Vec<u8>) {
