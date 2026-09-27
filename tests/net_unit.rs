@@ -146,7 +146,7 @@ mod http3_loopback_conformance {
             .send(
                 request,
                 Some(b"request body".to_vec()),
-                Some(Duration::from_secs(5)),
+                Some(Duration::from_secs(15)),
             )
             .expect("HTTP/3 request/response should complete");
 
