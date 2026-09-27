@@ -189,7 +189,7 @@ fn direct_string(value: *mut Value) -> String {
 fn gregorian_ticks_now() -> u64 {
     let elapsed = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .expect("system time should be after the Unix epoch");
+        .unwrap_or_default();
     elapsed
         .as_secs()
         .saturating_add(12_219_292_800)
