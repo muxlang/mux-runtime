@@ -42,6 +42,10 @@ fn standard_hash_vectors_are_bytes() {
         assert!(
             matches!(&*sha3, Value::Bytes(value) if hex(value) == "a7ffc6f8bf1ed76651c14756a061d662f580ff4de43b49fa82d80a4b80f8434a")
         );
+        let sha3_512 = mux_crypto_sha3_512(input);
+        assert!(
+            matches!(&*sha3_512, Value::Bytes(value) if hex(value) == "a69f73cca23a9ac5c8b567dc185a756e97c982164fe25859e0d1dcc1475c80a615b2123af1f5f94c11e3e9402c3ac558f500199d95b6d3e301758586281dcd26")
+        );
         let blake = mux_crypto_blake3(input);
         let Value::Bytes(blake_bytes) = &*blake else {
             panic!("expected bytes");
@@ -54,6 +58,7 @@ fn standard_hash_vectors_are_bytes() {
         assert!(mux_rc_dec(sha256));
         assert!(mux_rc_dec(sha512));
         assert!(mux_rc_dec(sha3));
+        assert!(mux_rc_dec(sha3_512));
         assert!(mux_rc_dec(blake));
     }
 }
