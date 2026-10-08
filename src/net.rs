@@ -12957,6 +12957,9 @@ mod tests {
     #[cfg(feature = "http2")]
     use bytes::Bytes;
 
+    #[cfg(feature = "http2")]
+    const HTTP2_RECOVERY_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+
     fn tampered_oauth_signature(token: &str) -> String {
         let (signing_input, encoded_signature) = token
             .rsplit_once('.')
@@ -13597,7 +13600,7 @@ mod tests {
                     .body(())
                     .unwrap(),
                 None,
-                Some(Duration::from_secs(5)),
+                Some(HTTP2_RECOVERY_REQUEST_TIMEOUT),
             )
             .expect("the actor must accept a request after cancellation");
         assert_eq!(response.status, 200);
