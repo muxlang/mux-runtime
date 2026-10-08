@@ -11,7 +11,10 @@ use crate::std::StdErrorKind;
 use crate::Value;
 use aes_gcm::aead::{Aead, KeyInit, Payload};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
-use hmac::{KeyInit as HmacKeyInit, Mac};
+use chacha20poly1305::aead::{
+    Aead as ChaChaAead, KeyInit as ChaChaKeyInit, Payload as ChaChaPayload,
+};
+use hmac::Mac;
 use sha2::Digest as Sha2Digest;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
@@ -213,16 +216,19 @@ fn encrypt_with_nonce(
                 },
             )
             .map_err(|_| "AES-256-GCM encryption failed".to_string()),
-        CHACHA_ALGORITHM => chacha20poly1305::ChaCha20Poly1305::new_from_slice(key)
-            .map_err(|_| "invalid ChaCha20-Poly1305 key".to_string())?
-            .encrypt(
-                chacha20poly1305::Nonce::from_slice(nonce),
-                Payload {
-                    msg: plaintext,
-                    aad: associated_data,
-                },
-            )
-            .map_err(|_| "ChaCha20-Poly1305 encryption failed".to_string()),
+        CHACHA_ALGORITHM => {
+            let chacha_nonce = chacha20poly1305::Nonce::from(*nonce);
+            chacha20poly1305::ChaCha20Poly1305::new_from_slice(key)
+                .map_err(|_| "invalid ChaCha20-Poly1305 key".to_string())?
+                .encrypt(
+                    &chacha_nonce,
+                    ChaChaPayload {
+                        msg: plaintext,
+                        aad: associated_data,
+                    },
+                )
+                .map_err(|_| "ChaCha20-Poly1305 encryption failed".to_string())
+        }
         _ => Err("unknown sealed-payload algorithm".to_string()),
     }
 }
@@ -284,19 +290,22 @@ fn open_sealed(
                 kind: StdErrorKind::Authentication,
                 detail: "sealed payload authentication failed".to_string(),
             }),
-        CHACHA_ALGORITHM => chacha20poly1305::ChaCha20Poly1305::new_from_slice(key)
-            .map_err(|_| CryptoFailure::invalid("invalid ChaCha20-Poly1305 key"))?
-            .decrypt(
-                chacha20poly1305::Nonce::from_slice(nonce),
-                Payload {
-                    msg: ciphertext,
-                    aad: associated_data,
-                },
-            )
-            .map_err(|_| CryptoFailure {
-                kind: StdErrorKind::Authentication,
-                detail: "sealed payload authentication failed".to_string(),
-            }),
+        CHACHA_ALGORITHM => {
+            let chacha_nonce = chacha20poly1305::Nonce::from(*nonce);
+            chacha20poly1305::ChaCha20Poly1305::new_from_slice(key)
+                .map_err(|_| CryptoFailure::invalid("invalid ChaCha20-Poly1305 key"))?
+                .decrypt(
+                    &chacha_nonce,
+                    ChaChaPayload {
+                        msg: ciphertext,
+                        aad: associated_data,
+                    },
+                )
+                .map_err(|_| CryptoFailure {
+                    kind: StdErrorKind::Authentication,
+                    detail: "sealed payload authentication failed".to_string(),
+                })
+        }
         _ => Err(CryptoFailure {
             kind: StdErrorKind::Unsupported,
             detail: "sealed payload algorithm is unsupported".to_string(),
