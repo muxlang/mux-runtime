@@ -365,7 +365,7 @@ jobs:
         # root so the SonarQube Rust LCOV importer can match them to indexed files.
         run: '[ -f lcov.info ] && sed -i "s#${{ github.workspace }}/##g" lcov.info || true'
       - name: SonarQube Scan
-        uses: SonarSource/sonarqube-scan-action@ba9859eae8dd6bd29e412f25ddbbef3d032000f4 # v8.2.2
+        uses: SonarSource/sonarqube-scan-action@d209202bc7d53ff1cc128f7f907dac145c9d6ae9 # v8.3.0
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
       # The scan above waits for analysis (sonar.qualitygate.wait), so the

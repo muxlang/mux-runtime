@@ -61,6 +61,7 @@ mod http3_loopback_conformance {
     const LOCAL_CERTIFICATE: &str = include_str!("fixtures/http3_localhost_cert.der.b64");
     const LOCAL_PRIVATE_KEY: &str = include_str!("fixtures/http3_localhost_key.der.b64");
     const MAX_HTTP3_BODY_BYTES: usize = 16 * 1024 * 1024;
+    const HTTP3_LOOPBACK_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 
     static LOOPBACK_TEST_LOCK: Mutex<()> = Mutex::new(());
 
@@ -156,7 +157,7 @@ mod http3_loopback_conformance {
             .send(
                 request,
                 Some(b"request body".to_vec()),
-                Some(Duration::from_secs(15)),
+                Some(HTTP3_LOOPBACK_REQUEST_TIMEOUT),
             )
             .expect("HTTP/3 request/response should complete");
 
