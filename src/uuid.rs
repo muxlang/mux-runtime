@@ -14,7 +14,7 @@ use rust_std::ffi::{c_char, c_void, CStr};
 use rust_std::sync::atomic::{AtomicU16, Ordering};
 use rust_std::sync::{LazyLock, Mutex, OnceLock};
 use rust_std::time::{SystemTime, UNIX_EPOCH};
-use sha1::{Digest as Sha1Digest, Sha1};
+use sha1::Sha1;
 
 type RustUuid = ::uuid::Uuid;
 
