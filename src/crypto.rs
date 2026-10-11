@@ -11,9 +11,6 @@ use crate::std::StdErrorKind;
 use crate::Value;
 use aes_gcm::aead::{Aead, KeyInit, Payload};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
-use chacha20poly1305::aead::{
-    Aead as ChaChaAead, KeyInit as ChaChaKeyInit, Payload as ChaChaPayload,
-};
 use hmac::Mac;
 use sha2::Digest as Sha2Digest;
 use std::fs::{self, File, OpenOptions};
@@ -209,7 +206,7 @@ fn encrypt_with_nonce(
         AES_ALGORITHM => aes_gcm::Aes256Gcm::new_from_slice(key)
             .map_err(|_| "invalid AES-256-GCM key".to_string())?
             .encrypt(
-                aes_gcm::Nonce::from_slice(nonce),
+                &aes_gcm::Nonce::from(*nonce),
                 Payload {
                     msg: plaintext,
                     aad: associated_data,
@@ -222,7 +219,7 @@ fn encrypt_with_nonce(
                 .map_err(|_| "invalid ChaCha20-Poly1305 key".to_string())?
                 .encrypt(
                     &chacha_nonce,
-                    ChaChaPayload {
+                    Payload {
                         msg: plaintext,
                         aad: associated_data,
                     },
@@ -280,7 +277,7 @@ fn open_sealed(
         AES_ALGORITHM => aes_gcm::Aes256Gcm::new_from_slice(key)
             .map_err(|_| CryptoFailure::invalid("invalid AES-256-GCM key"))?
             .decrypt(
-                aes_gcm::Nonce::from_slice(nonce),
+                &aes_gcm::Nonce::from(*nonce),
                 Payload {
                     msg: ciphertext,
                     aad: associated_data,
@@ -296,7 +293,7 @@ fn open_sealed(
                 .map_err(|_| CryptoFailure::invalid("invalid ChaCha20-Poly1305 key"))?
                 .decrypt(
                     &chacha_nonce,
-                    ChaChaPayload {
+                    Payload {
                         msg: ciphertext,
                         aad: associated_data,
                     },
@@ -627,7 +624,7 @@ fn open_file_impl(
         let Ok(plaintext) = aes_gcm::Aes256Gcm::new_from_slice(key)
             .map_err(|_| "invalid AES-256-GCM key".to_string())?
             .decrypt(
-                aes_gcm::Nonce::from_slice(&nonce),
+                &aes_gcm::Nonce::from(nonce),
                 Payload {
                     msg: &ciphertext,
                     aad: &record_aad,
