@@ -149,8 +149,7 @@ fn map_box_layer() {
     );
     assert!(unsafe { mux_rc_dec(got) });
 
-    let missing_key = CString::new("missing").unwrap();
-    let missing_key = unsafe { mux_string_value(missing_key.as_ptr()) };
+    let missing_key = unsafe { mux_string_value(c"missing".as_ptr()) };
     assert!(!unsafe { mux_map_contains(map, missing_key) });
     let missing = unsafe { mux_map_get(map, missing_key) };
     assert_eq!(unsafe { &*missing }, &Value::Optional(None));
