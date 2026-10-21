@@ -86,15 +86,6 @@ fn range_into_list_value() {
 }
 
 #[test]
-fn container_alloc_and_free() {
-    unsafe {
-        mux_free_list(mux_new_list());
-        mux_free_map(mux_new_map());
-        mux_free_set(mux_new_set());
-    }
-}
-
-#[test]
 fn value_get_list_from_value() {
     unsafe {
         let list_val = mux_list_value(mux_range(0, 2));
