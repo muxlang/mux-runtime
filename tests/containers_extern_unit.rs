@@ -21,6 +21,7 @@ use mux_runtime::std::{
     mux_new_list, mux_new_map, mux_new_set, mux_string_value,
 };
 use mux_runtime::tuple::*;
+use mux_runtime::Value;
 
 fn int(n: i64) -> *mut mux_runtime::Value {
     mux_int_value(n)
@@ -31,6 +32,21 @@ fn read_cstr(p: *mut c_char) -> String {
     let s = unsafe { CStr::from_ptr(p) }.to_string_lossy().into_owned();
     unsafe { mux_free_string(p) };
     s
+}
+
+#[test]
+fn container_value_constructors_transfer_owned_boxes() {
+    let list = unsafe { mux_list_value(mux_new_list()) };
+    assert_eq!(unsafe { &*list }, &Value::List(vec![]));
+    assert!(unsafe { mux_rc_dec(list) });
+
+    let map = unsafe { mux_map_value(mux_new_map()) };
+    assert!(matches!(unsafe { &*map }, Value::Map(value) if value.is_empty()));
+    assert!(unsafe { mux_rc_dec(map) });
+
+    let set = unsafe { mux_set_value(mux_new_set()) };
+    assert!(matches!(unsafe { &*set }, Value::Set(value) if value.is_empty()));
+    assert!(unsafe { mux_rc_dec(set) });
 }
 
 // --- List (Box layer) --------------------------------------------------------
@@ -59,7 +75,11 @@ fn list_box_layer() {
     unsafe { mux_list_insert(list, 0, c) };
     assert_eq!(unsafe { mux_list_length(list) }, 3);
 
-    let popped = unsafe { mux_list_pop_back(list) }; // Optional
+    let popped = unsafe { mux_list_pop_back(list) }; // Optional(Some(20))
+    assert_eq!(
+        unsafe { &*popped },
+        &Value::Optional(Some(Box::new(Value::Int(20))))
+    );
     assert!(unsafe { mux_rc_dec(popped) });
 
     assert_eq!(read_cstr(unsafe { mux_list_to_string(list) }), "[99, 99]");
@@ -78,24 +98,6 @@ fn list_box_layer() {
 }
 
 // --- List (Value layer) ------------------------------------------------------
-
-#[test]
-fn list_value_layer() {
-    let lv = unsafe { mux_list_value(mux_new_list()) };
-    let v = int(7);
-    unsafe { mux_list_push_back_value(lv, v) };
-    unsafe { mux_list_push_value(lv, v) }; // push to front
-    unsafe { mux_list_set_value(lv, 0, v) };
-    // negative index wraps from the end; out-of-range extends with defaults
-    unsafe { mux_list_set_value(lv, -1, v) };
-    unsafe { mux_list_set_value(lv, 5, v) };
-    let popped = unsafe { mux_list_pop_back_value(lv) };
-    assert!(unsafe { mux_rc_dec(popped) });
-    let front = unsafe { mux_list_pop_value(lv) }; // pop from front
-    assert!(unsafe { mux_rc_dec(front) });
-    assert!(unsafe { mux_rc_dec(lv) });
-    assert!(unsafe { mux_rc_dec(v) });
-}
 
 #[test]
 fn list_box_pop_front_and_empty() {
@@ -117,6 +119,9 @@ fn list_box_pop_front_and_empty() {
     assert!(unsafe { mux_rc_dec(drained) });
     let empty = unsafe { mux_list_pop(list) };
     assert!(unsafe { mux_rc_dec(empty) });
+    let empty_back = unsafe { mux_list_pop_back(list) };
+    assert_eq!(unsafe { &*empty_back }, &Value::Optional(None));
+    assert!(unsafe { mux_rc_dec(empty_back) });
     assert!(unsafe { mux_list_is_empty(list) });
 
     unsafe { mux_free_list(list) };
@@ -138,7 +143,19 @@ fn map_box_layer() {
     assert!(!unsafe { mux_map_is_empty(map) });
 
     let got = unsafe { mux_map_get(map, k) }; // Optional(Some)
+    assert_eq!(
+        unsafe { &*got },
+        &Value::Optional(Some(Box::new(Value::Int(42))))
+    );
     assert!(unsafe { mux_rc_dec(got) });
+
+    let missing_key = CString::new("missing").unwrap();
+    let missing_key = unsafe { mux_string_value(missing_key.as_ptr()) };
+    assert!(!unsafe { mux_map_contains(map, missing_key) });
+    let missing = unsafe { mux_map_get(map, missing_key) };
+    assert_eq!(unsafe { &*missing }, &Value::Optional(None));
+    assert!(unsafe { mux_rc_dec(missing) });
+    assert!(unsafe { mux_rc_dec(missing_key) });
 
     let keys = unsafe { mux_map_keys(map) };
     let values = unsafe { mux_map_values(map) };
@@ -150,6 +167,10 @@ fn map_box_layer() {
     assert!(!read_cstr(unsafe { mux_map_to_string(map) }).is_empty());
 
     let removed = unsafe { mux_map_remove(map, k) }; // Optional(Some)
+    assert_eq!(
+        unsafe { &*removed },
+        &Value::Optional(Some(Box::new(Value::Int(42))))
+    );
     assert!(unsafe { mux_rc_dec(removed) });
     assert!(unsafe { mux_map_is_empty(map) });
 
@@ -164,19 +185,6 @@ fn map_box_layer() {
     assert!(unsafe { mux_rc_dec(v) });
 }
 
-#[test]
-fn map_value_layer() {
-    let mv = unsafe { mux_map_value(mux_new_map()) };
-    let k = unsafe { mux_string_value(CString::new("x").unwrap().as_ptr()) };
-    let v = int(1);
-    unsafe { mux_map_put_value(mv, k, v) };
-    let removed = unsafe { mux_map_remove_value(mv, k) };
-    assert!(unsafe { mux_rc_dec(removed) });
-    assert!(unsafe { mux_rc_dec(mv) });
-    assert!(unsafe { mux_rc_dec(k) });
-    assert!(unsafe { mux_rc_dec(v) });
-}
-
 // --- Set ---------------------------------------------------------------------
 
 #[test]
@@ -185,8 +193,13 @@ fn set_box_layer() {
     let v = int(5);
 
     unsafe { mux_set_add(set, v) };
+    unsafe { mux_set_add(set, v) };
     assert!(unsafe { mux_set_contains(set, v) });
-    assert_eq!(unsafe { mux_set_size(set) }, 1);
+    assert_eq!(
+        unsafe { mux_set_size(set) },
+        1,
+        "duplicate insertions are ignored"
+    );
     assert!(!unsafe { mux_set_is_empty(set) });
 
     let as_list = unsafe { mux_set_to_list(set) };
@@ -207,14 +220,40 @@ fn set_box_layer() {
 }
 
 #[test]
-fn set_value_layer() {
-    let sv = unsafe { mux_set_value(mux_new_set()) };
-    let v = int(8);
-    unsafe { mux_set_add_value(sv, v) };
-    assert!(unsafe { mux_set_remove_value(sv, v) });
-    assert!(!unsafe { mux_set_remove_value(sv, v) });
-    assert!(unsafe { mux_rc_dec(sv) });
-    assert!(unsafe { mux_rc_dec(v) });
+fn list_slice_bounds() {
+    let xs = Value::List(vec![
+        Value::Int(1),
+        Value::Int(2),
+        Value::Int(3),
+        Value::Int(4),
+        Value::Int(5),
+    ]);
+
+    let check = |start: i64, end: i64, want: Vec<i64>| {
+        let got = unsafe { mux_list_slice_value(&raw const xs, start, end) };
+        let expected = Value::List(want.into_iter().map(Value::Int).collect());
+        assert_eq!(
+            unsafe { &*got },
+            &expected,
+            "slice [{start}:{end}] did not match"
+        );
+        assert!(unsafe { mux_rc_dec(got) });
+    };
+
+    check(1, 3, vec![2, 3]);
+    check(0, 5, vec![1, 2, 3, 4, 5]);
+    check(2, 5, vec![3, 4, 5]);
+    check(-2, 5, vec![4, 5]);
+    check(0, -1, vec![1, 2, 3, 4]);
+    check(2, 99, vec![3, 4, 5]);
+    check(-99, 2, vec![1, 2]);
+    check(4, 2, vec![]);
+    check(99, 100, vec![]);
+
+    let not_a_list = Value::Int(7);
+    let got = unsafe { mux_list_slice_value(&raw const not_a_list, 0, 1) };
+    assert_eq!(unsafe { &*got }, &Value::List(vec![]));
+    assert!(unsafe { mux_rc_dec(got) });
 }
 
 // --- Tuple -------------------------------------------------------------------
