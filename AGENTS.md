@@ -28,10 +28,14 @@ for cross-cutting work. Source-policy jobs live in
 [`.github/workflows/source-gates.yml`](.github/workflows/source-gates.yml), and
 memory/benchmark reports live in
 [`.github/workflows/runtime-reports.yml`](.github/workflows/runtime-reports.yml).
+The pre-commit hook keeps the all-feature runtime suite; the compiler's long
+executable fixture corpus is run by compiler CI, not by this runtime suite.
 
 ## Documentation
 
 See [`README.md`](README.md), [the integration workflow](.github/workflows/integration.yml),
 [the source gates](.github/workflows/source-gates.yml),
 [the runtime reports](.github/workflows/runtime-reports.yml), and the linked
-design documents in `mux-context` for public API and ownership details.
+design documents in `mux-context` for public API and ownership details. See the
+[cross-repo testing policy](https://github.com/muxlang/mux-context/blob/main/docs/testing-policy.md)
+for the split between local hooks and full CI suites.
