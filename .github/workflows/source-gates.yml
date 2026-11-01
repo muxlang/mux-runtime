@@ -125,7 +125,7 @@ jobs:
         # every PR run would churn the 10GB per-repo cache limit and evict the
         # entries this exists to provide. PRs restore from main, which is the
         # state they branch from anyway.
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Clippy
@@ -149,7 +149,7 @@ jobs:
         with:
           toolchain: 1.93.1
       - name: Cache Cargo registry and build artifacts
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Strict rustdoc
