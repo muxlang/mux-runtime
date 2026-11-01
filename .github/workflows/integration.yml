@@ -121,7 +121,7 @@ jobs:
         # every PR run would churn the 10GB per-repo cache limit and evict the
         # entries this exists to provide. PRs restore from main, which is the
         # state they branch from anyway.
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Install cargo-llvm-cov
@@ -365,7 +365,7 @@ jobs:
         # root so the SonarQube Rust LCOV importer can match them to indexed files.
         run: '[ -f lcov.info ] && sed -i "s#${{ github.workspace }}/##g" lcov.info || true'
       - name: SonarQube Scan
-        uses: SonarSource/sonarqube-scan-action@d209202bc7d53ff1cc128f7f907dac145c9d6ae9 # v8.3.0
+        uses: SonarSource/sonarqube-scan-action@4d1dc0c91ee400dcf8a6dddf2f705ac36542e304 # v8.4.0
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
       # The scan above waits for analysis (sonar.qualitygate.wait), so the
