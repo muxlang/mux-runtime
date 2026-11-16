@@ -3903,11 +3903,7 @@ fn sqlite_query(
     let mut statement = connection
         .prepare(sql)
         .map_err(|e| SqlFailure::sqlite("sqlite query prepare failed", e))?;
-    let columns: Vec<String> = statement
-        .column_names()
-        .iter()
-        .map(|name| (*name).to_string())
-        .collect();
+    let columns: Vec<String> = statement.column_names().map(str::to_owned).collect();
     let column_count = columns.len();
     let mut rows = statement
         .query(params_from_iter(sqlite_params.iter()))
