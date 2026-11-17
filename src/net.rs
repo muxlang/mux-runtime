@@ -12958,7 +12958,11 @@ mod tests {
     use bytes::Bytes;
 
     #[cfg(feature = "http2")]
-    const HTTP2_RECOVERY_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+    // This test also runs under Valgrind, where scheduling the actor and the
+    // loopback server can take substantially longer than a normal request.
+    // Keep a finite bound so a broken actor still fails, without treating
+    // instrumentation overhead as a connection recovery failure.
+    const HTTP2_RECOVERY_REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
 
     fn tampered_oauth_signature(token: &str) -> String {
         let (signing_input, encoded_signature) = token
