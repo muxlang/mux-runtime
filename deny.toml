@@ -9,16 +9,9 @@ yanked = "deny"
 ignore = [
   # No compatible upgrade is currently available through tiberius.
   "RUSTSEC-2025-0134",
-  "RUSTSEC-2026-0037",
-  "RUSTSEC-2026-0044",
   "RUSTSEC-2026-0045",
-  "RUSTSEC-2026-0046",
-  "RUSTSEC-2026-0047",
-  "RUSTSEC-2026-0048",
   "RUSTSEC-2026-0098",
   "RUSTSEC-2026-0099",
-  "RUSTSEC-2026-0104",
-  "RUSTSEC-2026-0185",
   "RUSTSEC-2026-0258",
 ]
 
